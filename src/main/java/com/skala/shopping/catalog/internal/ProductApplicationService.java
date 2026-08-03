@@ -51,17 +51,19 @@ public class ProductApplicationService implements CatalogApi {
 
     @Transactional
     public ProductSnapshot createProduct(String name, BigDecimal price) {
-        validateUniqueName(name);
-        return repository.save(new Product(name, price, clock.instant())).toSnapshot();
+        String normalizedName = normalizeName(name);
+        validateUniqueName(normalizedName);
+        return repository.save(new Product(normalizedName, price, clock.instant())).toSnapshot();
     }
 
     @Transactional
     public ProductSnapshot updateProduct(UUID productId, String name, BigDecimal price) {
         Product product = findProduct(productId);
-        if (!product.toSnapshot().getName().equalsIgnoreCase(name)) {
-            validateUniqueName(name);
+        String normalizedName = normalizeName(name);
+        if (!product.toSnapshot().getName().equalsIgnoreCase(normalizedName)) {
+            validateUniqueName(normalizedName);
         }
-        product.update(name, price, clock.instant());
+        product.update(normalizedName, price, clock.instant());
         return product.toSnapshot();
     }
 
@@ -79,5 +81,9 @@ public class ProductApplicationService implements CatalogApi {
         if (repository.existsByNameIgnoreCaseAndStatusNot(name, ProductStatus.DELETED)) {
             throw new BusinessException(ErrorCode.DATA_DUPLICATED, "동일한 상품명이 이미 존재합니다.");
         }
+    }
+
+    private String normalizeName(String name) {
+        return name.trim();
     }
 }
