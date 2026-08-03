@@ -12,6 +12,7 @@ public final class OrderView {
     private final String status;
     private final BigDecimal totalAmount;
     private final BigDecimal canceledAmount;
+    private final BigDecimal remainingPoints;
     private final Instant orderedAt;
     private final List<OrderItemView> items;
 
@@ -21,6 +22,7 @@ public final class OrderView {
             String status,
             BigDecimal totalAmount,
             BigDecimal canceledAmount,
+            BigDecimal remainingPoints,
             Instant orderedAt,
             List<OrderItemView> items
     ) {
@@ -29,6 +31,7 @@ public final class OrderView {
         this.status = status;
         this.totalAmount = totalAmount;
         this.canceledAmount = canceledAmount;
+        this.remainingPoints = remainingPoints;
         this.orderedAt = orderedAt;
         this.items = items;
     }
@@ -51,6 +54,10 @@ public final class OrderView {
 
     public BigDecimal getCanceledAmount() {
         return canceledAmount;
+    }
+
+    public BigDecimal getRemainingPoints() {
+        return remainingPoints;
     }
 
     public Instant getOrderedAt() {
