@@ -67,6 +67,7 @@ public class AuthApplicationService implements AuthAccountApi {
         return new LoginResult(
                 account.id(),
                 account.loginId(),
+                account.role().name(),
                 token.getValue(),
                 token.getExpiresAt()
         );

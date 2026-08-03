@@ -1,9 +1,11 @@
-package com.skala.shopping.common.internal;
+package com.skala.shopping.common;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.Map;
 
-final class ApiError {
+@Schema(name = "ApiError", description = "모든 API 오류의 공통 응답")
+public final class ApiError {
 
     private final String code;
     private final String message;
@@ -11,7 +13,7 @@ final class ApiError {
     private final Instant timestamp;
     private final Map<String, String> fieldErrors;
 
-    ApiError(
+    public ApiError(
             String code,
             String message,
             int status,
@@ -23,6 +25,24 @@ final class ApiError {
         this.status = status;
         this.timestamp = timestamp;
         this.fieldErrors = fieldErrors;
+    }
+
+    public static ApiError from(ErrorCode errorCode) {
+        return from(errorCode, errorCode.message(), Map.of());
+    }
+
+    public static ApiError from(
+            ErrorCode errorCode,
+            String message,
+            Map<String, String> fieldErrors
+    ) {
+        return new ApiError(
+                errorCode.code(),
+                message,
+                errorCode.status().value(),
+                Instant.now(),
+                fieldErrors
+        );
     }
 
     public String getCode() {

@@ -1,14 +1,15 @@
 package com.skala.shopping.auth.internal.web;
 
 import com.skala.shopping.auth.internal.AuthApplicationService;
-import com.skala.shopping.auth.internal.SecurityProperties;
+import com.skala.shopping.auth.AuthenticationCookieApi;
+import com.skala.shopping.common.ApiError;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.time.Duration;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,32 +22,52 @@ import org.springframework.web.bind.annotation.RestController;
 class AuthController {
 
     private final AuthApplicationService service;
-    private final SecurityProperties properties;
+    private final AuthenticationCookieApi authenticationCookieApi;
 
-    AuthController(AuthApplicationService service, SecurityProperties properties) {
+    AuthController(
+            AuthApplicationService service,
+            AuthenticationCookieApi authenticationCookieApi
+    ) {
         this.service = service;
-        this.properties = properties;
+        this.authenticationCookieApi = authenticationCookieApi;
     }
 
     @PostMapping("/login")
-    @Operation(summary = "로그인", description = "성공하면 HttpOnly JWT 쿠키를 발급합니다.")
+    @Operation(
+            summary = "로그인",
+            description = "성공하면 HttpOnly JWT 쿠키를 발급합니다.",
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "로그인 성공",
+                            content = @Content(schema = @Schema(implementation = LoginResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "로그인 입력값 오류",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "고객 ID 또는 비밀번호 오류",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "CSRF 토큰 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
+    )
     ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         var result = service.login(request.getCustomerId(), request.getCustomerPassword());
-        ResponseCookie cookie = ResponseCookie.from(
-                        properties.getCookie().getName(),
-                        result.getAccessToken()
-                )
-                .httpOnly(true)
-                .secure(properties.getCookie().isSecure())
-                .sameSite(properties.getCookie().getSameSite())
-                .path("/")
-                .maxAge(properties.getJwt().getAccessTokenTtl())
-                .build();
+        var cookie = authenticationCookieApi.issueAccessTokenCookie(result.getAccessToken());
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
                 .body(new LoginResponse(
                         result.getMemberId(),
                         result.getLoginId(),
+                        result.getRole(),
                         result.getExpiresAt()
                 ));
     }
@@ -54,16 +75,17 @@ class AuthController {
     @PostMapping("/logout")
     @Operation(
             summary = "로그아웃",
-            security = {@SecurityRequirement(name = "cookieAuth")}
+            responses = {
+                    @ApiResponse(responseCode = "204", description = "인증 쿠키 삭제 완료"),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "CSRF 토큰 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
     )
     ResponseEntity<Void> logout() {
-        ResponseCookie cookie = ResponseCookie.from(properties.getCookie().getName(), "")
-                .httpOnly(true)
-                .secure(properties.getCookie().isSecure())
-                .sameSite(properties.getCookie().getSameSite())
-                .path("/")
-                .maxAge(Duration.ZERO)
-                .build();
+        var cookie = authenticationCookieApi.expireAccessTokenCookie();
         return ResponseEntity.noContent()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
                 .build();

@@ -10,6 +10,7 @@ public class SecurityProperties {
     private Jwt jwt = new Jwt();
     private Cookie cookie = new Cookie();
     private Cors cors = new Cors();
+    private BootstrapAdmin bootstrapAdmin = new BootstrapAdmin();
 
     public SecurityProperties() {
     }
@@ -36,6 +37,14 @@ public class SecurityProperties {
 
     public void setCors(Cors cors) {
         this.cors = cors;
+    }
+
+    public BootstrapAdmin getBootstrapAdmin() {
+        return bootstrapAdmin;
+    }
+
+    public void setBootstrapAdmin(BootstrapAdmin bootstrapAdmin) {
+        this.bootstrapAdmin = bootstrapAdmin;
     }
 
     public static class Jwt {
@@ -119,6 +128,40 @@ public class SecurityProperties {
 
         public void setAllowedOrigins(List<String> allowedOrigins) {
             this.allowedOrigins = allowedOrigins;
+        }
+    }
+
+    public static class BootstrapAdmin {
+
+        private boolean enabled;
+        private String loginId;
+        private String password;
+
+        public BootstrapAdmin() {
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getLoginId() {
+            return loginId;
+        }
+
+        public void setLoginId(String loginId) {
+            this.loginId = loginId;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
         }
     }
 }

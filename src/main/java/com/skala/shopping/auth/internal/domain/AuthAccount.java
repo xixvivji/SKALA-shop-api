@@ -44,13 +44,32 @@ public class AuthAccount {
     }
 
     public AuthAccount(UUID id, String loginId, String passwordHash, Instant now) {
+        this(id, loginId, passwordHash, AccountRole.CUSTOMER, now);
+    }
+
+    private AuthAccount(
+            UUID id,
+            String loginId,
+            String passwordHash,
+            AccountRole role,
+            Instant now
+    ) {
         this.id = id;
         this.loginId = loginId;
         this.passwordHash = passwordHash;
-        this.role = AccountRole.CUSTOMER;
+        this.role = role;
         this.status = AccountStatus.ACTIVE;
         this.createdAt = now;
         this.updatedAt = now;
+    }
+
+    public static AuthAccount createAdmin(
+            UUID id,
+            String loginId,
+            String passwordHash,
+            Instant now
+    ) {
+        return new AuthAccount(id, loginId, passwordHash, AccountRole.ADMIN, now);
     }
 
     public UUID id() {
@@ -71,6 +90,10 @@ public class AuthAccount {
 
     public boolean isActive() {
         return status == AccountStatus.ACTIVE;
+    }
+
+    public boolean isAdmin() {
+        return role == AccountRole.ADMIN;
     }
 
     public void deactivate(Instant now) {

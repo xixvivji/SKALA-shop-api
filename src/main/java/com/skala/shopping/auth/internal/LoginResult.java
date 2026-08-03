@@ -7,12 +7,20 @@ public final class LoginResult {
 
     private final UUID memberId;
     private final String loginId;
+    private final String role;
     private final String accessToken;
     private final Instant expiresAt;
 
-    public LoginResult(UUID memberId, String loginId, String accessToken, Instant expiresAt) {
+    public LoginResult(
+            UUID memberId,
+            String loginId,
+            String role,
+            String accessToken,
+            Instant expiresAt
+    ) {
         this.memberId = memberId;
         this.loginId = loginId;
+        this.role = role;
         this.accessToken = accessToken;
         this.expiresAt = expiresAt;
     }
@@ -23,6 +31,10 @@ public final class LoginResult {
 
     public String getLoginId() {
         return loginId;
+    }
+
+    public String getRole() {
+        return role;
     }
 
     public String getAccessToken() {
