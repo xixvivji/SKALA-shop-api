@@ -12,7 +12,7 @@ import org.springframework.data.repository.query.Param;
 
 interface ShopOrderRepository extends JpaRepository<ShopOrder, UUID> {
 
-    Optional<ShopOrder> findByRequestId(UUID requestId);
+    Optional<ShopOrder> findByMemberIdAndRequestId(UUID memberId, UUID requestId);
 
     List<ShopOrder> findAllByMemberIdOrderByOrderedAtDesc(UUID memberId);
 

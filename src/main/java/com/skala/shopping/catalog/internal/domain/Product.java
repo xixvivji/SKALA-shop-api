@@ -19,7 +19,7 @@ public class Product {
     @Id
     private UUID id;
 
-    @Column(nullable = false, unique = true, length = 200)
+    @Column(nullable = false, length = 200)
     private String name;
 
     @Column(nullable = false, precision = 19, scale = 2)

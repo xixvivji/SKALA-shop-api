@@ -45,7 +45,15 @@ DB_USERNAME=<application-user>
 DB_PASSWORD=<password>
 JWT_SECRET=<32-byte-or-longer-random-secret>
 CORS_ALLOWED_ORIGINS=https://example.com,https://www.example.com
+BOOTSTRAP_ADMIN_ENABLED=false
+BOOTSTRAP_ADMIN_LOGIN_ID=
+BOOTSTRAP_ADMIN_PASSWORD=
 ~~~
+
+최초 관리자 계정이 필요할 때만 `BOOTSTRAP_ADMIN_ENABLED=true`와 12자 이상의
+비밀번호를 설정해 한 번 기동합니다. 생성이 끝나면 다시 `false`로 바꾸고
+관리자 ID와 비밀번호 환경변수도 제거합니다. 이후 비밀번호 변경은 bootstrap
+환경변수가 아니라 별도의 관리자 변경 기능으로 처리해야 합니다.
 
 .release에는 최초 실행할 Docker Hub 이미지의 커밋 SHA를 기록합니다.
 저장소가 비공개라면 EC2에서 read-only 토큰으로 로그인합니다.
@@ -118,4 +126,5 @@ docker compose \
 
 Vercel 프론트는 example.com, API는 api.example.com처럼 동일한 등록
 도메인의 하위 도메인을 권장합니다. JWT 쿠키를 보내려면 프론트 fetch에
-credentials: "include"가 필요합니다.
+credentials: "include"가 필요합니다. 상태 변경 전 `GET /api/auth/csrf`를
+호출하고 응답의 token을 `X-XSRF-TOKEN` 헤더로 함께 전송합니다.

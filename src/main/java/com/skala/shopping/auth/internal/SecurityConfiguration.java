@@ -25,6 +25,8 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -58,6 +60,9 @@ class SecurityConfiguration {
     @Bean
     BearerTokenResolver cookieBearerTokenResolver(SecurityProperties properties) {
         return request -> {
+            if (ignoresAuthenticationCookie(request)) {
+                return null;
+            }
             Cookie[] cookies = request.getCookies();
             if (cookies == null) {
                 return null;
@@ -73,10 +78,17 @@ class SecurityConfiguration {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            BearerTokenResolver bearerTokenResolver
+            BearerTokenResolver bearerTokenResolver,
+            CookieCsrfTokenRepository csrfTokenRepository,
+            ActiveAccountJwtAuthenticationConverter jwtAuthenticationConverter,
+            ApiAuthenticationEntryPoint authenticationEntryPoint,
+            ApiAccessDeniedHandler accessDeniedHandler
     ) throws Exception {
         return http
-                .csrf(csrf -> csrf.disable())
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(csrfTokenRepository)
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                )
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -88,13 +100,39 @@ class SecurityConfiguration {
                                 "/v3/api-docs/**"
                         ).permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/customers", "/api/customers/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/customers",
+                                "/api/customers/login",
+                                "/api/customers/logout"
+                        ).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/customers/list").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/products/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
+                        .requestMatchers("/api/orders/**").hasRole("CUSTOMER")
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/customers/order",
+                                "/api/customers/cancel"
+                        ).hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.GET, "/api/customers/me").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.GET, "/api/customers/*").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.PUT, "/api/customers/me").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/customers/me").hasRole("CUSTOMER")
                         .anyRequest().authenticated()
+                )
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .bearerTokenResolver(bearerTokenResolver)
-                        .jwt(Customizer.withDefaults())
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter))
                 )
                 .httpBasic(httpBasic -> httpBasic.disable())
                 .formLogin(formLogin -> formLogin.disable())
@@ -103,11 +141,26 @@ class SecurityConfiguration {
     }
 
     @Bean
+    CookieCsrfTokenRepository csrfTokenRepository(SecurityProperties properties) {
+        CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        repository.setCookieCustomizer(cookie -> cookie
+                .secure(properties.getCookie().isSecure())
+                .sameSite(properties.getCookie().getSameSite())
+                .path("/")
+        );
+        return repository;
+    }
+
+    @Bean
     CorsConfigurationSource corsConfigurationSource(SecurityProperties properties) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(properties.getCors().getAllowedOrigins());
         configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(java.util.List.of("Content-Type", "X-Idempotency-Key", "X-CSRF-TOKEN"));
+        configuration.setAllowedHeaders(java.util.List.of(
+                "Content-Type",
+                "X-Idempotency-Key",
+                "X-XSRF-TOKEN"
+        ));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -121,5 +174,18 @@ class SecurityConfiguration {
             throw new IllegalStateException("JWT_SECRET must be at least 32 bytes");
         }
         return new SecretKeySpec(secret, "HmacSHA256");
+    }
+
+    private boolean ignoresAuthenticationCookie(jakarta.servlet.http.HttpServletRequest request) {
+        String method = request.getMethod();
+        String requestUri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        String path = requestUri.substring(contextPath.length());
+        return (HttpMethod.GET.matches(method) && "/api/auth/csrf".equals(path))
+                || (HttpMethod.POST.matches(method) && (
+                        "/api/customers".equals(path)
+                                || "/api/customers/login".equals(path)
+                                || "/api/customers/logout".equals(path)
+                ));
     }
 }
