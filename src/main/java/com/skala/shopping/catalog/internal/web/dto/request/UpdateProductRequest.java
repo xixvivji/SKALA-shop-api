@@ -1,27 +1,28 @@
-package com.skala.shopping.catalog.internal.web;
+package com.skala.shopping.catalog.internal.web.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 
-final class ProductRequest {
+@Schema(name = "UpdateProductRequest", description = "상품 수정 요청")
+public final class UpdateProductRequest {
 
+    @Schema(description = "상품명", example = "무선마우스")
     @NotBlank
     @Size(max = 200)
     private String productName;
 
+    @Schema(description = "상품 가격", example = "15000")
     @NotNull
     @DecimalMin(value = "0.01")
+    @Digits(integer = 17, fraction = 2)
     private BigDecimal productPrice;
 
-    public ProductRequest() {
-    }
-
-    public ProductRequest(String productName, BigDecimal productPrice) {
-        this.productName = productName;
-        this.productPrice = productPrice;
+    public UpdateProductRequest() {
     }
 
     public String getProductName() {

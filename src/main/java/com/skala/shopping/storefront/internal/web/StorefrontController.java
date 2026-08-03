@@ -1,18 +1,28 @@
 package com.skala.shopping.storefront.internal.web;
 
+import com.skala.shopping.auth.AuthenticationCookieApi;
+import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
-import com.skala.shopping.order.CancellationView;
-import com.skala.shopping.storefront.internal.CustomerDetailView;
-import com.skala.shopping.storefront.internal.RegistrationView;
 import com.skala.shopping.storefront.internal.StorefrontApplicationService;
-import com.skala.shopping.wallet.WalletApi;
+import com.skala.shopping.storefront.internal.web.dto.request.CancelStorefrontOrderRequest;
+import com.skala.shopping.storefront.internal.web.dto.request.PlaceStorefrontOrderRequest;
+import com.skala.shopping.storefront.internal.web.dto.request.RegisterCustomerRequest;
+import com.skala.shopping.storefront.internal.web.dto.response.CancellationResponse;
+import com.skala.shopping.storefront.internal.web.dto.response.CustomerResponse;
+import com.skala.shopping.storefront.internal.web.dto.response.OrderCompatibilityResponse;
+import com.skala.shopping.storefront.internal.web.dto.response.RegistrationResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.UUID;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -31,26 +41,83 @@ import org.springframework.web.bind.annotation.RestController;
 class StorefrontController {
 
     private final StorefrontApplicationService service;
-    private final WalletApi walletApi;
+    private final AuthenticationCookieApi authenticationCookieApi;
 
-    StorefrontController(StorefrontApplicationService service, WalletApi walletApi) {
+    StorefrontController(
+            StorefrontApplicationService service,
+            AuthenticationCookieApi authenticationCookieApi
+    ) {
         this.service = service;
-        this.walletApi = walletApi;
+        this.authenticationCookieApi = authenticationCookieApi;
     }
 
     @PostMapping
-    @Operation(summary = "회원가입")
-    ResponseEntity<RegistrationView> register(
+    @Operation(
+            summary = "회원가입",
+            responses = {
+                    @ApiResponse(
+                            responseCode = "201",
+                            description = "가입된 고객",
+                            content = @Content(schema = @Schema(implementation = RegistrationResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "회원가입 입력값 오류",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "CSRF 토큰 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "409",
+                            description = "고객 ID 중복",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
+    )
+    ResponseEntity<RegistrationResponse> register(
             @Valid @RequestBody RegisterCustomerRequest request
     ) {
-        RegistrationView registered = service.register(
+        RegistrationResponse registered = RegistrationResponse.from(service.register(
                 request.getCustomerId(),
                 request.getCustomerPassword(),
                 request.getCustomerName()
-        );
+        ));
         return ResponseEntity.created(
                 URI.create("/api/customers/" + registered.getCustomerId())
         ).body(registered);
+    }
+
+    @GetMapping("/me")
+    @Operation(
+            summary = "내 정보 조회",
+            description = "HttpOnly 인증 쿠키로 현재 로그인 세션을 복구하고 프로필, 포인트와 역할을 조회합니다.",
+            security = {@SecurityRequirement(name = "cookieAuth")},
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "현재 로그인 고객",
+                            content = @Content(schema = @Schema(implementation = CustomerResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "인증 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "고객 권한 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
+    )
+    CustomerResponse getMe(@AuthenticationPrincipal Jwt jwt) {
+        return CustomerResponse.from(
+                service.getCurrentCustomer(memberId(jwt)),
+                role(jwt)
+        );
     }
 
     @GetMapping("/{customerId}")
@@ -58,67 +125,165 @@ class StorefrontController {
             summary = "고객 상세 조회",
             security = {@SecurityRequirement(name = "cookieAuth")}
     )
-    CustomerDetailView getCustomer(
+    CustomerResponse getCustomer(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String customerId
     ) {
-        return service.getCustomer(memberId(jwt), customerId);
+        return CustomerResponse.from(
+                service.getCustomer(memberId(jwt), customerId),
+                role(jwt)
+        );
     }
 
     @PostMapping("/order")
     @Operation(
             summary = "주문 생성 호환 API",
-            security = {@SecurityRequirement(name = "cookieAuth")}
+            security = {@SecurityRequirement(name = "cookieAuth")},
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "주문 결과",
+                            content = @Content(schema = @Schema(implementation = OrderCompatibilityResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "잘못된 요청 또는 멱등성 키",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "인증 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "고객 권한 또는 CSRF 토큰 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "409",
+                            description = "포인트 부족, 판매 불가 또는 멱등성 충돌",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
     )
     OrderCompatibilityResponse placeOrder(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestHeader(name = "X-Idempotency-Key", required = false) UUID commandId,
-            @Valid @RequestBody StorefrontOrderRequest request
+            @Parameter(
+                    description = "주문 재시도에 동일하게 사용하는 UUID. 다른 주문 내용에 재사용하면 409를 반환합니다.",
+                    required = true
+            )
+            @RequestHeader(name = "X-Idempotency-Key") UUID commandId,
+            @Valid @RequestBody PlaceStorefrontOrderRequest request
     ) {
         UUID memberId = memberId(jwt);
         var order = service.placeOrder(
                 memberId,
                 request.getProductId(),
                 request.getQuantity(),
-                commandId == null ? UUID.randomUUID() : commandId
+                commandId
         );
-        return new OrderCompatibilityResponse(
+        return OrderCompatibilityResponse.from(
                 order,
-                walletApi.getBalance(memberId).getBalance()
+                order.getRemainingPoints()
         );
     }
 
     @PostMapping("/cancel")
     @Operation(
             summary = "주문 취소 호환 API",
-            security = {@SecurityRequirement(name = "cookieAuth")}
+            description = "상품 ID와 수량을 기준으로 취소하며, 같은 상품의 취소 가능 수량을 최신 주문부터 차감합니다.",
+            security = {@SecurityRequirement(name = "cookieAuth")},
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "취소 결과",
+                            content = @Content(schema = @Schema(implementation = CancellationResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "잘못된 요청 또는 멱등성 키",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "인증 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "고객 권한 또는 CSRF 토큰 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "409",
+                            description = "취소 수량 부족 또는 멱등성 충돌",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
     )
-    CancellationView cancelOrder(
+    CancellationResponse cancelOrder(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestHeader(name = "X-Idempotency-Key", required = false) UUID commandId,
-            @Valid @RequestBody StorefrontOrderRequest request
+            @Parameter(
+                    description = "취소 재시도에 동일하게 사용하는 UUID. 다른 취소 내용에 재사용하면 409를 반환합니다.",
+                    required = true
+            )
+            @RequestHeader(name = "X-Idempotency-Key") UUID commandId,
+            @Valid @RequestBody CancelStorefrontOrderRequest request
     ) {
-        return service.cancelOrder(
+        return CancellationResponse.from(service.cancelOrder(
                 memberId(jwt),
                 request.getProductId(),
                 request.getQuantity(),
-                commandId == null ? UUID.randomUUID() : commandId
-        );
+                commandId
+        ));
     }
 
     @DeleteMapping("/me")
     @Operation(
             summary = "회원 탈퇴",
-            security = {@SecurityRequirement(name = "cookieAuth")}
+            security = {@SecurityRequirement(name = "cookieAuth")},
+            responses = {
+                    @ApiResponse(responseCode = "204", description = "회원 탈퇴 완료"),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "인증 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "고객 권한 또는 CSRF 토큰 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
     )
     ResponseEntity<Void> deactivate(@AuthenticationPrincipal Jwt jwt) {
         service.deactivate(memberId(jwt));
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.noContent()
+                .header(
+                        HttpHeaders.SET_COOKIE,
+                        authenticationCookieApi.expireAccessTokenCookie().toString()
+                )
+                .build();
     }
 
     private UUID memberId(Jwt jwt) {
         try {
             return UUID.fromString(jwt.getSubject());
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ErrorCode.NOT_AUTHENTICATED);
+        }
+    }
+
+    private String role(Jwt jwt) {
+        try {
+            String role = jwt.getClaimAsString("role");
+            if (role == null || role.isBlank()) {
+                throw new BusinessException(ErrorCode.NOT_AUTHENTICATED);
+            }
+            return role;
+        } catch (BusinessException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             throw new BusinessException(ErrorCode.NOT_AUTHENTICATED);
         }
