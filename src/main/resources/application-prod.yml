@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+shopping:
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+    cookie:
+      secure: true
+
+logging:
+  level:
+    root: INFO
+    com.skala.shopping: INFO

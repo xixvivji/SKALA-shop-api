@@ -1,0 +1,13 @@
+.gradle/
+build/
+out/
+.idea/
+*.iml
+.env
+deploy/.env.app
+deploy/.env.infra
+deploy/.release
+deploy/.release.previous
+deploy/.release.failed
+*.log
+.DS_Store

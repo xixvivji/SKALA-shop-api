@@ -1,0 +1,243 @@
+package com.skala.shopping.order.internal;
+
+import com.skala.shopping.common.BusinessException;
+import com.skala.shopping.common.ErrorCode;
+import com.skala.shopping.order.CancellationView;
+import com.skala.shopping.order.OrderApi;
+import com.skala.shopping.order.OrderItemView;
+import com.skala.shopping.order.OrderView;
+import com.skala.shopping.order.PurchasedProductView;
+import com.skala.shopping.order.internal.domain.OrderCancellation;
+import com.skala.shopping.order.internal.domain.OrderItem;
+import com.skala.shopping.order.internal.domain.ShopOrder;
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+class OrderApplicationService implements OrderApi {
+
+    private static final DateTimeFormatter ORDER_DATE =
+            DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
+
+    private final ShopOrderRepository orderRepository;
+    private final OrderItemRepository itemRepository;
+    private final OrderCancellationRepository cancellationRepository;
+    private final ProductReader productReader;
+    private final PointManager pointManager;
+    private final Clock clock = Clock.systemUTC();
+
+    OrderApplicationService(
+            ShopOrderRepository orderRepository,
+            OrderItemRepository itemRepository,
+            OrderCancellationRepository cancellationRepository,
+            ProductReader productReader,
+            PointManager pointManager
+    ) {
+        this.orderRepository = orderRepository;
+        this.itemRepository = itemRepository;
+        this.cancellationRepository = cancellationRepository;
+        this.productReader = productReader;
+        this.pointManager = pointManager;
+    }
+
+    @Override
+    @Transactional
+    public OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId) {
+        requirePositiveQuantity(quantity);
+        return orderRepository.findByRequestId(commandId)
+                .map(this::toView)
+                .orElseGet(() -> createOrder(memberId, productId, quantity, commandId));
+    }
+
+    @Override
+    @Transactional
+    public CancellationView cancelProduct(
+            UUID memberId,
+            UUID productId,
+            int quantity,
+            UUID commandId
+    ) {
+        requirePositiveQuantity(quantity);
+        return cancellationRepository.findByCommandId(commandId)
+                .map(cancellation -> cancellationView(cancellation, memberId))
+                .orElseGet(() -> executeCancellation(memberId, productId, quantity, commandId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderView> getOrders(UUID memberId) {
+        List<ShopOrder> orders = orderRepository.findAllByMemberIdOrderByOrderedAtDesc(memberId);
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, List<OrderItemView>> itemsByOrder = itemRepository
+                .findAllByOrderIdIn(orders.stream().map(ShopOrder::id).toList())
+                .stream()
+                .collect(Collectors.groupingBy(
+                        OrderItem::orderId,
+                        Collectors.mapping(OrderItem::toView, Collectors.toList())
+                ));
+        return orders.stream()
+                .map(order -> order.toView(itemsByOrder.getOrDefault(order.id(), List.of())))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PurchasedProductView> getPurchasedProducts(UUID memberId) {
+        Map<UUID, ProductAccumulator> products = new LinkedHashMap<>();
+        for (OrderItem item : itemRepository.findPurchasedItems(memberId)) {
+            products.computeIfAbsent(
+                    item.productId(),
+                    ignored -> new ProductAccumulator(
+                            item.productId(),
+                            item.productName(),
+                            item.unitPrice()
+                    )
+            ).add(item.availableQuantity(), item.unitPrice());
+        }
+        return products.values().stream()
+                .map(ProductAccumulator::toView)
+                .sorted(Comparator.comparing(PurchasedProductView::getProductName))
+                .toList();
+    }
+
+    private OrderView createOrder(UUID memberId, UUID productId, int quantity, UUID commandId) {
+        var product = productReader.getSaleableProduct(productId);
+        BigDecimal totalAmount = product.getPrice().multiply(BigDecimal.valueOf(quantity));
+        UUID orderId = UUID.randomUUID();
+        pointManager.debit(memberId, totalAmount, orderId, commandId);
+        var now = clock.instant();
+        ShopOrder order = orderRepository.save(new ShopOrder(
+                orderId,
+                commandId,
+                orderNumber(orderId, now),
+                memberId,
+                totalAmount,
+                now
+        ));
+        OrderItem item = itemRepository.save(new OrderItem(
+                orderId,
+                product.getId(),
+                product.getName(),
+                product.getPrice(),
+                quantity
+        ));
+        return order.toView(List.of(item.toView()));
+    }
+
+    private CancellationView executeCancellation(
+            UUID memberId,
+            UUID productId,
+            int quantity,
+            UUID commandId
+    ) {
+        List<OrderItem> items = itemRepository.findCancelableItems(memberId, productId);
+        int available = items.stream().mapToInt(OrderItem::availableQuantity).sum();
+        if (available < quantity) {
+            throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
+        }
+
+        int remaining = quantity;
+        BigDecimal refund = BigDecimal.ZERO;
+        var now = clock.instant();
+        for (OrderItem item : items) {
+            if (remaining == 0) {
+                break;
+            }
+            int canceled = Math.min(remaining, item.availableQuantity());
+            BigDecimal itemRefund = item.cancel(canceled);
+            ShopOrder order = orderRepository.findByIdForUpdate(item.orderId())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND));
+            order.applyCancellation(itemRefund, item.availableQuantity() == 0, now);
+            refund = refund.add(itemRefund);
+            remaining -= canceled;
+        }
+
+        UUID cancellationId = UUID.randomUUID();
+        OrderCancellation cancellation = cancellationRepository.save(new OrderCancellation(
+                cancellationId,
+                commandId,
+                memberId,
+                productId,
+                quantity,
+                refund,
+                now
+        ));
+        BigDecimal remainingPoints = pointManager.credit(
+                memberId,
+                refund,
+                cancellationId,
+                commandId
+        );
+        return new CancellationView(
+                cancellation.id(),
+                cancellation.productId(),
+                cancellation.quantity(),
+                cancellation.refundAmount(),
+                remainingPoints
+        );
+    }
+
+    private CancellationView cancellationView(OrderCancellation cancellation, UUID memberId) {
+        return new CancellationView(
+                cancellation.id(),
+                cancellation.productId(),
+                cancellation.quantity(),
+                cancellation.refundAmount(),
+                pointManager.getBalance(memberId)
+        );
+    }
+
+    private OrderView toView(ShopOrder order) {
+        return order.toView(
+                itemRepository.findAllByOrderId(order.id()).stream()
+                        .map(OrderItem::toView)
+                        .toList()
+        );
+    }
+
+    private String orderNumber(UUID id, java.time.Instant now) {
+        return "SKALA-" + ORDER_DATE.format(now) + "-" +
+                id.toString().replace("-", "").substring(0, 12).toUpperCase();
+    }
+
+    private void requirePositiveQuantity(int quantity) {
+        if (quantity <= 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "수량은 1 이상이어야 합니다.");
+        }
+    }
+
+    private static final class ProductAccumulator {
+
+        private final UUID productId;
+        private final String productName;
+        private BigDecimal latestUnitPrice;
+        private int quantity;
+
+        private ProductAccumulator(UUID productId, String productName, BigDecimal latestUnitPrice) {
+            this.productId = productId;
+            this.productName = productName;
+            this.latestUnitPrice = latestUnitPrice;
+        }
+
+        private void add(int amount, BigDecimal unitPrice) {
+            quantity += amount;
+            latestUnitPrice = unitPrice;
+        }
+
+        private PurchasedProductView toView() {
+            return new PurchasedProductView(productId, productName, latestUnitPrice, quantity);
+        }
+    }
+}
