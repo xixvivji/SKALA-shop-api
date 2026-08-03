@@ -1,0 +1,110 @@
+name: skala-shop
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
+    env_file:
+      - ./.env.app
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+    expose:
+      - "8080"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  nginx:
+    image: nginx:alpine
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        while :; do
+          sleep 6h
+          nginx -s reload
+        done &
+        exec nginx -g 'daemon off;'
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/api.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - edge
+      - internal
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  certbot-renew:
+    image: certbot/certbot:latest
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        trap exit TERM
+        while :; do
+          certbot renew --webroot --webroot-path /var/www/certbot --quiet
+          sleep 12h & wait $${!}
+        done
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    networks:
+      - edge
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  nginx-bootstrap:
+    image: nginx:alpine
+    profiles: ["bootstrap"]
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/bootstrap-http.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-webroot:/var/www/certbot:ro
+    networks:
+      - edge
+
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["tools"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    networks:
+      - edge
+
+networks:
+  edge:
+  internal:
+    internal: true
+
+volumes:
+  letsencrypt:
+  certbot-webroot:
