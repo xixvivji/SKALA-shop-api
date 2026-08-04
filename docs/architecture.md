@@ -21,7 +21,7 @@ storefront는 테이블과 핵심 도메인 로직을 소유하지 않습니다.
 
 ## 경계 규칙
 
-- 모듈 최상위 패키지의 인터페이스와 record만 외부에 공개합니다.
+- 모듈 최상위 패키지의 인터페이스와 일반 DTO 클래스만 외부에 공개합니다.
 - Entity, Repository와 구현 Service는 각 모듈의 internal 아래에 둡니다.
 - 다른 모듈의 Entity나 Repository를 직접 참조하지 않습니다.
 - 모듈 간 JPA 연관관계, 물리 FK와 SQL JOIN을 만들지 않습니다.

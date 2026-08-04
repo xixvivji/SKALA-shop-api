@@ -61,15 +61,18 @@ DB password skala
 ./gradlew test
 ~~~
 
-테스트는 모듈 경계, Flyway, 회원가입과 로그인, 상품 등록, 주문과 포인트
-차감의 원자성, 멱등성, 부분 취소 환급을 실제 PostgreSQL로 검증합니다.
+테스트는 모듈 경계, Flyway, 회원가입과 로그인, 역할 기반 권한, 실제 쿠키
+CSRF 흐름, 상품 등록, 주문과 포인트 차감의 원자성, 동시 재시도 멱등성,
+부분 취소 환급을 실제 PostgreSQL로 검증합니다.
 
 ## 주요 API
 
 ~~~text
 POST   /api/customers
+GET    /api/auth/csrf
 POST   /api/customers/login
 POST   /api/customers/logout
+GET    /api/customers/me
 GET    /api/customers/{customerId}
 GET    /api/customers/list
 PUT    /api/customers/me
@@ -89,8 +92,18 @@ POST   /api/customers/order
 POST   /api/customers/cancel
 ~~~
 
-주문과 취소 요청에는 가능하면 UUID 형식의 X-Idempotency-Key 헤더를
-전달합니다.
+브라우저는 먼저 `GET /api/auth/csrf`를 호출한 뒤, 응답 토큰을 상태 변경
+요청의 `X-XSRF-TOKEN` 헤더로 전달해야 합니다. 쿠키 전송을 위해 프론트의
+`fetch`에는 `credentials: "include"`를 사용합니다.
+
+모든 주문과 취소 요청에는 UUID 형식의 `X-Idempotency-Key` 헤더가
+필수입니다. 같은 사용자가 같은 키와 요청 내용으로 재시도하면 최초 결과를
+반환하고, 같은 키를 다른 내용에 재사용하면 `409 IDEMPOTENCY_CONFLICT`를
+반환합니다.
+
+상품 등록·수정·삭제와 고객 목록 조회는 `ADMIN` 역할만 호출할 수 있습니다.
+초기 관리자 생성은 기본적으로 꺼져 있으며, 필요할 때만
+`BOOTSTRAP_ADMIN_*` 환경변수로 한 번 활성화한 뒤 다시 비활성화합니다.
 
 ## 운영 배포
 

@@ -1,12 +1,17 @@
 package com.skala.shopping.member.internal.web;
 
 import com.skala.shopping.common.BusinessException;
+import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.common.PageResponse;
-import com.skala.shopping.member.MemberResponse;
 import com.skala.shopping.member.internal.MemberApplicationService;
 import com.skala.shopping.member.internal.web.dto.request.UpdateMemberRequest;
+import com.skala.shopping.member.internal.web.dto.response.MemberProfileResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -26,6 +31,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/customers")
 @Tag(name = "회원", description = "고객 목록과 내 정보 관리")
 @SecurityRequirement(name = "cookieAuth")
+@ApiResponses({
+        @ApiResponse(
+                responseCode = "401",
+                description = "인증 필요",
+                content = @Content(schema = @Schema(implementation = ApiError.class))
+        ),
+        @ApiResponse(
+                responseCode = "403",
+                description = "역할 또는 CSRF 토큰 부족",
+                content = @Content(schema = @Schema(implementation = ApiError.class))
+        )
+})
 class MemberController {
 
     private final MemberApplicationService service;
@@ -36,20 +53,20 @@ class MemberController {
 
     @GetMapping("/list")
     @Operation(summary = "고객 목록 조회")
-    PageResponse<MemberResponse> getMembers(
+    PageResponse<MemberProfileResponse> getMembers(
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
     ) {
-        return service.getMembers(page, size);
+        return MemberProfileResponse.pageFrom(service.getMembers(page, size));
     }
 
     @PutMapping("/me")
     @Operation(summary = "내 이름 변경")
-    MemberResponse updateMe(
+    MemberProfileResponse updateMe(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody UpdateMemberRequest request
     ) {
-        return service.updateName(memberId(jwt), request.getName());
+        return MemberProfileResponse.from(service.updateName(memberId(jwt), request.getName()));
     }
 
     private UUID memberId(Jwt jwt) {

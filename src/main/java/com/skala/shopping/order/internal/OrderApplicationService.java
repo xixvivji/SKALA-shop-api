@@ -54,9 +54,16 @@ class OrderApplicationService implements OrderApi {
     @Transactional
     public OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId) {
         requirePositiveQuantity(quantity);
-        return orderRepository.findByRequestId(commandId)
-                .map(this::toView)
-                .orElseGet(() -> createOrder(memberId, productId, quantity, commandId));
+        String fingerprint = OrderCommandFingerprint.order(memberId, productId, quantity);
+        return orderRepository.findByMemberIdAndRequestId(memberId, commandId)
+                .map(order -> replayOrder(order, fingerprint))
+                .orElseGet(() -> createOrder(
+                        memberId,
+                        productId,
+                        quantity,
+                        commandId,
+                        fingerprint
+                ));
     }
 
     @Override
@@ -68,9 +75,16 @@ class OrderApplicationService implements OrderApi {
             UUID commandId
     ) {
         requirePositiveQuantity(quantity);
-        return cancellationRepository.findByCommandId(commandId)
-                .map(cancellation -> cancellationView(cancellation, memberId))
-                .orElseGet(() -> executeCancellation(memberId, productId, quantity, commandId));
+        String fingerprint = OrderCommandFingerprint.cancellation(memberId, productId, quantity);
+        return cancellationRepository.findByMemberIdAndCommandId(memberId, commandId)
+                .map(cancellation -> replayCancellation(cancellation, fingerprint))
+                .orElseGet(() -> executeCancellation(
+                        memberId,
+                        productId,
+                        quantity,
+                        commandId,
+                        fingerprint
+                ));
     }
 
     @Override
@@ -104,7 +118,7 @@ class OrderApplicationService implements OrderApi {
                             item.productName(),
                             item.unitPrice()
                     )
-            ).add(item.availableQuantity(), item.unitPrice());
+            ).add(item.availableQuantity());
         }
         return products.values().stream()
                 .map(ProductAccumulator::toView)
@@ -112,18 +126,35 @@ class OrderApplicationService implements OrderApi {
                 .toList();
     }
 
-    private OrderView createOrder(UUID memberId, UUID productId, int quantity, UUID commandId) {
+    private OrderView createOrder(
+            UUID memberId,
+            UUID productId,
+            int quantity,
+            UUID commandId,
+            String fingerprint
+    ) {
         var product = productReader.getSaleableProduct(productId);
         BigDecimal totalAmount = product.getPrice().multiply(BigDecimal.valueOf(quantity));
         UUID orderId = UUID.randomUUID();
-        pointManager.debit(memberId, totalAmount, orderId, commandId);
+        BigDecimal remainingPoints = pointManager.debit(
+                memberId,
+                totalAmount,
+                orderId,
+                commandId
+        );
+        var replay = orderRepository.findByMemberIdAndRequestId(memberId, commandId);
+        if (replay.isPresent()) {
+            return replayOrder(replay.get(), fingerprint);
+        }
         var now = clock.instant();
         ShopOrder order = orderRepository.save(new ShopOrder(
                 orderId,
                 commandId,
+                fingerprint,
                 orderNumber(orderId, now),
                 memberId,
                 totalAmount,
+                remainingPoints,
                 now
         ));
         OrderItem item = itemRepository.save(new OrderItem(
@@ -140,9 +171,14 @@ class OrderApplicationService implements OrderApi {
             UUID memberId,
             UUID productId,
             int quantity,
-            UUID commandId
+            UUID commandId,
+            String fingerprint
     ) {
         List<OrderItem> items = itemRepository.findCancelableItems(memberId, productId);
+        var replay = cancellationRepository.findByMemberIdAndCommandId(memberId, commandId);
+        if (replay.isPresent()) {
+            return replayCancellation(replay.get(), fingerprint);
+        }
         int available = items.stream().mapToInt(OrderItem::availableQuantity).sum();
         if (available < quantity) {
             throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
@@ -165,37 +201,55 @@ class OrderApplicationService implements OrderApi {
         }
 
         UUID cancellationId = UUID.randomUUID();
-        OrderCancellation cancellation = cancellationRepository.save(new OrderCancellation(
-                cancellationId,
-                commandId,
-                memberId,
-                productId,
-                quantity,
-                refund,
-                now
-        ));
         BigDecimal remainingPoints = pointManager.credit(
                 memberId,
                 refund,
                 cancellationId,
                 commandId
         );
-        return new CancellationView(
-                cancellation.id(),
-                cancellation.productId(),
-                cancellation.quantity(),
-                cancellation.refundAmount(),
-                remainingPoints
-        );
+        var concurrentReplay = cancellationRepository
+                .findByMemberIdAndCommandId(memberId, commandId);
+        if (concurrentReplay.isPresent()) {
+            return replayCancellation(concurrentReplay.get(), fingerprint);
+        }
+        OrderCancellation cancellation = cancellationRepository.save(new OrderCancellation(
+                cancellationId,
+                commandId,
+                fingerprint,
+                memberId,
+                productId,
+                quantity,
+                refund,
+                remainingPoints,
+                now
+        ));
+        return toCancellationView(cancellation);
     }
 
-    private CancellationView cancellationView(OrderCancellation cancellation, UUID memberId) {
+    private OrderView replayOrder(ShopOrder order, String fingerprint) {
+        if (!order.hasFingerprint(fingerprint)) {
+            throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT);
+        }
+        return toView(order);
+    }
+
+    private CancellationView replayCancellation(
+            OrderCancellation cancellation,
+            String fingerprint
+    ) {
+        if (!cancellation.hasFingerprint(fingerprint)) {
+            throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT);
+        }
+        return toCancellationView(cancellation);
+    }
+
+    private CancellationView toCancellationView(OrderCancellation cancellation) {
         return new CancellationView(
                 cancellation.id(),
                 cancellation.productId(),
                 cancellation.quantity(),
                 cancellation.refundAmount(),
-                pointManager.getBalance(memberId)
+                cancellation.balanceAfter()
         );
     }
 
@@ -222,7 +276,7 @@ class OrderApplicationService implements OrderApi {
 
         private final UUID productId;
         private final String productName;
-        private BigDecimal latestUnitPrice;
+        private final BigDecimal latestUnitPrice;
         private int quantity;
 
         private ProductAccumulator(UUID productId, String productName, BigDecimal latestUnitPrice) {
@@ -231,9 +285,8 @@ class OrderApplicationService implements OrderApi {
             this.latestUnitPrice = latestUnitPrice;
         }
 
-        private void add(int amount, BigDecimal unitPrice) {
+        private void add(int amount) {
             quantity += amount;
-            latestUnitPrice = unitPrice;
         }
 
         private PurchasedProductView toView() {

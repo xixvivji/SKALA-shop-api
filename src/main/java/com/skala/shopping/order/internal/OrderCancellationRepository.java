@@ -7,5 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 interface OrderCancellationRepository extends JpaRepository<OrderCancellation, UUID> {
 
-    Optional<OrderCancellation> findByCommandId(UUID commandId);
+    Optional<OrderCancellation> findByMemberIdAndCommandId(UUID memberId, UUID commandId);
 }

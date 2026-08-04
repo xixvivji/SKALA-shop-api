@@ -38,8 +38,14 @@ class WalletApplicationService implements WalletApi {
             UUID commandId
     ) {
         requireNonNegative(initialBalance);
-        if (transactionRepository.existsByCommandId(commandId)) {
-            return getBalance(memberId);
+        WalletBalance replay = replayIfProcessed(
+                memberId,
+                commandId,
+                PointTransactionType.SIGN_UP,
+                initialBalance
+        );
+        if (replay != null) {
+            return replay;
         }
         if (accountRepository.existsById(memberId)) {
             throw new BusinessException(ErrorCode.DATA_DUPLICATED, "이미 포인트 계정이 존재합니다.");
@@ -70,8 +76,14 @@ class WalletApplicationService implements WalletApi {
     public WalletBalance debit(UUID memberId, BigDecimal amount, UUID referenceId, UUID commandId) {
         requirePositive(amount);
         PointAccount account = lockedAccount(memberId);
-        if (transactionRepository.existsByCommandId(commandId)) {
-            return account.toBalance();
+        WalletBalance replay = replayIfProcessed(
+                memberId,
+                commandId,
+                PointTransactionType.DEBIT,
+                amount
+        );
+        if (replay != null) {
+            return replay;
         }
         Instant now = clock.instant();
         account.debit(amount, now);
@@ -84,8 +96,14 @@ class WalletApplicationService implements WalletApi {
     public WalletBalance credit(UUID memberId, BigDecimal amount, UUID referenceId, UUID commandId) {
         requirePositive(amount);
         PointAccount account = lockedAccount(memberId);
-        if (transactionRepository.existsByCommandId(commandId)) {
-            return account.toBalance();
+        WalletBalance replay = replayIfProcessed(
+                memberId,
+                commandId,
+                PointTransactionType.REFUND,
+                amount
+        );
+        if (replay != null) {
+            return replay;
         }
         Instant now = clock.instant();
         account.credit(amount, now);
@@ -96,6 +114,23 @@ class WalletApplicationService implements WalletApi {
     private PointAccount lockedAccount(UUID memberId) {
         return accountRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "포인트 계정을 찾을 수 없습니다."));
+    }
+
+    private WalletBalance replayIfProcessed(
+            UUID memberId,
+            UUID commandId,
+            PointTransactionType type,
+            BigDecimal amount
+    ) {
+        return transactionRepository
+                .findByMemberIdAndCommandIdAndTransactionType(memberId, commandId, type)
+                .map(transaction -> {
+                    if (!transaction.hasAmount(amount)) {
+                        throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT);
+                    }
+                    return transaction.toBalance();
+                })
+                .orElse(null);
     }
 
     private void saveTransaction(

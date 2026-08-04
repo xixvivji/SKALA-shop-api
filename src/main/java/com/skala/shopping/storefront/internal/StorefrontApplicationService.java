@@ -4,6 +4,7 @@ import com.skala.shopping.auth.AuthAccountApi;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.member.MemberApi;
+import com.skala.shopping.member.MemberResponse;
 import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.OrderView;
@@ -62,6 +63,15 @@ public class StorefrontApplicationService {
         if (!member.getCustomerId().equals(requestedCustomerId)) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED);
         }
+        return customerDetail(member);
+    }
+
+    @Transactional(readOnly = true)
+    public CustomerDetailView getCurrentCustomer(UUID authenticatedMemberId) {
+        return customerDetail(memberApi.getMember(authenticatedMemberId));
+    }
+
+    private CustomerDetailView customerDetail(MemberResponse member) {
         return new CustomerDetailView(
                 member.getId(),
                 member.getCustomerId(),
