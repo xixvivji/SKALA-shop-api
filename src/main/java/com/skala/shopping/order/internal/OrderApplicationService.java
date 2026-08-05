@@ -7,10 +7,15 @@ import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.OrderItemView;
 import com.skala.shopping.order.OrderView;
+import com.skala.shopping.order.OrderLineCommand;
+import com.skala.shopping.order.ShippingAddressCommand;
 import com.skala.shopping.order.PurchasedProductView;
 import com.skala.shopping.order.internal.domain.OrderCancellation;
 import com.skala.shopping.order.internal.domain.OrderItem;
 import com.skala.shopping.order.internal.domain.ShopOrder;
+import com.skala.shopping.order.internal.domain.OrderShippingAddress;
+import com.skala.shopping.order.internal.domain.FulfillmentStatus;
+import com.skala.shopping.order.internal.domain.OrderStatusHistory;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.ZoneOffset;
@@ -28,15 +33,19 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-class OrderApplicationService implements OrderApi {
+public class OrderApplicationService implements OrderApi {
 
     private static final DateTimeFormatter ORDER_DATE =
             DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
     private static final int MAX_ORDER_QUANTITY = 1_000_000;
+    private static final int MAX_ORDER_ITEMS = 50;
+    private static final BigDecimal MAX_ORDER_AMOUNT = new BigDecimal("30000000000000.00");
 
     private final ShopOrderRepository orderRepository;
     private final OrderItemRepository itemRepository;
     private final OrderCancellationRepository cancellationRepository;
+    private final OrderShippingAddressRepository shippingAddressRepository;
+    private final OrderStatusHistoryRepository statusHistoryRepository;
     private final ProductReader productReader;
     private final PointManager pointManager;
     private final StockManager stockManager;
@@ -46,6 +55,8 @@ class OrderApplicationService implements OrderApi {
             ShopOrderRepository orderRepository,
             OrderItemRepository itemRepository,
             OrderCancellationRepository cancellationRepository,
+            OrderShippingAddressRepository shippingAddressRepository,
+            OrderStatusHistoryRepository statusHistoryRepository,
             ProductReader productReader,
             PointManager pointManager,
             StockManager stockManager
@@ -53,6 +64,8 @@ class OrderApplicationService implements OrderApi {
         this.orderRepository = orderRepository;
         this.itemRepository = itemRepository;
         this.cancellationRepository = cancellationRepository;
+        this.shippingAddressRepository = shippingAddressRepository;
+        this.statusHistoryRepository = statusHistoryRepository;
         this.productReader = productReader;
         this.pointManager = pointManager;
         this.stockManager = stockManager;
@@ -61,14 +74,22 @@ class OrderApplicationService implements OrderApi {
     @Override
     @Transactional
     public OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId) {
-        requirePositiveQuantity(quantity);
-        String fingerprint = OrderCommandFingerprint.order(memberId, productId, quantity);
+        return placeOrder(memberId, List.of(new OrderLineCommand(productId, quantity)), null, commandId);
+    }
+
+    @Override
+    @Transactional
+    public OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
+                                ShippingAddressCommand shippingAddress, UUID commandId) {
+        List<OrderLineCommand> normalizedItems = validateAndSortItems(items);
+        validateShippingAddress(shippingAddress);
+        String fingerprint = OrderCommandFingerprint.order(memberId, normalizedItems, shippingAddress);
         return orderRepository.findByMemberIdAndRequestId(memberId, commandId)
                 .map(order -> replayOrder(order, fingerprint))
                 .orElseGet(() -> createOrder(
                         memberId,
-                        productId,
-                        quantity,
+                        normalizedItems,
+                        shippingAddress,
                         commandId,
                         fingerprint
                 ));
@@ -107,7 +128,7 @@ class OrderApplicationService implements OrderApi {
         Map<UUID, List<OrderItemView>> itemsByOrder = orders.isEmpty()
                 ? Map.of()
                 : itemRepository
-                        .findAllByOrderIdInOrderByOrderIdAscIdAsc(
+                        .findAllByOrderIdInOrderByOrderIdAscLineNumberAsc(
                                 orders.stream().map(ShopOrder::id).toList()
                         )
                         .stream()
@@ -141,15 +162,59 @@ class OrderApplicationService implements OrderApi {
                 .toList();
     }
 
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PageResponse<OrderView> getAllOrders(int page, int size) {
+        var pageable = PageRequest.of(page, size,
+                Sort.by(Sort.Order.desc("orderedAt"), Sort.Order.desc("id")));
+        var orders = orderRepository.findAll(pageable);
+        Map<UUID, List<OrderItemView>> itemsByOrder = orders.isEmpty() ? Map.of()
+                : itemRepository.findAllByOrderIdInOrderByOrderIdAscLineNumberAsc(
+                        orders.stream().map(ShopOrder::id).toList()).stream()
+                .collect(Collectors.groupingBy(OrderItem::orderId,
+                        Collectors.mapping(OrderItem::toView, Collectors.toList())));
+        return PageResponse.from(orders.map(order ->
+                order.toView(itemsByOrder.getOrDefault(order.id(), List.of()))));
+    }
+
+    @Transactional
+    public OrderView changeFulfillment(UUID adminId, UUID orderId, String requestedStatus) {
+        FulfillmentStatus next;
+        try { next = FulfillmentStatus.valueOf(requestedStatus); }
+        catch (RuntimeException exception) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송 상태가 올바르지 않습니다.");
+        }
+        ShopOrder order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
+        FulfillmentStatus previous = order.fulfillmentStatus();
+        try { order.transitionFulfillment(next, clock.instant()); }
+        catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "배송 상태는 PAID → PREPARING → SHIPPED → DELIVERED 순서로만 변경할 수 있습니다.");
+        }
+        statusHistoryRepository.save(new OrderStatusHistory(
+                order.id(), previous, next, adminId, clock.instant()));
+        return order.toView(itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id())
+                .stream().map(OrderItem::toView).toList());
+    }
+
     private OrderView createOrder(
             UUID memberId,
-            UUID productId,
-            int quantity,
+            List<OrderLineCommand> lines,
+            ShippingAddressCommand shippingAddress,
             UUID commandId,
             String fingerprint
     ) {
-        var product = productReader.getSaleableProduct(productId);
-        BigDecimal totalAmount = product.getPrice().multiply(BigDecimal.valueOf(quantity));
+        List<OrderProduct> products = lines.stream()
+                .map(line -> productReader.getSaleableProduct(line.getProductId()))
+                .toList();
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        for (int index = 0; index < lines.size(); index++) {
+            totalAmount = totalAmount.add(products.get(index).getPrice()
+                    .multiply(BigDecimal.valueOf(lines.get(index).getQuantity())));
+        }
+        if (totalAmount.compareTo(MAX_ORDER_AMOUNT) > 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "주문 총액 한도를 초과했습니다.");
+        }
         UUID orderId = UUID.randomUUID();
         BigDecimal remainingPoints = pointManager.debit(
                 memberId,
@@ -161,7 +226,9 @@ class OrderApplicationService implements OrderApi {
         if (replay.isPresent()) {
             return replayOrder(replay.get(), fingerprint);
         }
-        stockManager.reserve(productId, quantity, orderId);
+        for (OrderLineCommand line : lines) {
+            stockManager.reserve(line.getProductId(), line.getQuantity(), orderId);
+        }
         var now = clock.instant();
         ShopOrder order = orderRepository.save(new ShopOrder(
                 orderId,
@@ -173,14 +240,19 @@ class OrderApplicationService implements OrderApi {
                 remainingPoints,
                 now
         ));
-        OrderItem item = itemRepository.save(new OrderItem(
-                orderId,
-                product.getId(),
-                product.getName(),
-                product.getPrice(),
-                quantity
-        ));
-        return order.toView(List.of(item.toView()));
+        statusHistoryRepository.save(new OrderStatusHistory(
+                orderId, null, FulfillmentStatus.PAID, null, now));
+        List<OrderItem> savedItems = new java.util.ArrayList<>();
+        for (int index = 0; index < lines.size(); index++) {
+            OrderProduct product = products.get(index);
+            savedItems.add(itemRepository.save(new OrderItem(
+                    orderId, product.getId(), product.getName(), product.getPrice(),
+                    lines.get(index).getQuantity(), index)));
+        }
+        if (shippingAddress != null) {
+            shippingAddressRepository.save(new OrderShippingAddress(orderId, shippingAddress));
+        }
+        return order.toView(savedItems.stream().map(OrderItem::toView).toList());
     }
 
     private CancellationView executeCancellation(
@@ -212,7 +284,14 @@ class OrderApplicationService implements OrderApi {
             BigDecimal itemRefund = item.cancel(canceled);
             ShopOrder order = orderRepository.findByIdForUpdate(item.orderId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND));
-            order.applyCancellation(itemRefund, item.availableQuantity() == 0, now);
+            if (!order.isCancelable()) {
+                throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송이 시작된 주문은 취소할 수 없습니다.");
+            }
+            boolean orderFullyCanceled = itemRepository
+                    .findAllByOrderIdOrderByLineNumberAsc(order.id())
+                    .stream()
+                    .allMatch(orderItem -> orderItem.availableQuantity() == 0);
+            order.applyCancellation(itemRefund, orderFullyCanceled, now);
             refund = refund.add(itemRefund);
             remaining -= canceled;
         }
@@ -272,7 +351,7 @@ class OrderApplicationService implements OrderApi {
 
     private OrderView toCreationView(ShopOrder order) {
         return order.toCreationView(
-                itemRepository.findAllByOrderIdOrderByIdAsc(order.id()).stream()
+                itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id()).stream()
                         .map(OrderItem::toCreationView)
                         .toList()
         );
@@ -291,6 +370,33 @@ class OrderApplicationService implements OrderApi {
             );
         }
     }
+
+    private List<OrderLineCommand> validateAndSortItems(List<OrderLineCommand> items) {
+        if (items == null || items.isEmpty() || items.size() > MAX_ORDER_ITEMS) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "주문 상품은 1종 이상 50종 이하여야 합니다.");
+        }
+        for (OrderLineCommand item : items) {
+            if (item == null || item.getProductId() == null) {
+                throw new BusinessException(ErrorCode.INVALID_PARAMETER);
+            }
+            requirePositiveQuantity(item.getQuantity());
+        }
+        long distinct = items.stream().map(OrderLineCommand::getProductId).distinct().count();
+        if (distinct != items.size()) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "같은 상품은 주문에 한 번만 포함할 수 있습니다.");
+        }
+        return items.stream().sorted(Comparator.comparing(line -> line.getProductId().toString())).toList();
+    }
+
+    private void validateShippingAddress(ShippingAddressCommand address) {
+        if (address == null) return;
+        if (isBlank(address.getRecipientName()) || isBlank(address.getPhoneNumber())
+                || isBlank(address.getPostalCode()) || isBlank(address.getAddressLine1())) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송지 필수 항목을 입력해야 합니다.");
+        }
+    }
+
+    private boolean isBlank(String value) { return value == null || value.isBlank(); }
 
     private static final class ProductAccumulator {
 

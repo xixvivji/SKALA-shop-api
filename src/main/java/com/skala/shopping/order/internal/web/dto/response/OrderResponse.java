@@ -14,6 +14,7 @@ public final class OrderResponse {
     private final UUID id;
     private final String orderNumber;
     private final String status;
+    private final String fulfillmentStatus;
     private final BigDecimal totalAmount;
     private final BigDecimal canceledAmount;
     private final BigDecimal remainingPoints;
@@ -24,6 +25,7 @@ public final class OrderResponse {
             UUID id,
             String orderNumber,
             String status,
+            String fulfillmentStatus,
             BigDecimal totalAmount,
             BigDecimal canceledAmount,
             BigDecimal remainingPoints,
@@ -33,6 +35,7 @@ public final class OrderResponse {
         this.id = id;
         this.orderNumber = orderNumber;
         this.status = status;
+        this.fulfillmentStatus = fulfillmentStatus;
         this.totalAmount = totalAmount;
         this.canceledAmount = canceledAmount;
         this.remainingPoints = remainingPoints;
@@ -45,6 +48,7 @@ public final class OrderResponse {
                 order.getId(),
                 order.getOrderNumber(),
                 order.getStatus(),
+                order.getFulfillmentStatus(),
                 order.getTotalAmount(),
                 order.getCanceledAmount(),
                 order.getRemainingPoints(),
@@ -74,6 +78,7 @@ public final class OrderResponse {
     public String getStatus() {
         return status;
     }
+    public String getFulfillmentStatus() { return fulfillmentStatus; }
 
     public BigDecimal getTotalAmount() {
         return totalAmount;

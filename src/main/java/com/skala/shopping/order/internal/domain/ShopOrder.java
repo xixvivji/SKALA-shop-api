@@ -33,7 +33,7 @@ public class ShopOrder {
     @Column(name = "request_id", nullable = false)
     private UUID requestId;
 
-    @Column(name = "request_fingerprint", nullable = false, length = 128)
+    @Column(name = "request_fingerprint", nullable = false, length = 2048)
     private String requestFingerprint;
 
     @Column(name = "order_number", nullable = false, unique = true, length = 50)
@@ -45,6 +45,10 @@ public class ShopOrder {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private OrderStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "fulfillment_status", nullable = false, length = 30)
+    private FulfillmentStatus fulfillmentStatus;
 
     @Column(name = "total_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal totalAmount;
@@ -83,6 +87,7 @@ public class ShopOrder {
         this.orderNumber = orderNumber;
         this.memberId = memberId;
         this.status = OrderStatus.PAID;
+        this.fulfillmentStatus = FulfillmentStatus.PAID;
         this.totalAmount = totalAmount;
         this.canceledAmount = BigDecimal.ZERO;
         this.balanceAfter = balanceAfter;
@@ -106,6 +111,18 @@ public class ShopOrder {
         return requestFingerprint.equals(fingerprint);
     }
 
+    public FulfillmentStatus fulfillmentStatus() { return fulfillmentStatus; }
+
+    public void transitionFulfillment(FulfillmentStatus next, Instant now) {
+        if (!fulfillmentStatus.canTransitionTo(next)) {
+            throw new IllegalArgumentException("Invalid fulfillment transition");
+        }
+        fulfillmentStatus = next;
+        updatedAt = databaseTimestamp(now);
+    }
+
+    public boolean isCancelable() { return fulfillmentStatus.isCancelable(); }
+
     public void applyCancellation(BigDecimal amount, boolean fullyCanceled, Instant now) {
         canceledAmount = canceledAmount.add(amount);
         status = fullyCanceled ? OrderStatus.CANCELED : OrderStatus.PARTIALLY_CANCELED;
@@ -117,6 +134,7 @@ public class ShopOrder {
                 id,
                 orderNumber,
                 status.name(),
+                fulfillmentStatus.name(),
                 totalAmount,
                 canceledAmount,
                 balanceAfter,
@@ -130,6 +148,7 @@ public class ShopOrder {
                 id,
                 orderNumber,
                 OrderStatus.PAID.name(),
+                FulfillmentStatus.PAID.name(),
                 totalAmount,
                 BigDecimal.ZERO,
                 balanceAfter,
