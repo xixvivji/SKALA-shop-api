@@ -21,6 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ProductApplicationService implements CatalogApi {
 
+    private static final BigDecimal MIN_PRODUCT_PRICE = new BigDecimal("0.01");
+    private static final BigDecimal MAX_PRODUCT_PRICE = new BigDecimal("30000000.00");
+
     private final ProductRepository repository;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock = Clock.systemUTC();
@@ -50,7 +53,11 @@ public class ProductApplicationService implements CatalogApi {
 
     @Transactional(readOnly = true)
     public PageResponse<ProductSnapshot> getProducts(int page, int size) {
-        var pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        var pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
+        );
         return PageResponse.from(
                 repository.findAllByStatus(ProductStatus.ACTIVE, pageable)
                         .map(Product::toSnapshot)
@@ -59,6 +66,7 @@ public class ProductApplicationService implements CatalogApi {
 
     @Transactional
     public ProductSnapshot createProduct(String name, BigDecimal price, int initialQuantity) {
+        validatePrice(price);
         String normalizedName = normalizeName(name);
         validateUniqueName(normalizedName);
         ProductSnapshot product = repository
@@ -70,6 +78,7 @@ public class ProductApplicationService implements CatalogApi {
 
     @Transactional
     public ProductSnapshot updateProduct(UUID productId, String name, BigDecimal price) {
+        validatePrice(price);
         Product product = findProduct(productId);
         String normalizedName = normalizeName(name);
         if (!product.toSnapshot().getName().equalsIgnoreCase(normalizedName)) {
@@ -93,6 +102,18 @@ public class ProductApplicationService implements CatalogApi {
     private void validateUniqueName(String name) {
         if (repository.existsByNameIgnoreCaseAndStatusNot(name, ProductStatus.DELETED)) {
             throw new BusinessException(ErrorCode.DATA_DUPLICATED, "동일한 상품명이 이미 존재합니다.");
+        }
+    }
+
+    private void validatePrice(BigDecimal price) {
+        if (price == null
+                || price.compareTo(MIN_PRODUCT_PRICE) < 0
+                || price.compareTo(MAX_PRODUCT_PRICE) > 0
+                || price.scale() > 2) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "상품 가격은 0.01 이상 30,000,000.00 이하이며 소수점 둘째 자리까지 입력해야 합니다."
+            );
         }
     }
 

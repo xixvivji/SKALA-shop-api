@@ -114,6 +114,14 @@ class InventoryController {
             @RequestHeader(name = "X-Idempotency-Key") UUID operationId,
             @Valid @RequestBody InitializeStockRequest request
     ) {
+        var replay = service.findInitializationReplay(
+                productId,
+                request.getAvailableQuantity(),
+                operationId
+        );
+        if (replay.isPresent()) {
+            return StockResponse.from(replay.get());
+        }
         catalogApi.getSaleableProduct(productId);
         return StockResponse.from(service.initializeStock(
                 productId,

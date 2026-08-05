@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,15 +48,14 @@ public class InventoryApplicationService implements InventoryApi {
                 availableQuantity,
                 null
         );
+        StockBalance replay = replayIfProcessed(operationId, productId, fingerprint);
+        if (replay != null) {
+            return replay;
+        }
         Instant now = clock.instant();
         int inserted = stockRepository.insertIfAbsent(productId, availableQuantity, now);
         Stock stock = lockedStock(productId);
-        StockBalance replay = replayIfProcessed(
-                operationId,
-                productId,
-                fingerprint,
-                stock.isActive()
-        );
+        replay = replayIfProcessed(operationId, productId, fingerprint);
         if (replay != null) {
             return replay;
         }
@@ -75,6 +75,26 @@ public class InventoryApplicationService implements InventoryApi {
                 now
         );
         return stock.toBalance();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<StockBalance> findInitializationReplay(
+            UUID productId,
+            int availableQuantity,
+            UUID operationId
+    ) {
+        requireIdentifiers(productId, operationId);
+        requireNonNegativeQuantity(availableQuantity);
+        return Optional.ofNullable(replayIfProcessed(
+                operationId,
+                productId,
+                fingerprint(
+                        StockMovementType.INITIALIZE,
+                        productId,
+                        availableQuantity,
+                        null
+                )
+        ));
     }
 
     @Override
@@ -176,13 +196,12 @@ public class InventoryApplicationService implements InventoryApi {
             String reason
     ) {
         String fingerprint = fingerprint(type, productId, quantity, reason);
+        StockBalance replay = replayIfProcessed(operationId, productId, fingerprint);
+        if (replay != null) {
+            return replay;
+        }
         Stock stock = lockedStock(productId);
-        StockBalance replay = replayIfProcessed(
-                operationId,
-                productId,
-                fingerprint,
-                stock.isActive()
-        );
+        replay = replayIfProcessed(operationId, productId, fingerprint);
         if (replay != null) {
             return replay;
         }
@@ -214,6 +233,7 @@ public class InventoryApplicationService implements InventoryApi {
                 type,
                 quantity,
                 balance.getAvailableQuantity(),
+                stock.isActive(),
                 fingerprint,
                 reason,
                 now
@@ -223,15 +243,14 @@ public class InventoryApplicationService implements InventoryApi {
     private StockBalance replayIfProcessed(
             UUID operationId,
             UUID productId,
-            String fingerprint,
-            boolean active
+            String fingerprint
     ) {
         return movementRepository.findByOperationIdAndProductId(operationId, productId)
                 .map(movement -> {
                     if (!movement.hasFingerprint(fingerprint)) {
                         throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT);
                     }
-                    return movement.toBalance(active);
+                    return movement.toBalance();
                 })
                 .orElse(null);
     }

@@ -61,6 +61,7 @@ class StockTests {
 
         assertEquals("INACTIVE", stock.toBalance().getStockStatus());
         assertEquals(false, stock.toBalance().isOrderable());
+        assertEquals(0, stock.toBalance().getMaxOrderQuantity());
         assertEquals(
                 ErrorCode.PRODUCT_NOT_SALEABLE,
                 assertThrows(BusinessException.class, () -> stock.reserve(1, NOW)).errorCode()

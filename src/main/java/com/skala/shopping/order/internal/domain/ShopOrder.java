@@ -123,4 +123,17 @@ public class ShopOrder {
                 items
         );
     }
+
+    public OrderView toCreationView(List<OrderItemView> items) {
+        return new OrderView(
+                id,
+                orderNumber,
+                OrderStatus.PAID.name(),
+                totalAmount,
+                BigDecimal.ZERO,
+                balanceAfter,
+                orderedAt,
+                items
+        );
+    }
 }

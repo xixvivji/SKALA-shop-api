@@ -1,5 +1,6 @@
 package com.skala.shopping.order;
 
+import com.skala.shopping.common.PageResponse;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,7 +19,7 @@ public interface OrderApi {
      */
     CancellationView cancelProduct(UUID memberId, UUID productId, int quantity, UUID commandId);
 
-    List<OrderView> getOrders(UUID memberId);
+    PageResponse<OrderView> getOrders(UUID memberId, int page, int size);
 
     List<PurchasedProductView> getPurchasedProducts(UUID memberId);
 }

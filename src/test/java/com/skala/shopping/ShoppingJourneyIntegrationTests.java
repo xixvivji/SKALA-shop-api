@@ -50,7 +50,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @SpringBootTest(properties = {
         "shopping.security.bootstrap-admin.enabled=true",
         "shopping.security.bootstrap-admin.login-id=integration-admin",
-        "shopping.security.bootstrap-admin.password=integration-admin-password"
+        "shopping.security.bootstrap-admin.password=integration-admin-password",
+        "shopping.security.rate-limit.enabled=false"
 })
 @AutoConfigureMockMvc
 class ShoppingJourneyIntegrationTests {
@@ -215,7 +216,8 @@ class ShoppingJourneyIntegrationTests {
 
         mockMvc.perform(get("/api/orders/me").cookie(authCookie))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1));
 
         mockMvc.perform(get("/api/customers/skala01").cookie(authCookie))
                 .andExpect(status().isOk())
@@ -510,6 +512,10 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
 
+        mockMvc.perform(get("/api/orders/me?page=-1").cookie(copy(customer.authCookie)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+
         mockMvc.perform(post("/api/orders")
                         .with(csrf())
                         .cookie(copy(customer.authCookie))
@@ -609,6 +615,111 @@ class ShoppingJourneyIntegrationTests {
     }
 
     @Test
+    void replaysOriginalOrderCreationResponseAfterPartialCancellation() throws Exception {
+        Cookie adminCookie = loginAdmin();
+        UUID productId = createProduct(adminCookie, unique("order-replay"), "15000");
+        CustomerSession customer = registerAndLogin("order-replay");
+        UUID orderCommandId = UUID.randomUUID();
+
+        MvcResult original = performOrder(
+                customer.authCookie,
+                productId,
+                2,
+                orderCommandId
+        )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.canceledAmount").value(0))
+                .andExpect(jsonPath("$.remainingPoints").value(970_000))
+                .andExpect(jsonPath("$.items[0].canceledQuantity").value(0))
+                .andReturn();
+        JsonNode originalResponse = objectMapper.readTree(
+                original.getResponse().getContentAsString()
+        );
+
+        performCancellation(customer.authCookie, productId, 1, UUID.randomUUID())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.remainingPoints").value(985_000));
+
+        MvcResult replay = performOrder(
+                customer.authCookie,
+                productId,
+                2,
+                orderCommandId
+        )
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        assertEquals(
+                originalResponse,
+                objectMapper.readTree(replay.getResponse().getContentAsString())
+        );
+        mockMvc.perform(get("/api/orders/me").cookie(copy(customer.authCookie)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value("PARTIALLY_CANCELED"))
+                .andExpect(jsonPath("$.content[0].canceledAmount").value(15_000))
+                .andExpect(jsonPath("$.content[0].items[0].canceledQuantity").value(1));
+    }
+
+    @Test
+    void pagesOrdersWithStableNewestFirstSorting() throws Exception {
+        Cookie adminCookie = loginAdmin();
+        UUID productId = createProduct(adminCookie, unique("order-page"), "100");
+        CustomerSession customer = registerAndLogin("order-page");
+        UUID firstCommand = UUID.randomUUID();
+        UUID secondCommand = UUID.randomUUID();
+        UUID thirdCommand = UUID.randomUUID();
+
+        performOrder(customer.authCookie, productId, 1, firstCommand)
+                .andExpect(status().isCreated());
+        performOrder(customer.authCookie, productId, 1, secondCommand)
+                .andExpect(status().isCreated());
+        performOrder(customer.authCookie, productId, 1, thirdCommand)
+                .andExpect(status().isCreated());
+
+        jdbcTemplate.update(
+                """
+                        UPDATE orders.orders
+                        SET ordered_at = TIMESTAMPTZ '2026-01-01 00:00:00+00'
+                        WHERE request_id IN (?, ?, ?)
+                        """,
+                firstCommand,
+                secondCommand,
+                thirdCommand
+        );
+        List<String> expectedIds = jdbcTemplate.queryForList(
+                """
+                        SELECT id::text
+                        FROM orders.orders
+                        WHERE request_id IN (?, ?, ?)
+                        ORDER BY ordered_at DESC, id DESC
+                        """,
+                String.class,
+                firstCommand,
+                secondCommand,
+                thirdCommand
+        );
+
+        mockMvc.perform(get("/api/orders/me?page=0&size=2")
+                        .cookie(copy(customer.authCookie)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(2))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(expectedIds.get(0)))
+                .andExpect(jsonPath("$.content[1].id").value(expectedIds.get(1)));
+
+        mockMvc.perform(get("/api/orders/me?page=1&size=2")
+                        .cookie(copy(customer.authCookie)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(expectedIds.get(2)));
+    }
+
+    @Test
     void preservesProductNameRulesAndPricePrecision() throws Exception {
         Cookie adminCookie = loginAdmin();
         String productName = unique("Mouse");
@@ -670,7 +781,8 @@ class ShoppingJourneyIntegrationTests {
 
         mockMvc.perform(get("/api/orders/me").cookie(copy(customer.authCookie)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
 
         mockMvc.perform(get("/api/customers/me").cookie(copy(customer.authCookie)))
                 .andExpect(status().isOk())
@@ -829,6 +941,105 @@ class ShoppingJourneyIntegrationTests {
     }
 
     @Test
+    void replaysOriginalInitializationSnapshotAfterProductDeletion() throws Exception {
+        Cookie adminCookie = loginAdmin();
+        UUID productId = insertLegacyProduct("deleted-initialization-replay");
+        UUID operationId = UUID.randomUUID();
+
+        MvcResult original = performStockInitialization(
+                adminCookie,
+                productId,
+                7,
+                operationId
+        )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableQuantity").value(7))
+                .andExpect(jsonPath("$.maxOrderQuantity").value(7))
+                .andExpect(jsonPath("$.orderable").value(true))
+                .andExpect(jsonPath("$.stockStatus").value("IN_STOCK"))
+                .andReturn();
+
+        mockMvc.perform(delete("/api/products/{productId}", productId)
+                        .with(csrf())
+                        .cookie(copy(adminCookie)))
+                .andExpect(status().isNoContent());
+
+        MvcResult replay = performStockInitialization(
+                adminCookie,
+                productId,
+                7,
+                operationId
+        )
+                .andExpect(status().isOk())
+                .andReturn();
+        assertEquals(
+                objectMapper.readTree(original.getResponse().getContentAsString()),
+                objectMapper.readTree(replay.getResponse().getContentAsString())
+        );
+
+        performStockInitialization(adminCookie, productId, 8, operationId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
+        mockMvc.perform(get("/api/products/{productId}/stock", productId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableQuantity").value(7))
+                .andExpect(jsonPath("$.maxOrderQuantity").value(0))
+                .andExpect(jsonPath("$.orderable").value(false))
+                .andExpect(jsonPath("$.stockStatus").value("INACTIVE"));
+    }
+
+    @Test
+    void replaysOriginalAdjustmentSnapshotAfterProductDeletion() throws Exception {
+        Cookie adminCookie = loginAdmin();
+        UUID productId = createProduct(
+                adminCookie,
+                unique("deleted-adjustment-replay"),
+                "15000",
+                5
+        );
+        UUID operationId = UUID.randomUUID();
+
+        MvcResult original = performStockAdjustment(
+                adminCookie,
+                productId,
+                10,
+                "삭제 전 입고",
+                operationId
+        )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableQuantity").value(15))
+                .andExpect(jsonPath("$.orderable").value(true))
+                .andExpect(jsonPath("$.stockStatus").value("IN_STOCK"))
+                .andReturn();
+
+        mockMvc.perform(delete("/api/products/{productId}", productId)
+                        .with(csrf())
+                        .cookie(copy(adminCookie)))
+                .andExpect(status().isNoContent());
+
+        MvcResult replay = performStockAdjustment(
+                adminCookie,
+                productId,
+                10,
+                "삭제 전 입고",
+                operationId
+        )
+                .andExpect(status().isOk())
+                .andReturn();
+        assertEquals(
+                objectMapper.readTree(original.getResponse().getContentAsString()),
+                objectMapper.readTree(replay.getResponse().getContentAsString())
+        );
+
+        mockMvc.perform(get("/api/products/{productId}/stock", productId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableQuantity").value(15))
+                .andExpect(jsonPath("$.maxOrderQuantity").value(0))
+                .andExpect(jsonPath("$.orderable").value(false))
+                .andExpect(jsonPath("$.stockStatus").value("INACTIVE"));
+    }
+
+    @Test
     void keepsStockInactiveWhenLegacyInitializationRacesWithDeletion() throws Exception {
         Cookie adminCookie = loginAdmin();
         UUID productId = insertLegacyProduct("legacy-init-delete-race");
@@ -880,7 +1091,8 @@ class ShoppingJourneyIntegrationTests {
 
         mockMvc.perform(get("/api/orders/me").cookie(copy(customer.authCookie)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
 
         mockMvc.perform(get("/api/products/{productId}/stock", productId))
                 .andExpect(status().isOk())
@@ -997,8 +1209,8 @@ class ShoppingJourneyIntegrationTests {
         assertEquals(985_000, currentPoint(customer.authCookie));
         mockMvc.perform(get("/api/orders/me").cookie(copy(customer.authCookie)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].status").value("PAID"))
-                .andExpect(jsonPath("$[0].items[0].canceledQuantity").value(0));
+                .andExpect(jsonPath("$.content[0].status").value("PAID"))
+                .andExpect(jsonPath("$.content[0].items[0].canceledQuantity").value(0));
         assertEquals(
                 0,
                 jdbcTemplate.queryForObject(

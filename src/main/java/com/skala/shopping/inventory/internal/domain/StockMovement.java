@@ -41,6 +41,9 @@ public class StockMovement {
     @Column(name = "available_after", nullable = false)
     private int availableAfter;
 
+    @Column(name = "active_after", nullable = false)
+    private boolean activeAfter;
+
     @Column(name = "request_fingerprint", nullable = false, length = 512)
     private String requestFingerprint;
 
@@ -59,6 +62,7 @@ public class StockMovement {
             StockMovementType movementType,
             int quantity,
             int availableAfter,
+            boolean activeAfter,
             String requestFingerprint,
             String reason,
             Instant now
@@ -69,6 +73,7 @@ public class StockMovement {
         this.movementType = movementType;
         this.quantity = quantity;
         this.availableAfter = availableAfter;
+        this.activeAfter = activeAfter;
         this.requestFingerprint = requestFingerprint;
         this.reason = reason;
         this.createdAt = now;
@@ -78,7 +83,7 @@ public class StockMovement {
         return requestFingerprint.equals(fingerprint);
     }
 
-    public StockBalance toBalance(boolean active) {
-        return new StockBalance(productId, availableAfter, active);
+    public StockBalance toBalance() {
+        return new StockBalance(productId, availableAfter, activeAfter);
     }
 }

@@ -90,4 +90,15 @@ public class OrderItem {
                 canceledQuantity
         );
     }
+
+    public OrderItemView toCreationView() {
+        return new OrderItemView(
+                id,
+                productId,
+                productName,
+                unitPrice,
+                orderedQuantity,
+                0
+        );
+    }
 }

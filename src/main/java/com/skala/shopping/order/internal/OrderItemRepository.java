@@ -12,9 +12,9 @@ import org.springframework.data.repository.query.Param;
 
 interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
 
-    List<OrderItem> findAllByOrderId(UUID orderId);
+    List<OrderItem> findAllByOrderIdOrderByIdAsc(UUID orderId);
 
-    List<OrderItem> findAllByOrderIdIn(Collection<UUID> orderIds);
+    List<OrderItem> findAllByOrderIdInOrderByOrderIdAscIdAsc(Collection<UUID> orderIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
@@ -37,7 +37,7 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             join ShopOrder shopOrder on shopOrder.id = item.orderId
             where shopOrder.memberId = :memberId
               and item.canceledQuantity < item.orderedQuantity
-            order by shopOrder.orderedAt desc
+            order by shopOrder.orderedAt desc, shopOrder.id desc, item.id asc
             """)
     List<OrderItem> findPurchasedItems(@Param("memberId") UUID memberId);
 }

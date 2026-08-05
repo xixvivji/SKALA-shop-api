@@ -1,5 +1,6 @@
 package com.skala.shopping.order.internal.web.dto.response;
 
+import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.order.OrderView;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
@@ -49,6 +50,16 @@ public final class OrderResponse {
                 order.getRemainingPoints(),
                 order.getOrderedAt(),
                 order.getItems().stream().map(OrderItemResponse::from).toList()
+        );
+    }
+
+    public static PageResponse<OrderResponse> pageFrom(PageResponse<OrderView> orders) {
+        return new PageResponse<>(
+                orders.getContent().stream().map(OrderResponse::from).toList(),
+                orders.getPage(),
+                orders.getSize(),
+                orders.getTotalElements(),
+                orders.getTotalPages()
         );
     }
 

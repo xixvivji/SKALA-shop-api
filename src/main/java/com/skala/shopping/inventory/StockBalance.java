@@ -26,7 +26,7 @@ public final class StockBalance {
     }
 
     public int getMaxOrderQuantity() {
-        return Math.min(availableQuantity, MAX_ORDER_QUANTITY);
+        return active ? Math.min(availableQuantity, MAX_ORDER_QUANTITY) : 0;
     }
 
     public boolean isOrderable() {

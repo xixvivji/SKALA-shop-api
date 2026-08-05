@@ -2,6 +2,7 @@ package com.skala.shopping.order.internal;
 
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
+import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.OrderItemView;
@@ -20,7 +21,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -92,22 +96,28 @@ class OrderApplicationService implements OrderApi {
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public List<OrderView> getOrders(UUID memberId) {
-        List<ShopOrder> orders = orderRepository.findAllByMemberIdOrderByOrderedAtDesc(memberId);
-        if (orders.isEmpty()) {
-            return List.of();
-        }
-        Map<UUID, List<OrderItemView>> itemsByOrder = itemRepository
-                .findAllByOrderIdIn(orders.stream().map(ShopOrder::id).toList())
-                .stream()
-                .collect(Collectors.groupingBy(
-                        OrderItem::orderId,
-                        Collectors.mapping(OrderItem::toView, Collectors.toList())
-                ));
-        return orders.stream()
-                .map(order -> order.toView(itemsByOrder.getOrDefault(order.id(), List.of())))
-                .toList();
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PageResponse<OrderView> getOrders(UUID memberId, int page, int size) {
+        var pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Order.desc("orderedAt"), Sort.Order.desc("id"))
+        );
+        var orders = orderRepository.findAllByMemberId(memberId, pageable);
+        Map<UUID, List<OrderItemView>> itemsByOrder = orders.isEmpty()
+                ? Map.of()
+                : itemRepository
+                        .findAllByOrderIdInOrderByOrderIdAscIdAsc(
+                                orders.stream().map(ShopOrder::id).toList()
+                        )
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                OrderItem::orderId,
+                                Collectors.mapping(OrderItem::toView, Collectors.toList())
+                        ));
+        return PageResponse.from(orders.map(
+                order -> order.toView(itemsByOrder.getOrDefault(order.id(), List.of()))
+        ));
     }
 
     @Override
@@ -126,7 +136,8 @@ class OrderApplicationService implements OrderApi {
         }
         return products.values().stream()
                 .map(ProductAccumulator::toView)
-                .sorted(Comparator.comparing(PurchasedProductView::getProductName))
+                .sorted(Comparator.comparing(PurchasedProductView::getProductName)
+                        .thenComparing(PurchasedProductView::getProductId))
                 .toList();
     }
 
@@ -236,7 +247,7 @@ class OrderApplicationService implements OrderApi {
         if (!order.hasFingerprint(fingerprint)) {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT);
         }
-        return toView(order);
+        return toCreationView(order);
     }
 
     private CancellationView replayCancellation(
@@ -259,10 +270,10 @@ class OrderApplicationService implements OrderApi {
         );
     }
 
-    private OrderView toView(ShopOrder order) {
-        return order.toView(
-                itemRepository.findAllByOrderId(order.id()).stream()
-                        .map(OrderItem::toView)
+    private OrderView toCreationView(ShopOrder order) {
+        return order.toCreationView(
+                itemRepository.findAllByOrderIdOrderByIdAsc(order.id()).stream()
+                        .map(OrderItem::toCreationView)
                         .toList()
         );
     }
