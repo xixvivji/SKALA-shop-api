@@ -76,7 +76,7 @@ class OrderController {
                     ),
                     @ApiResponse(
                             responseCode = "409",
-                            description = "포인트 부족, 판매 불가 또는 멱등성 충돌",
+                            description = "포인트·재고 부족, 판매 불가 또는 멱등성 충돌",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
                     )
             }

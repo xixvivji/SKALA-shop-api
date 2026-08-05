@@ -24,7 +24,7 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             where shopOrder.memberId = :memberId
               and item.productId = :productId
               and item.canceledQuantity < item.orderedQuantity
-            order by shopOrder.orderedAt desc
+            order by shopOrder.orderedAt desc, shopOrder.id desc, item.id asc
             """)
     List<OrderItem> findCancelableItems(
             @Param("memberId") UUID memberId,

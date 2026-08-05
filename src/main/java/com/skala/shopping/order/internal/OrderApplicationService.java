@@ -28,12 +28,14 @@ class OrderApplicationService implements OrderApi {
 
     private static final DateTimeFormatter ORDER_DATE =
             DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
+    private static final int MAX_ORDER_QUANTITY = 1_000_000;
 
     private final ShopOrderRepository orderRepository;
     private final OrderItemRepository itemRepository;
     private final OrderCancellationRepository cancellationRepository;
     private final ProductReader productReader;
     private final PointManager pointManager;
+    private final StockManager stockManager;
     private final Clock clock = Clock.systemUTC();
 
     OrderApplicationService(
@@ -41,13 +43,15 @@ class OrderApplicationService implements OrderApi {
             OrderItemRepository itemRepository,
             OrderCancellationRepository cancellationRepository,
             ProductReader productReader,
-            PointManager pointManager
+            PointManager pointManager,
+            StockManager stockManager
     ) {
         this.orderRepository = orderRepository;
         this.itemRepository = itemRepository;
         this.cancellationRepository = cancellationRepository;
         this.productReader = productReader;
         this.pointManager = pointManager;
+        this.stockManager = stockManager;
     }
 
     @Override
@@ -146,6 +150,7 @@ class OrderApplicationService implements OrderApi {
         if (replay.isPresent()) {
             return replayOrder(replay.get(), fingerprint);
         }
+        stockManager.reserve(productId, quantity, orderId);
         var now = clock.instant();
         ShopOrder order = orderRepository.save(new ShopOrder(
                 orderId,
@@ -184,6 +189,7 @@ class OrderApplicationService implements OrderApi {
             throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
         }
 
+        UUID cancellationId = UUID.randomUUID();
         int remaining = quantity;
         BigDecimal refund = BigDecimal.ZERO;
         var now = clock.instant();
@@ -200,7 +206,6 @@ class OrderApplicationService implements OrderApi {
             remaining -= canceled;
         }
 
-        UUID cancellationId = UUID.randomUUID();
         BigDecimal remainingPoints = pointManager.credit(
                 memberId,
                 refund,
@@ -212,6 +217,7 @@ class OrderApplicationService implements OrderApi {
         if (concurrentReplay.isPresent()) {
             return replayCancellation(concurrentReplay.get(), fingerprint);
         }
+        stockManager.release(productId, quantity, cancellationId);
         OrderCancellation cancellation = cancellationRepository.save(new OrderCancellation(
                 cancellationId,
                 commandId,
@@ -267,8 +273,11 @@ class OrderApplicationService implements OrderApi {
     }
 
     private void requirePositiveQuantity(int quantity) {
-        if (quantity <= 0) {
-            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "수량은 1 이상이어야 합니다.");
+        if (quantity <= 0 || quantity > MAX_ORDER_QUANTITY) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "수량은 1 이상 1,000,000 이하여야 합니다."
+            );
         }
     }
 
