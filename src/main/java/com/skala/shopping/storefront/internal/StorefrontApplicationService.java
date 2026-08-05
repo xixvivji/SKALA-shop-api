@@ -57,6 +57,12 @@ public class StorefrontApplicationService {
         );
     }
 
+    @Transactional
+    public void resetPassword(String customerId, String customerName, String newPassword) {
+        var member = memberApi.getActiveMemberByIdentity(customerId, customerName);
+        authAccountApi.resetPassword(member.getId(), newPassword);
+    }
+
     @Transactional(readOnly = true)
     public CustomerDetailView getCustomer(UUID authenticatedMemberId, String requestedCustomerId) {
         var member = memberApi.getMember(authenticatedMemberId);

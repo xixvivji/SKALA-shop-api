@@ -88,6 +88,10 @@ public class AuthAccount {
         return role;
     }
 
+    public long credentialVersion() {
+        return version;
+    }
+
     public boolean isActive() {
         return status == AccountStatus.ACTIVE;
     }
@@ -98,6 +102,11 @@ public class AuthAccount {
 
     public void deactivate(Instant now) {
         status = AccountStatus.INACTIVE;
+        updatedAt = now;
+    }
+
+    public void changePassword(String newPasswordHash, Instant now) {
+        passwordHash = newPasswordHash;
         updatedAt = now;
     }
 }
