@@ -6,6 +6,7 @@ import com.skala.shopping.auth.internal.domain.AuthAccount;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
 import java.time.Clock;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthApplicationService implements AuthAccountApi {
 
+    static final String DUMMY_PASSWORD_HASH =
+            "$2a$10$SmZa6n8k9HIKyr12FWoNYu7ajNYskdEwr78a/kkFYRoH.v8kv2U/G";
+    private static final int MINIMUM_ADMIN_PASSWORD_LENGTH = 12;
+    private static final String LOGIN_FAILURE_MESSAGE =
+            "고객 ID 또는 비밀번호가 올바르지 않습니다.";
     private static final String PASSWORD_RESET_FAILURE_MESSAGE =
             "입력한 회원 정보를 확인할 수 없습니다.";
 
@@ -69,21 +75,48 @@ public class AuthApplicationService implements AuthAccountApi {
         account.deactivate(clock.instant());
     }
 
-    @Transactional(readOnly = true)
-    public LoginResult login(String loginId, String rawPassword) {
-        AuthAccount account = repository.findByLoginId(loginId)
-                .orElseThrow(() -> new BusinessException(
-                        ErrorCode.NOT_AUTHENTICATED,
-                        "고객 ID 또는 비밀번호가 올바르지 않습니다."
-                ));
-        if (!account.isActive()
-                || !BcryptPasswordPolicy.isCompatible(rawPassword)
-                || !passwordEncoder.matches(rawPassword, account.passwordHash())) {
+    @Transactional
+    public void changeAdminPassword(
+            UUID adminId,
+            String currentRawPassword,
+            String newRawPassword
+    ) {
+        validatePasswordForEncoding(currentRawPassword);
+        validateAdminPassword(newRawPassword);
+
+        AuthAccount account = repository.findByIdForPasswordChange(adminId)
+                .filter(AuthAccount::isActive)
+                .filter(AuthAccount::isAdmin)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_AUTHENTICATED));
+
+        if (!passwordEncoder.matches(currentRawPassword, account.passwordHash())) {
             throw new BusinessException(
                     ErrorCode.NOT_AUTHENTICATED,
-                    "고객 ID 또는 비밀번호가 올바르지 않습니다."
+                    "현재 비밀번호가 올바르지 않습니다."
             );
         }
+        if (passwordEncoder.matches(newRawPassword, account.passwordHash())) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "새 비밀번호는 현재 비밀번호와 달라야 합니다."
+            );
+        }
+        account.changePassword(passwordEncoder.encode(newRawPassword), clock.instant());
+    }
+
+    @Transactional(readOnly = true)
+    public LoginResult login(String loginId, String rawPassword) {
+        Optional<AuthAccount> candidate = repository.findByLoginId(loginId);
+        String passwordHash = candidate
+                .map(AuthAccount::passwordHash)
+                .orElse(DUMMY_PASSWORD_HASH);
+
+        boolean passwordMatches = BcryptPasswordPolicy.isCompatible(rawPassword)
+                && passwordEncoder.matches(rawPassword, passwordHash);
+        if (candidate.isEmpty() || !candidate.get().isActive() || !passwordMatches) {
+            throw loginFailure();
+        }
+        AuthAccount account = candidate.get();
         var token = tokenService.issue(account);
         return new LoginResult(
                 account.id(),
@@ -101,5 +134,19 @@ public class AuthApplicationService implements AuthAccountApi {
                     BcryptPasswordPolicy.VALIDATION_MESSAGE
             );
         }
+    }
+
+    private void validateAdminPassword(String rawPassword) {
+        validatePasswordForEncoding(rawPassword);
+        if (rawPassword.length() < MINIMUM_ADMIN_PASSWORD_LENGTH) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "관리자 비밀번호는 12자 이상이어야 합니다."
+            );
+        }
+    }
+
+    private BusinessException loginFailure() {
+        return new BusinessException(ErrorCode.NOT_AUTHENTICATED, LOGIN_FAILURE_MESSAGE);
     }
 }

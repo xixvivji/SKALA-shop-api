@@ -9,6 +9,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -108,6 +109,7 @@ class SecurityConfiguration {
                                 "/api/customers/logout",
                                 "/api/customers/password/reset"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.PUT, "/api/admin/password").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/customers/list").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/products/**").hasRole("ADMIN")
@@ -162,6 +164,7 @@ class SecurityConfiguration {
                 "X-Idempotency-Key",
                 "X-XSRF-TOKEN"
         ));
+        configuration.setExposedHeaders(java.util.List.of(HttpHeaders.RETRY_AFTER));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

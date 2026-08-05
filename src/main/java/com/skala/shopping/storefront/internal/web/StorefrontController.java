@@ -1,6 +1,7 @@
 package com.skala.shopping.storefront.internal.web;
 
 import com.skala.shopping.auth.AuthenticationCookieApi;
+import com.skala.shopping.auth.AuthenticationRateLimitApi;
 import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
@@ -21,6 +22,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
@@ -43,13 +45,16 @@ class StorefrontController {
 
     private final StorefrontApplicationService service;
     private final AuthenticationCookieApi authenticationCookieApi;
+    private final AuthenticationRateLimitApi rateLimitApi;
 
     StorefrontController(
             StorefrontApplicationService service,
-            AuthenticationCookieApi authenticationCookieApi
+            AuthenticationCookieApi authenticationCookieApi,
+            AuthenticationRateLimitApi rateLimitApi
     ) {
         this.service = service;
         this.authenticationCookieApi = authenticationCookieApi;
+        this.rateLimitApi = rateLimitApi;
     }
 
     @PostMapping
@@ -75,12 +80,19 @@ class StorefrontController {
                             responseCode = "409",
                             description = "고객 ID 중복",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "429",
+                            description = "회원가입 요청 제한 초과",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
                     )
             }
     )
     ResponseEntity<RegistrationResponse> register(
-            @Valid @RequestBody RegisterCustomerRequest request
+            @Valid @RequestBody RegisterCustomerRequest request,
+            HttpServletRequest servletRequest
     ) {
+        rateLimitApi.checkRegistration(servletRequest.getRemoteAddr(), request.getCustomerId());
         RegistrationResponse registered = RegistrationResponse.from(service.register(
                 request.getCustomerId(),
                 request.getCustomerPassword(),
@@ -107,10 +119,22 @@ class StorefrontController {
                             responseCode = "403",
                             description = "CSRF 토큰 필요",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "429",
+                            description = "비밀번호 초기화 요청 제한 초과",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
                     )
             }
     )
-    ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+    ResponseEntity<Void> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        rateLimitApi.checkPasswordReset(
+                servletRequest.getRemoteAddr(),
+                request.getCustomerId()
+        );
         service.resetPassword(
                 request.getCustomerId(),
                 request.getCustomerName(),

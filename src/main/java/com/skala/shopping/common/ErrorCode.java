@@ -14,6 +14,11 @@ public enum ErrorCode {
     ),
     NOT_AUTHENTICATED(HttpStatus.UNAUTHORIZED, "NOT_AUTHENTICATED", "인증이 필요합니다."),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "ACCESS_DENIED", "접근 권한이 없습니다."),
+    TOO_MANY_REQUESTS(
+            HttpStatus.TOO_MANY_REQUESTS,
+            "TOO_MANY_REQUESTS",
+            "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
+    ),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "INSUFFICIENT_FUNDS", "보유 포인트가 부족합니다."),
     INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "INSUFFICIENT_STOCK", "주문 가능한 재고가 부족합니다."),
     INSUFFICIENT_QUANTITY(HttpStatus.CONFLICT, "INSUFFICIENT_QUANTITY", "취소할 수량이 부족합니다."),
