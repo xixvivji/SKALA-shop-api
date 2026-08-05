@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   test:
+    name: Backend tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,3 +22,19 @@ jobs:
           cache: gradle
       - name: Test
         run: ./gradlew test --no-daemon
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check JavaScript syntax
+        run: |
+          node --check frontend/config.js
+          node --check frontend/js/api.js
+          node --check frontend/js/app.js
+      - name: Validate static files
+        run: node frontend/scripts/validate-static.mjs
