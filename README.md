@@ -1,10 +1,22 @@
-# SKALA Shop API
+# SKALA Shop
 
-Java 21과 Spring Boot로 구현한 쇼핑몰 백엔드입니다. 하나의 애플리케이션과
-PostgreSQL을 사용하지만 도메인별 코드와 테이블 소유권을 분리한 모듈러
-모놀리식으로 구성합니다.
+Java 21과 Spring Boot로 구현한 쇼핑몰 백엔드와 순수 HTML, CSS,
+JavaScript 프론트엔드를 함께 관리하는 모노레포입니다. 백엔드는 하나의
+애플리케이션과 PostgreSQL을 사용하지만 도메인별 코드와 테이블 소유권을
+분리한 모듈러 모놀리식으로 구성합니다.
+
+## 저장소 구조
+
+~~~text
+./            Spring Boot 백엔드, Docker 및 배포 설정
+frontend/     정적 쇼핑몰 프론트엔드
+docs/         백엔드 아키텍처 문서
+deploy/       EC2, Nginx, Certbot 배포 구성
+~~~
 
 ## 기술 스택
+
+백엔드:
 
 - Java 21
 - Spring Boot 3.5
@@ -16,6 +28,13 @@ PostgreSQL을 사용하지만 도메인별 코드와 테이블 소유권을 분�
 - Flyway
 - Gradle
 - Testcontainers
+
+프론트엔드:
+
+- HTML5
+- CSS3
+- Vanilla JavaScript
+- Vercel
 
 ## 모듈
 
@@ -32,7 +51,7 @@ common      예외와 페이지 응답 등 최소 공통 코드
 자세한 의존 방향과 MSA 전환 방법은
 [docs/architecture.md](docs/architecture.md)를 참고합니다.
 
-## 로컬 실행
+## 백엔드 로컬 실행
 
 필수 조건은 Java 21, Docker 및 Docker Compose입니다.
 
@@ -54,6 +73,19 @@ DB password skala
 
 환경변수 이름은 [.env.example](.env.example)에 정리되어 있습니다. 실제
 비밀값 파일은 Git에 커밋하지 않습니다.
+
+## 프론트엔드 로컬 실행
+
+백엔드를 `http://localhost:8080`에서 실행한 뒤 저장소 루트에서 정적 서버를
+실행합니다.
+
+~~~bash
+python3 -m http.server 3000 --directory frontend
+~~~
+
+브라우저에서 `http://localhost:3000`으로 접속합니다. API 주소는
+[frontend/config.js](frontend/config.js)에서 설정하며 자세한 사용 방법은
+[frontend/README.md](frontend/README.md)를 참고합니다.
 
 ## 테스트
 
@@ -113,6 +145,9 @@ POST   /api/customers/cancel
 - 데이터베이스: 비공개 RDS PostgreSQL
 - 이미지 저장소: Docker Hub
 - CI/CD: GitHub Actions
+
+Vercel에서 이 저장소를 가져올 때 Root Directory를 `frontend`로 지정합니다.
+운영 API 주소와 쿠키·CORS 설정은 실제 프론트 및 API 도메인에 맞춰야 합니다.
 
 EC2 최초 설정과 인증서 발급 방법은
 [deploy/README.md](deploy/README.md)를 참고합니다.
