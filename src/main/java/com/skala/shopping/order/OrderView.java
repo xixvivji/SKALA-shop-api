@@ -16,6 +16,7 @@ public final class OrderView {
     private final BigDecimal remainingPoints;
     private final Instant orderedAt;
     private final List<OrderItemView> items;
+    private final ShippingAddressView shippingAddress;
 
     public OrderView(
             UUID id,
@@ -37,6 +38,7 @@ public final class OrderView {
         this.remainingPoints = remainingPoints;
         this.orderedAt = orderedAt;
         this.items = items;
+        this.shippingAddress = null;
     }
 
     public OrderView(UUID id, String orderNumber, String status, BigDecimal totalAmount,
@@ -78,4 +80,13 @@ public final class OrderView {
     public List<OrderItemView> getItems() {
         return items;
     }
+
+    private OrderView(OrderView source, ShippingAddressView shippingAddress) {
+        this.id=source.id;this.orderNumber=source.orderNumber;this.status=source.status;
+        this.fulfillmentStatus=source.fulfillmentStatus;this.totalAmount=source.totalAmount;
+        this.canceledAmount=source.canceledAmount;this.remainingPoints=source.remainingPoints;
+        this.orderedAt=source.orderedAt;this.items=source.items;this.shippingAddress=shippingAddress;
+    }
+    public OrderView withShippingAddress(ShippingAddressView address){return new OrderView(this,address);}
+    public ShippingAddressView getShippingAddress(){return shippingAddress;}
 }

@@ -2,6 +2,7 @@ package com.skala.shopping.order.internal.web.dto.response;
 
 import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.order.OrderView;
+import com.skala.shopping.order.ShippingAddressView;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -20,6 +21,7 @@ public final class OrderResponse {
     private final BigDecimal remainingPoints;
     private final Instant orderedAt;
     private final List<OrderItemResponse> items;
+    private final ShippingAddressView shippingAddress;
 
     public OrderResponse(
             UUID id,
@@ -41,10 +43,11 @@ public final class OrderResponse {
         this.remainingPoints = remainingPoints;
         this.orderedAt = orderedAt;
         this.items = items;
+        this.shippingAddress = null;
     }
 
     public static OrderResponse from(OrderView order) {
-        return new OrderResponse(
+        OrderResponse response = new OrderResponse(
                 order.getId(),
                 order.getOrderNumber(),
                 order.getStatus(),
@@ -55,6 +58,7 @@ public final class OrderResponse {
                 order.getOrderedAt(),
                 order.getItems().stream().map(OrderItemResponse::from).toList()
         );
+        return new OrderResponse(response, order.getShippingAddress());
     }
 
     public static PageResponse<OrderResponse> pageFrom(PageResponse<OrderView> orders) {
@@ -99,4 +103,9 @@ public final class OrderResponse {
     public List<OrderItemResponse> getItems() {
         return items;
     }
+    private OrderResponse(OrderResponse source,ShippingAddressView shippingAddress){this.id=source.id;
+        this.orderNumber=source.orderNumber;this.status=source.status;this.fulfillmentStatus=source.fulfillmentStatus;
+        this.totalAmount=source.totalAmount;this.canceledAmount=source.canceledAmount;this.remainingPoints=source.remainingPoints;
+        this.orderedAt=source.orderedAt;this.items=source.items;this.shippingAddress=shippingAddress;}
+    public ShippingAddressView getShippingAddress(){return shippingAddress;}
 }

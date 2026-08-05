@@ -6,6 +6,8 @@ import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.order.internal.OrderApplicationService;
 import com.skala.shopping.order.internal.web.dto.request.UpdateFulfillmentRequest;
 import com.skala.shopping.order.internal.web.dto.response.OrderResponse;
+import com.skala.shopping.order.OrderStatusHistoryView;
+import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,6 +42,8 @@ class AdminOrderController {
                               @Valid @RequestBody UpdateFulfillmentRequest request) {
         return OrderResponse.from(service.changeFulfillment(adminId(jwt), orderId, request.getStatus()));
     }
+    @GetMapping("/{orderId}/history") @Operation(summary="배송 상태 변경 이력")
+    List<OrderStatusHistoryView> history(@PathVariable UUID orderId){return service.getStatusHistory(orderId);}
     private UUID adminId(Jwt jwt) {
         try { return UUID.fromString(jwt.getSubject()); }
         catch (RuntimeException exception) { throw new BusinessException(ErrorCode.NOT_AUTHENTICATED); }

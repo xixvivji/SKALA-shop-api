@@ -1,6 +1,7 @@
 package com.skala.shopping.order.internal.domain;
 
 import com.skala.shopping.order.ShippingAddressCommand;
+import com.skala.shopping.order.ShippingAddressView;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -22,4 +23,6 @@ public class OrderShippingAddress {
         this.phoneNumber = address.getPhoneNumber(); this.postalCode = address.getPostalCode();
         this.addressLine1 = address.getAddressLine1(); this.addressLine2 = address.getAddressLine2();
     }
+    public UUID orderId(){return orderId;}
+    public ShippingAddressView toView(){return new ShippingAddressView(recipientName,phoneNumber,postalCode,addressLine1,addressLine2);}
 }

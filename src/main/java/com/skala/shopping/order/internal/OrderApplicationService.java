@@ -9,6 +9,8 @@ import com.skala.shopping.order.OrderItemView;
 import com.skala.shopping.order.OrderView;
 import com.skala.shopping.order.OrderLineCommand;
 import com.skala.shopping.order.ShippingAddressCommand;
+import com.skala.shopping.order.ShippingAddressView;
+import com.skala.shopping.order.OrderStatusHistoryView;
 import com.skala.shopping.order.PurchasedProductView;
 import com.skala.shopping.order.internal.domain.OrderCancellation;
 import com.skala.shopping.order.internal.domain.OrderItem;
@@ -136,8 +138,10 @@ public class OrderApplicationService implements OrderApi {
                                 OrderItem::orderId,
                                 Collectors.mapping(OrderItem::toView, Collectors.toList())
                         ));
+        Map<UUID, ShippingAddressView> addresses = shippingAddresses(
+                orders.stream().map(ShopOrder::id).toList());
         return PageResponse.from(orders.map(
-                order -> order.toView(itemsByOrder.getOrDefault(order.id(), List.of()))
+                order -> withAddress(order.toView(itemsByOrder.getOrDefault(order.id(), List.of())), addresses)
         ));
     }
 
@@ -172,8 +176,10 @@ public class OrderApplicationService implements OrderApi {
                         orders.stream().map(ShopOrder::id).toList()).stream()
                 .collect(Collectors.groupingBy(OrderItem::orderId,
                         Collectors.mapping(OrderItem::toView, Collectors.toList())));
+        Map<UUID, ShippingAddressView> addresses = shippingAddresses(
+                orders.stream().map(ShopOrder::id).toList());
         return PageResponse.from(orders.map(order ->
-                order.toView(itemsByOrder.getOrDefault(order.id(), List.of()))));
+                withAddress(order.toView(itemsByOrder.getOrDefault(order.id(), List.of())), addresses)));
     }
 
     @Transactional
@@ -193,8 +199,15 @@ public class OrderApplicationService implements OrderApi {
         }
         statusHistoryRepository.save(new OrderStatusHistory(
                 order.id(), previous, next, adminId, clock.instant()));
-        return order.toView(itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id())
-                .stream().map(OrderItem::toView).toList());
+        return attachAddress(order.toView(itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id())
+                .stream().map(OrderItem::toView).toList()));
+    }
+
+    @Transactional(readOnly=true)
+    public List<OrderStatusHistoryView> getStatusHistory(UUID orderId){
+        if(!orderRepository.existsById(orderId)) throw new BusinessException(ErrorCode.DATA_NOT_FOUND,"주문을 찾을 수 없습니다.");
+        return statusHistoryRepository.findAllByOrderIdOrderByChangedAtAscIdAsc(orderId)
+                .stream().map(OrderStatusHistory::toView).toList();
     }
 
     private OrderView createOrder(
@@ -249,10 +262,12 @@ public class OrderApplicationService implements OrderApi {
                     orderId, product.getId(), product.getName(), product.getPrice(),
                     lines.get(index).getQuantity(), index)));
         }
+        OrderView view = order.toView(savedItems.stream().map(OrderItem::toView).toList());
         if (shippingAddress != null) {
-            shippingAddressRepository.save(new OrderShippingAddress(orderId, shippingAddress));
+            OrderShippingAddress saved = shippingAddressRepository.save(new OrderShippingAddress(orderId, shippingAddress));
+            view = view.withShippingAddress(saved.toView());
         }
-        return order.toView(savedItems.stream().map(OrderItem::toView).toList());
+        return view;
     }
 
     private CancellationView executeCancellation(
@@ -350,11 +365,24 @@ public class OrderApplicationService implements OrderApi {
     }
 
     private OrderView toCreationView(ShopOrder order) {
-        return order.toCreationView(
+        return attachAddress(order.toCreationView(
                 itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id()).stream()
                         .map(OrderItem::toCreationView)
                         .toList()
-        );
+        ));
+    }
+
+    private OrderView attachAddress(OrderView order){
+        return shippingAddressRepository.findById(order.getId())
+                .map(address -> order.withShippingAddress(address.toView())).orElse(order);
+    }
+    private Map<UUID,ShippingAddressView> shippingAddresses(List<UUID> orderIds){
+        if(orderIds.isEmpty()) return Map.of();
+        return shippingAddressRepository.findAllByOrderIdIn(orderIds).stream()
+                .collect(Collectors.toMap(OrderShippingAddress::orderId,OrderShippingAddress::toView));
+    }
+    private OrderView withAddress(OrderView order,Map<UUID,ShippingAddressView> addresses){
+        ShippingAddressView address=addresses.get(order.getId());return address==null?order:order.withShippingAddress(address);
     }
 
     private String orderNumber(UUID id, java.time.Instant now) {

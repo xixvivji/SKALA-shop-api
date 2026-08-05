@@ -1,5 +1,7 @@
 package com.skala.shopping.order.internal.domain;
 
+import com.skala.shopping.order.OrderStatusHistoryView;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -24,4 +26,6 @@ public class OrderStatusHistory {
         this.id=UUID.randomUUID(); this.orderId=orderId; this.fromStatus=from;
         this.toStatus=to; this.changedBy=changedBy; this.changedAt=now;
     }
+    public OrderStatusHistoryView toView(){return new OrderStatusHistoryView(id,
+            fromStatus==null?null:fromStatus.name(),toStatus.name(),changedBy,changedAt);}
 }
