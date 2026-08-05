@@ -1,0 +1,230 @@
+const configuredBaseUrl =
+  window.SKALA_CONFIG?.API_BASE_URL || "http://localhost:8080";
+
+export const API_BASE_URL = configuredBaseUrl.replace(/\/+$/, "");
+
+const activityListeners = new Set();
+let csrfToken = null;
+let csrfRequest = null;
+
+export class ApiError extends Error {
+  constructor({ status = 0, code = "UNKNOWN_ERROR", message, fieldErrors = {} }) {
+    super(message || "요청을 처리하지 못했습니다.");
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.fieldErrors = fieldErrors;
+  }
+}
+
+export function subscribeApiActivity(listener) {
+  activityListeners.add(listener);
+  return () => activityListeners.delete(listener);
+}
+
+function publishActivity(activity) {
+  activityListeners.forEach((listener) => listener(activity));
+}
+
+function isMutation(method) {
+  return !["GET", "HEAD", "OPTIONS"].includes(method);
+}
+
+async function readBody(response) {
+  if (response.status === 204) {
+    return null;
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  return text || null;
+}
+
+function errorFromResponse(response, payload) {
+  return new ApiError({
+    status: response.status,
+    code: payload?.code || `HTTP_${response.status}`,
+    message: payload?.message || `요청이 실패했습니다. (${response.status})`,
+    fieldErrors: payload?.fieldErrors || {},
+  });
+}
+
+export async function issueCsrfToken(force = false) {
+  if (csrfToken && !force) {
+    return csrfToken;
+  }
+
+  if (csrfRequest && !force) {
+    return csrfRequest;
+  }
+
+  csrfRequest = fetch(`${API_BASE_URL}/api/auth/csrf`, {
+    method: "GET",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  })
+    .then(async (response) => {
+      const payload = await readBody(response);
+      if (!response.ok) {
+        throw errorFromResponse(response, payload);
+      }
+      csrfToken = payload;
+      return payload;
+    })
+    .catch((error) => {
+      csrfToken = null;
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError({
+        code: "NETWORK_ERROR",
+        message: "백엔드에 연결할 수 없습니다. API 주소와 서버 상태를 확인해 주세요.",
+      });
+    })
+    .finally(() => {
+      csrfRequest = null;
+    });
+
+  return csrfRequest;
+}
+
+async function request(
+  path,
+  {
+    method = "GET",
+    body,
+    headers = {},
+    idempotencyKey,
+    retryCsrf = true,
+  } = {},
+) {
+  const normalizedMethod = method.toUpperCase();
+  const requestHeaders = {
+    Accept: "application/json",
+    ...headers,
+  };
+
+  if (body !== undefined) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+
+  if (idempotencyKey) {
+    requestHeaders["X-Idempotency-Key"] = idempotencyKey;
+  }
+
+  if (isMutation(normalizedMethod)) {
+    const csrf = await issueCsrfToken();
+    requestHeaders[csrf.headerName || "X-XSRF-TOKEN"] = csrf.token;
+  }
+
+  const startedAt = performance.now();
+  let response;
+  let payload;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: normalizedMethod,
+      credentials: "include",
+      headers: requestHeaders,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    payload = await readBody(response);
+  } catch (error) {
+    publishActivity({
+      method: normalizedMethod,
+      path,
+      status: "ERR",
+      duration: Math.round(performance.now() - startedAt),
+      at: new Date(),
+    });
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError({
+      code: "NETWORK_ERROR",
+      message: "백엔드에 연결할 수 없습니다. API 주소와 CORS 설정을 확인해 주세요.",
+    });
+  }
+
+  publishActivity({
+    method: normalizedMethod,
+    path,
+    status: response.status,
+    duration: Math.round(performance.now() - startedAt),
+    at: new Date(),
+  });
+
+  if (!response.ok) {
+    if (response.status === 403 && isMutation(normalizedMethod) && retryCsrf) {
+      await issueCsrfToken(true);
+      return request(path, {
+        method: normalizedMethod,
+        body,
+        headers,
+        idempotencyKey,
+        retryCsrf: false,
+      });
+    }
+    throw errorFromResponse(response, payload);
+  }
+
+  return payload;
+}
+
+export function createCommandId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+export const shopApi = {
+  health: () => request("/actuator/health"),
+  products: (page = 0, size = 100) =>
+    request(`/api/products?page=${page}&size=${size}`),
+  register: (payload) => request("/api/customers", { method: "POST", body: payload }),
+  resetPassword: (payload) =>
+    request("/api/customers/password/reset", { method: "POST", body: payload }),
+  login: (payload) =>
+    request("/api/customers/login", { method: "POST", body: payload }),
+  logout: () => request("/api/customers/logout", { method: "POST" }),
+  me: () => request("/api/customers/me"),
+  updateMe: (name) =>
+    request("/api/customers/me", { method: "PUT", body: { name } }),
+  deactivateMe: () => request("/api/customers/me", { method: "DELETE" }),
+  orders: () => request("/api/orders/me"),
+  order: (productId, quantity, idempotencyKey = createCommandId()) =>
+    request("/api/orders", {
+      method: "POST",
+      body: { productId, quantity },
+      idempotencyKey,
+    }),
+  cancel: (productId, quantity, idempotencyKey = createCommandId()) =>
+    request("/api/orders/cancellations", {
+      method: "POST",
+      body: { productId, quantity },
+      idempotencyKey,
+    }),
+  members: (page = 0, size = 50) =>
+    request(`/api/customers/list?page=${page}&size=${size}`),
+  createProduct: (productName, productPrice) =>
+    request("/api/products", {
+      method: "POST",
+      body: { productName, productPrice },
+    }),
+  updateProduct: (productId, productName, productPrice) =>
+    request(`/api/products/${productId}`, {
+      method: "PUT",
+      body: { productName, productPrice },
+    }),
+  deleteProduct: (productId) =>
+    request(`/api/products/${productId}`, { method: "DELETE" }),
+};

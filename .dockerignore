@@ -4,6 +4,7 @@
 .idea
 build
 deploy
+frontend
 *.iml
 *.log
 .env
