@@ -53,25 +53,43 @@ public class ProductApplicationService implements CatalogApi {
 
     @Transactional(readOnly = true)
     public PageResponse<ProductSnapshot> getProducts(int page, int size) {
+        return searchProducts(null, null, null, null, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ProductSnapshot> searchProducts(String query, UUID categoryId,
+                                                        BigDecimal minPrice, BigDecimal maxPrice,
+                                                        int page, int size) {
+        if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "최소 가격은 최대 가격보다 클 수 없습니다.");
+        }
         var pageable = PageRequest.of(
                 page,
                 size,
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
         );
         return PageResponse.from(
-                repository.findAllByStatus(ProductStatus.ACTIVE, pageable)
+                repository.search(ProductStatus.ACTIVE,
+                                query == null || query.isBlank() ? null : query.trim(),
+                                categoryId, minPrice, maxPrice, pageable)
                         .map(Product::toSnapshot)
         );
     }
 
     @Transactional
     public ProductSnapshot createProduct(String name, BigDecimal price, int initialQuantity) {
+        return createProduct(name, price, initialQuantity, null, null, null);
+    }
+
+    @Transactional
+    public ProductSnapshot createProduct(String name, BigDecimal price, int initialQuantity,
+                                         UUID categoryId, String description, String imageUrl) {
         validatePrice(price);
         String normalizedName = normalizeName(name);
         validateUniqueName(normalizedName);
-        ProductSnapshot product = repository
-                .save(new Product(normalizedName, price, clock.instant()))
-                .toSnapshot();
+        Product entity = new Product(normalizedName, price, clock.instant());
+        entity.updateDetails(categoryId, normalizeNullable(description), normalizeNullable(imageUrl), clock.instant());
+        ProductSnapshot product = repository.save(entity).toSnapshot();
         eventPublisher.publishEvent(new ProductCreated(product.getId(), initialQuantity));
         return product;
     }
@@ -80,11 +98,21 @@ public class ProductApplicationService implements CatalogApi {
     public ProductSnapshot updateProduct(UUID productId, String name, BigDecimal price) {
         validatePrice(price);
         Product product = findProduct(productId);
+        return updateProduct(productId, name, price, product.toSnapshot().getCategoryId(),
+                product.toSnapshot().getDescription(), product.toSnapshot().getImageUrl());
+    }
+
+    @Transactional
+    public ProductSnapshot updateProduct(UUID productId, String name, BigDecimal price,
+                                         UUID categoryId, String description, String imageUrl) {
+        validatePrice(price);
+        Product product = findProduct(productId);
         String normalizedName = normalizeName(name);
         if (!product.toSnapshot().getName().equalsIgnoreCase(normalizedName)) {
             validateUniqueName(normalizedName);
         }
         product.update(normalizedName, price, clock.instant());
+        product.updateDetails(categoryId, normalizeNullable(description), normalizeNullable(imageUrl), clock.instant());
         return product.toSnapshot();
     }
 
@@ -120,4 +148,6 @@ public class ProductApplicationService implements CatalogApi {
     private String normalizeName(String name) {
         return name.trim();
     }
+
+    private String normalizeNullable(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 }
