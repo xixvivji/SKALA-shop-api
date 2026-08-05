@@ -1407,7 +1407,8 @@ class ShoppingJourneyIntegrationTests {
                                 """.formatted(first, second)))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.items.length()").value(2))
                 .andExpect(jsonPath("$.remainingPoints").value(960000))
-                .andExpect(jsonPath("$.fulfillmentStatus").value("PAID")).andReturn();
+                .andExpect(jsonPath("$.fulfillmentStatus").value("PAID"))
+                .andExpect(jsonPath("$.shippingAddress.postalCode").value("12345")).andReturn();
         UUID orderId = UUID.fromString(objectMapper.readTree(placed.getResponse().getContentAsString()).get("id").asText());
         assertEquals(1, jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM orders.order_shipping_addresses WHERE order_id = ?", Integer.class, orderId));
@@ -1418,6 +1419,9 @@ class ShoppingJourneyIntegrationTests {
         mockMvc.perform(put("/api/admin/orders/{orderId}/fulfillment", orderId).with(csrf()).cookie(copy(admin))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SHIPPED\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.fulfillmentStatus").value("SHIPPED"));
+        mockMvc.perform(get("/api/admin/orders/{orderId}/history", orderId).cookie(copy(admin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[2].toStatus").value("SHIPPED"));
 
         mockMvc.perform(post("/api/orders/cancellations").with(csrf()).cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON)
