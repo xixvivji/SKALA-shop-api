@@ -95,7 +95,7 @@ python3 -m http.server 3000 --directory frontend
 
 테스트는 모듈 경계, Flyway, 회원가입과 로그인, 역할 기반 권한, 실제 쿠키
 CSRF 흐름, 상품 등록, 주문과 포인트 차감의 원자성, 동시 재시도 멱등성,
-부분 취소 환급을 실제 PostgreSQL로 검증합니다.
+부분 취소 환급, BCrypt 비밀번호 저장과 재설정을 실제 PostgreSQL로 검증합니다.
 
 ## 주요 API
 
@@ -104,6 +104,7 @@ POST   /api/customers
 GET    /api/auth/csrf
 POST   /api/customers/login
 POST   /api/customers/logout
+POST   /api/customers/password/reset
 GET    /api/customers/me
 GET    /api/customers/{customerId}
 GET    /api/customers/list
@@ -136,6 +137,12 @@ POST   /api/customers/cancel
 상품 등록·수정·삭제와 고객 목록 조회는 `ADMIN` 역할만 호출할 수 있습니다.
 초기 관리자 생성은 기본적으로 꺼져 있으며, 필요할 때만
 `BOOTSTRAP_ADMIN_*` 환경변수로 한 번 활성화한 뒤 다시 비활성화합니다.
+
+비밀번호는 평문으로 저장하지 않고 BCrypt 해시로 저장합니다. 현재 비밀번호
+재설정 API는 학습용 데모 흐름으로, 고객 ID와 현재 등록된 이름을 확인한 뒤 새
+비밀번호로 변경하며 기존 JWT를 무효화합니다. 실제 운영에서는 이름 확인을
+이메일·휴대전화 소유 인증과 만료되는 일회용 재설정 토큰으로 교체해야 합니다.
+BCrypt 입력 한계에 맞춰 비밀번호는 UTF-8 인코딩 기준 72바이트 이하여야 합니다.
 
 ## 운영 배포
 

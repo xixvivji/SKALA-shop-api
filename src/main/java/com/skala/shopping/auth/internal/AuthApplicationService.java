@@ -1,6 +1,7 @@
 package com.skala.shopping.auth.internal;
 
 import com.skala.shopping.auth.AuthAccountApi;
+import com.skala.shopping.auth.BcryptPasswordPolicy;
 import com.skala.shopping.auth.internal.domain.AuthAccount;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
@@ -12,6 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthApplicationService implements AuthAccountApi {
+
+    private static final String PASSWORD_RESET_FAILURE_MESSAGE =
+            "입력한 회원 정보를 확인할 수 없습니다.";
 
     private final AuthAccountRepository repository;
     private final PasswordEncoder passwordEncoder;
@@ -31,6 +35,7 @@ public class AuthApplicationService implements AuthAccountApi {
     @Override
     @Transactional
     public void createAccount(UUID memberId, String loginId, String rawPassword) {
+        validatePasswordForEncoding(rawPassword);
         if (repository.existsByLoginId(loginId)) {
             throw new BusinessException(ErrorCode.DATA_DUPLICATED, "이미 사용 중인 고객 ID입니다.");
         }
@@ -40,6 +45,20 @@ public class AuthApplicationService implements AuthAccountApi {
                 passwordEncoder.encode(rawPassword),
                 clock.instant()
         ));
+    }
+
+    @Override
+    @Transactional
+    public void resetPassword(UUID memberId, String rawPassword) {
+        validatePasswordForEncoding(rawPassword);
+        AuthAccount account = repository.findById(memberId)
+                .filter(AuthAccount::isActive)
+                .filter(candidate -> !candidate.isAdmin())
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.INVALID_PARAMETER,
+                        PASSWORD_RESET_FAILURE_MESSAGE
+                ));
+        account.changePassword(passwordEncoder.encode(rawPassword), clock.instant());
     }
 
     @Override
@@ -57,7 +76,9 @@ public class AuthApplicationService implements AuthAccountApi {
                         ErrorCode.NOT_AUTHENTICATED,
                         "고객 ID 또는 비밀번호가 올바르지 않습니다."
                 ));
-        if (!account.isActive() || !passwordEncoder.matches(rawPassword, account.passwordHash())) {
+        if (!account.isActive()
+                || !BcryptPasswordPolicy.isCompatible(rawPassword)
+                || !passwordEncoder.matches(rawPassword, account.passwordHash())) {
             throw new BusinessException(
                     ErrorCode.NOT_AUTHENTICATED,
                     "고객 ID 또는 비밀번호가 올바르지 않습니다."
@@ -71,5 +92,14 @@ public class AuthApplicationService implements AuthAccountApi {
                 token.getValue(),
                 token.getExpiresAt()
         );
+    }
+
+    private void validatePasswordForEncoding(String rawPassword) {
+        if (!BcryptPasswordPolicy.isCompatible(rawPassword)) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    BcryptPasswordPolicy.VALIDATION_MESSAGE
+            );
+        }
     }
 }

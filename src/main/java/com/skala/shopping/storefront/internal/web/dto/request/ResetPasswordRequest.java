@@ -6,33 +6,36 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
-@Schema(name = "RegisterCustomerRequest", description = "회원가입 요청")
-public final class RegisterCustomerRequest {
+@Schema(
+        name = "ResetPasswordRequest",
+        description = "고객 ID와 현재 등록된 이름을 확인하는 데모용 비밀번호 재설정 요청"
+)
+public final class ResetPasswordRequest {
 
-    @Schema(description = "로그인에 사용할 고객 ID", example = "skala01")
+    @Schema(description = "로그인에 사용하는 고객 ID", example = "skala01")
     @NotBlank
     @Size(min = 3, max = 50)
     @Pattern(regexp = "[A-Za-z0-9_-]+")
     private String customerId;
 
-    @Schema(description = "비밀번호", example = "pw1234")
-    @NotBlank
-    @Size(min = 6, max = 72)
-    @BcryptCompatible
-    private String customerPassword;
-
-    @Schema(description = "고객 이름", example = "김스칼라")
+    @Schema(description = "현재 등록된 고객 이름", example = "김스칼라")
     @NotBlank
     @Size(max = 100)
     private String customerName;
 
-    public RegisterCustomerRequest() {
+    @Schema(description = "새 비밀번호", example = "newPassword123")
+    @NotBlank
+    @Size(min = 6, max = 72)
+    @BcryptCompatible
+    private String newPassword;
+
+    public ResetPasswordRequest() {
     }
 
-    public RegisterCustomerRequest(String customerId, String customerPassword, String customerName) {
+    public ResetPasswordRequest(String customerId, String customerName, String newPassword) {
         this.customerId = customerId;
-        this.customerPassword = customerPassword;
         this.customerName = customerName;
+        this.newPassword = newPassword;
     }
 
     public String getCustomerId() {
@@ -43,19 +46,19 @@ public final class RegisterCustomerRequest {
         this.customerId = customerId;
     }
 
-    public String getCustomerPassword() {
-        return customerPassword;
-    }
-
-    public void setCustomerPassword(String customerPassword) {
-        this.customerPassword = customerPassword;
-    }
-
     public String getCustomerName() {
         return customerName;
     }
 
     public void setCustomerName(String customerName) {
         this.customerName = customerName;
+    }
+
+    public String getNewPassword() {
+        return newPassword;
+    }
+
+    public void setNewPassword(String newPassword) {
+        this.newPassword = newPassword;
     }
 }

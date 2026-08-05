@@ -3,11 +3,13 @@ package com.skala.shopping;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -16,6 +18,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -35,6 +38,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -61,6 +65,9 @@ class ShoppingJourneyIntegrationTests {
 
     @Autowired
     ObjectMapper objectMapper;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     private Cookie csrfCookie;
     private String csrfToken;
@@ -101,10 +108,12 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(jsonPath("$['paths']['/api/orders']['post']['responses']['403']").exists())
                 .andExpect(jsonPath("$['paths']['/api/orders']['post']['responses']['409']").exists())
                 .andExpect(jsonPath("$['paths']['/api/customers/logout']['post']['responses']['204']").exists())
+                .andExpect(jsonPath("$['paths']['/api/customers/password/reset']['post']['responses']['204']").exists())
                 .andExpect(jsonPath("$['paths']['/api/auth/csrf']['get']['responses']['200']").exists())
                 .andExpect(jsonPath("$['paths']['/api/customers/me']['get']").exists())
                 .andExpect(jsonPath("$.components.schemas.CreateOrderRequest").exists())
                 .andExpect(jsonPath("$.components.schemas.CancelOrderRequest").exists())
+                .andExpect(jsonPath("$.components.schemas.ResetPasswordRequest").exists())
                 .andExpect(jsonPath("$.components.schemas.CsrfTokenResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.ApiError").exists());
     }
@@ -259,6 +268,194 @@ class ShoppingJourneyIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(registrationBody(customerId)))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void resetsPasswordWithCustomerIdAndNameAndStoresOnlyBcryptHashes() throws Exception {
+        String customerId = unique("password-reset");
+        String oldPassword = "pw123456";
+        String newPassword = "newPw123456";
+
+        mockMvc.perform(post("/api/customers")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody(customerId)))
+                .andExpect(status().isCreated());
+
+        String oldHash = passwordHash(customerId);
+        assertTrue(oldHash.startsWith("$2"));
+        assertNotEquals(oldPassword, oldHash);
+        Cookie staleAuthCookie = login(customerId, oldPassword);
+
+        mockMvc.perform(put("/api/customers/me")
+                        .with(csrf())
+                        .cookie(copy(staleAuthCookie))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "현재 고객 이름"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("현재 고객 이름"));
+
+        mockMvc.perform(post("/api/customers/password/reset")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordBody(customerId, "테스트 고객", newPassword)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("입력한 회원 정보를 확인할 수 없습니다."));
+
+        mockMvc.perform(post("/api/customers/password/reset")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordBody(customerId, "현재 고객 이름", newPassword)))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        mockMvc.perform(get("/api/customers/me").cookie(copy(staleAuthCookie)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("NOT_AUTHENTICATED"));
+
+        mockMvc.perform(post("/api/customers/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(customerId, oldPassword)))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/customers/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(customerId, newPassword)))
+                .andExpect(status().isOk());
+
+        String newHash = passwordHash(customerId);
+        assertTrue(newHash.startsWith("$2"));
+        assertNotEquals(newPassword, newHash);
+        assertNotEquals(oldHash, newHash);
+    }
+
+    @Test
+    void usesOneGenericErrorForUnknownCustomerAndWrongNameDuringPasswordReset() throws Exception {
+        String customerId = unique("password-identity");
+        mockMvc.perform(post("/api/customers")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody(customerId)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/customers/password/reset")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordBody(customerId, "다른 이름", "newPw123456")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.message").value("입력한 회원 정보를 확인할 수 없습니다."));
+
+        mockMvc.perform(post("/api/customers/password/reset")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordBody(unique("unknown"), "테스트 고객", "newPw123456")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.message").value("입력한 회원 정보를 확인할 수 없습니다."));
+
+        mockMvc.perform(post("/api/customers/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(customerId, "pw123456")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void validatesRequiredCustomerNameAndPasswordResetInputs() throws Exception {
+        String customerId = unique("required-name");
+        mockMvc.perform(post("/api/customers")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "customerId": "%s",
+                                  "customerPassword": "pw123456",
+                                  "customerName": " "
+                                }
+                                """.formatted(customerId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.customerName").exists());
+
+        mockMvc.perform(post("/api/customers/password/reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordBody(customerId, "테스트 고객", "newPw123456")))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/customers/password/reset")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordBody(customerId, "테스트 고객", "short")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.newPassword").exists());
+
+        mockMvc.perform(post("/api/customers/password/reset")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordBody(customerId, "테스트 고객", "a".repeat(73))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.newPassword").exists());
+    }
+
+    @Test
+    void handlesMultibytePasswordsBeyondTheBcryptByteLimitWithoutServerErrors() throws Exception {
+        String customerId = unique("bcrypt-bytes");
+        String oversizedMultibytePassword = "가".repeat(25);
+        assertTrue(oversizedMultibytePassword.length() <= 72);
+        assertTrue(oversizedMultibytePassword.getBytes(StandardCharsets.UTF_8).length > 72);
+
+        mockMvc.perform(post("/api/customers")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody(
+                                customerId,
+                                oversizedMultibytePassword,
+                                "테스트 고객"
+                        )))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors.customerPassword")
+                        .value("비밀번호는 UTF-8 기준 72바이트 이하여야 합니다."));
+
+        mockMvc.perform(post("/api/customers")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody(customerId)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/customers/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(customerId, oversizedMultibytePassword)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("NOT_AUTHENTICATED"))
+                .andExpect(jsonPath("$.message")
+                        .value("고객 ID 또는 비밀번호가 올바르지 않습니다."));
+
+        mockMvc.perform(post("/api/customers/password/reset")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordBody(
+                                customerId,
+                                "테스트 고객",
+                                oversizedMultibytePassword
+                        )))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors.newPassword")
+                        .value("비밀번호는 UTF-8 기준 72바이트 이하여야 합니다."));
+
+        mockMvc.perform(post("/api/customers/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(customerId, "pw123456")))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -631,13 +828,17 @@ class ShoppingJourneyIntegrationTests {
     }
 
     private String registrationBody(String customerId) {
+        return registrationBody(customerId, "pw123456", "테스트 고객");
+    }
+
+    private String registrationBody(String customerId, String password, String customerName) {
         return """
                 {
                   "customerId": "%s",
-                  "customerPassword": "pw123456",
-                  "customerName": "테스트 고객"
+                  "customerPassword": "%s",
+                  "customerName": "%s"
                 }
-                """.formatted(customerId);
+                """.formatted(customerId, password, customerName);
     }
 
     private String loginBody(String customerId, String password) {
@@ -647,6 +848,24 @@ class ShoppingJourneyIntegrationTests {
                   "customerPassword": "%s"
                 }
                 """.formatted(customerId, password);
+    }
+
+    private String resetPasswordBody(String customerId, String customerName, String newPassword) {
+        return """
+                {
+                  "customerId": "%s",
+                  "customerName": "%s",
+                  "newPassword": "%s"
+                }
+                """.formatted(customerId, customerName, newPassword);
+    }
+
+    private String passwordHash(String customerId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT password_hash FROM auth.accounts WHERE login_id = ?",
+                String.class,
+                customerId
+        );
     }
 
     private String productBody(String productName, String productPrice) {

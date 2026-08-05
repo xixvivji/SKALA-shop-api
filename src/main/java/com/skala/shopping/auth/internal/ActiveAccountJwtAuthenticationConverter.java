@@ -32,6 +32,9 @@ class ActiveAccountJwtAuthenticationConverter
         if (account.role() != tokenRole) {
             throw new BadCredentialsException("Account role has changed");
         }
+        if (account.credentialVersion() != credentialVersion(jwt)) {
+            throw new BadCredentialsException("Account credentials have changed");
+        }
 
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + tokenRole.name()));
         return new JwtAuthenticationToken(jwt, authorities, account.loginId());
@@ -51,5 +54,13 @@ class ActiveAccountJwtAuthenticationConverter
         } catch (RuntimeException exception) {
             throw new BadCredentialsException("Invalid JWT role", exception);
         }
+    }
+
+    private long credentialVersion(Jwt jwt) {
+        Object claim = jwt.getClaim("credentialVersion");
+        if (claim instanceof Number number) {
+            return number.longValue();
+        }
+        throw new BadCredentialsException("Invalid JWT credential version");
     }
 }

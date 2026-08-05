@@ -8,6 +8,7 @@ import com.skala.shopping.storefront.internal.StorefrontApplicationService;
 import com.skala.shopping.storefront.internal.web.dto.request.CancelStorefrontOrderRequest;
 import com.skala.shopping.storefront.internal.web.dto.request.PlaceStorefrontOrderRequest;
 import com.skala.shopping.storefront.internal.web.dto.request.RegisterCustomerRequest;
+import com.skala.shopping.storefront.internal.web.dto.request.ResetPasswordRequest;
 import com.skala.shopping.storefront.internal.web.dto.response.CancellationResponse;
 import com.skala.shopping.storefront.internal.web.dto.response.CustomerResponse;
 import com.skala.shopping.storefront.internal.web.dto.response.OrderCompatibilityResponse;
@@ -88,6 +89,34 @@ class StorefrontController {
         return ResponseEntity.created(
                 URI.create("/api/customers/" + registered.getCustomerId())
         ).body(registered);
+    }
+
+    @PostMapping("/password/reset")
+    @Operation(
+            summary = "비밀번호 재설정",
+            description = "고객 ID와 현재 등록된 이름을 확인해 새 비밀번호로 변경하는 데모용 API입니다. "
+                    + "운영 환경에서는 이메일 또는 휴대전화 소유 확인과 일회용 토큰 방식으로 교체해야 합니다.",
+            responses = {
+                    @ApiResponse(responseCode = "204", description = "비밀번호 재설정 완료"),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "입력값 오류 또는 회원 정보 불일치",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "CSRF 토큰 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
+    )
+    ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        service.resetPassword(
+                request.getCustomerId(),
+                request.getCustomerName(),
+                request.getNewPassword()
+        );
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/me")
