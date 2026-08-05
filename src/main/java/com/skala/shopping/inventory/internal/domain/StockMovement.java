@@ -1,6 +1,7 @@
 package com.skala.shopping.inventory.internal.domain;
 
 import com.skala.shopping.inventory.StockBalance;
+import com.skala.shopping.inventory.StockMovementView;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -86,4 +87,7 @@ public class StockMovement {
     public StockBalance toBalance() {
         return new StockBalance(productId, availableAfter, activeAfter);
     }
+
+    public StockMovementView toView(){return new StockMovementView(id,operationId,productId,movementType.name(),
+            quantity,availableAfter,activeAfter,reason,createdAt);}
 }
