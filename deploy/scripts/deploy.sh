@@ -2,71 +2,133 @@
 
 set -eu
 
-if [ "$#" -ne 1 ]; then
-    echo "usage: deploy.sh <image-tag>" >&2
+if [ "$#" -ne 2 ]; then
+    echo "usage: deploy.sh <release-id> <repository@sha256:digest>" >&2
     exit 2
 fi
 
-IMAGE_TAG_VALUE=$1
-case "$IMAGE_TAG_VALUE" in
-    *[!A-Za-z0-9._-]*|'')
-        echo "invalid image tag" >&2
-        exit 2
-        ;;
-esac
-
+RELEASE_ID_VALUE=$1
+IMAGE_REF_VALUE=$2
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-DEPLOY_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-COMPOSE_FILE="$DEPLOY_DIR/compose.prod.yml"
-INFRA_ENV="$DEPLOY_DIR/.env.infra"
-RELEASE_ENV="$DEPLOY_DIR/.release"
-PREVIOUS_RELEASE="$DEPLOY_DIR/.release.previous"
+. "$SCRIPT_DIR/release-lib.sh"
 
-for required_file in "$INFRA_ENV" "$DEPLOY_DIR/.env.app"; do
-    if [ ! -f "$required_file" ]; then
-        echo "missing required file: $required_file" >&2
-        exit 1
-    fi
-done
+DEPLOY_STARTED=0
+DEPLOY_COMPLETE=0
+KEEP_CANDIDATE=0
+PREVIOUS_AVAILABLE=0
+PREVIOUS_METADATA=$DEPLOY_PREVIOUS_RELEASE
+ORIGINAL_KNOWN_GOOD_AVAILABLE=0
+ORIGINAL_KNOWN_GOOD_METADATA=$DEPLOY_ORIGINAL_KNOWN_GOOD_RELEASE
+ORIGINAL_KNOWN_GOOD_ABSENT=$DEPLOY_ORIGINAL_KNOWN_GOOD_ABSENT
 
-compose() {
-    docker compose \
-        --env-file "$INFRA_ENV" \
-        --env-file "$RELEASE_ENV" \
-        -f "$COMPOSE_FILE" "$@"
+require_shared_files
+acquire_deployment_lock
+recover_interrupted_release
+
+preflight_cleanup() {
+    exit_code=$?
+    trap - EXIT INT TERM HUP
+    rm -f "$CANDIDATE_RELEASE" "$PREVIOUS_METADATA" \
+        "$ORIGINAL_KNOWN_GOOD_METADATA" "$ORIGINAL_KNOWN_GOOD_ABSENT"
+    exit "$exit_code"
 }
+trap preflight_cleanup EXIT
+trap 'exit 130' INT TERM HUP
 
-if [ -f "$RELEASE_ENV" ]; then
-    cp "$RELEASE_ENV" "$PREVIOUS_RELEASE"
-fi
-printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG_VALUE" > "$RELEASE_ENV"
-
-compose pull backend
-compose up -d --no-deps backend
-
-CONTAINER_ID=$(compose ps -q backend)
-if [ -z "$CONTAINER_ID" ]; then
-    echo "backend container was not created" >&2
-    "$SCRIPT_DIR/rollback.sh"
+if [ -f "$CURRENT_RELEASE" ]; then
+    atomic_copy "$CURRENT_RELEASE" "$PREVIOUS_METADATA"
+    PREVIOUS_AVAILABLE=1
+    if [ -f "$KNOWN_GOOD_RELEASE" ]; then
+        atomic_copy "$KNOWN_GOOD_RELEASE" "$ORIGINAL_KNOWN_GOOD_METADATA"
+        rm -f "$ORIGINAL_KNOWN_GOOD_ABSENT"
+        ORIGINAL_KNOWN_GOOD_AVAILABLE=1
+    else
+        rm -f "$ORIGINAL_KNOWN_GOOD_METADATA"
+        atomic_marker "$ORIGINAL_KNOWN_GOOD_ABSENT"
+    fi
+elif [ -f "$KNOWN_GOOD_RELEASE" ]; then
+    echo "known-good metadata exists without current metadata" >&2
     exit 1
 fi
 
-attempt=1
-while [ "$attempt" -le 24 ]; do
-    STATUS=$(docker inspect --format '{{.State.Health.Status}}' "$CONTAINER_ID")
-    if [ "$STATUS" = "healthy" ]; then
-        compose up -d nginx certbot-renew
-        compose exec -T nginx nginx -s reload
-        echo "deployed image tag: $IMAGE_TAG_VALUE"
-        exit 0
-    fi
-    if [ "$STATUS" = "unhealthy" ]; then
-        break
-    fi
-    sleep 5
-    attempt=$((attempt + 1))
-done
+write_release_metadata "$CANDIDATE_RELEASE" "$RELEASE_ID_VALUE" "$IMAGE_REF_VALUE"
 
-echo "backend failed its health check; restoring previous image" >&2
-"$SCRIPT_DIR/rollback.sh"
-exit 1
+restore_previous_release() {
+    if [ "$PREVIOUS_AVAILABLE" -ne 1 ]; then
+        echo "no previous release metadata is available for automatic rollback" >&2
+        return 1
+    fi
+    activate_release "$PREVIOUS_METADATA" || return 1
+    atomic_copy "$PREVIOUS_METADATA" "$CURRENT_RELEASE" || return 1
+    if [ "$ORIGINAL_KNOWN_GOOD_AVAILABLE" -eq 1 ]; then
+        atomic_copy "$ORIGINAL_KNOWN_GOOD_METADATA" "$KNOWN_GOOD_RELEASE" || return 1
+    else
+        rm -f "$KNOWN_GOOD_RELEASE"
+    fi
+}
+
+finish() {
+    exit_code=$?
+    trap - EXIT INT TERM HUP
+    set +e
+
+    if [ "$exit_code" -ne 0 ] && [ "$DEPLOY_STARTED" -eq 1 ] \
+            && [ "$DEPLOY_COMPLETE" -eq 0 ]; then
+        if [ -f "$CANDIDATE_RELEASE" ]; then
+            atomic_copy "$CANDIDATE_RELEASE" "$FAILED_RELEASE"
+        fi
+        echo "deployment failed; restoring the previous backend and edge configuration" >&2
+        if restore_previous_release; then
+            echo "previous release restored" >&2
+        else
+            echo "automatic rollback was unavailable or failed; inspect the deployment immediately" >&2
+            KEEP_CANDIDATE=1
+        fi
+    fi
+
+    if [ "$KEEP_CANDIDATE" -ne 1 ]; then
+        rm -f "$CANDIDATE_RELEASE"
+        rm -f "$PREVIOUS_METADATA" "$ORIGINAL_KNOWN_GOOD_METADATA" \
+            "$ORIGINAL_KNOWN_GOOD_ABSENT"
+    fi
+    exit "$exit_code"
+}
+
+trap finish EXIT
+trap 'exit 130' INT TERM HUP
+
+DEPLOY_STARTED=1
+compose_for "$CANDIDATE_RELEASE" config --quiet
+compose_for "$CANDIDATE_RELEASE" pull backend
+compose_for "$CANDIDATE_RELEASE" up -d --no-deps backend
+
+if ! wait_for_backend "$CANDIDATE_RELEASE"; then
+    echo "candidate backend failed its health check" >&2
+    exit 1
+fi
+
+if ! test_nginx_config "$CANDIDATE_RELEASE"; then
+    echo "candidate Nginx configuration failed nginx -t" >&2
+    exit 1
+fi
+
+# The actual edge is switched while current still points to the recoverable
+# previous release. Only a fully started and tested edge is promoted.
+activate_edge "$CANDIDATE_RELEASE"
+
+# Keep catchable signals out of the single atomic metadata promotion. A SIGKILL
+# can leave candidate.env behind; the next locked invocation recovers it above.
+trap '' INT TERM HUP
+if [ "$PREVIOUS_AVAILABLE" -eq 1 ]; then
+    atomic_copy "$PREVIOUS_METADATA" "$KNOWN_GOOD_RELEASE"
+fi
+mv "$CANDIDATE_RELEASE" "$CURRENT_RELEASE"
+DEPLOY_COMPLETE=1
+trap 'exit 130' INT TERM HUP
+
+rm -f "$PREVIOUS_METADATA" "$ORIGINAL_KNOWN_GOOD_METADATA" \
+    "$ORIGINAL_KNOWN_GOOD_ABSENT"
+trap - EXIT INT TERM HUP
+
+echo "deployed immutable image: $IMAGE_REF_VALUE"
+echo "release configuration: $RELEASE_DIR"

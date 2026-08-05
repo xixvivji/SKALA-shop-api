@@ -1,1 +1,5 @@
-IMAGE_TAG=replace-with-a-git-commit-sha
+RELEASE_ID=replace-with-commit-run-attempt
+BACKEND_IMAGE_REF=your-dockerhub-id/skala-shop-api@sha256:replace-with-64-hex-digest
+RELEASE_DIR=/opt/skala-shop/releases/replace-with-commit-run-attempt
+RELEASE_COMPOSE_FILE=/opt/skala-shop/releases/replace-with-commit-run-attempt/compose.prod.yml
+RELEASE_NGINX_CONFIG_FILE=/opt/skala-shop/releases/replace-with-commit-run-attempt/nginx/api.conf.template

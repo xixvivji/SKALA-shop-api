@@ -10,35 +10,47 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: production
+  cancel-in-progress: false
+
 jobs:
   test:
     name: Backend tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: "21"
           cache: gradle
       - name: Test
         run: ./gradlew test --no-daemon
+      - name: Simulate deployment release flow
+        run: sh deploy/tests/release-flow-test.sh
 
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
       - name: Check JavaScript syntax
         run: |
+          node --check frontend/runtime-config.js
           node --check frontend/config.js
           node --check frontend/js/api.js
           node --check frontend/js/app.js
+          node --check frontend/scripts/build.mjs
       - name: Validate static files
         run: node frontend/scripts/validate-static.mjs
+      - name: Build deployable static files
+        env:
+          SKALA_API_BASE_URL: https://api.example.com
+        run: node frontend/scripts/build.mjs
 
   publish:
     if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
@@ -46,14 +58,17 @@ jobs:
       - test
       - frontend
     runs-on: ubuntu-latest
+    outputs:
+      backend_image_ref: ${{ steps.immutable_image.outputs.backend_image_ref }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PUSH_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           push: true
@@ -61,12 +76,23 @@ jobs:
           tags: ${{ vars.DOCKERHUB_IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - id: immutable_image
+        name: Record immutable image reference
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ vars.DOCKERHUB_IMAGE }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "$IMAGE_REPOSITORY" =~ ^[A-Za-z0-9._/-]+$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'backend_image_ref=%s@%s\n' \
+            "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: publish
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Configure SSH
         shell: bash
         env:
@@ -82,11 +108,13 @@ jobs:
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          ssh "$EC2_USER@$EC2_HOST" 'mkdir -p /opt/skala-shop/deploy'
-          scp deploy/compose.prod.yml "$EC2_USER@$EC2_HOST:/opt/skala-shop/deploy/"
-          scp -r deploy/nginx deploy/scripts "$EC2_USER@$EC2_HOST:/opt/skala-shop/deploy/"
-          ssh "$EC2_USER@$EC2_HOST" 'chmod 700 /opt/skala-shop/deploy/scripts/*.sh'
+          REMOTE_RELEASE_DIR="/opt/skala-shop/releases/$RELEASE_ID"
+          ssh "$EC2_USER@$EC2_HOST" "install -d -m 755 '$REMOTE_RELEASE_DIR'"
+          scp deploy/compose.prod.yml "$EC2_USER@$EC2_HOST:$REMOTE_RELEASE_DIR/"
+          scp -r deploy/nginx deploy/scripts "$EC2_USER@$EC2_HOST:$REMOTE_RELEASE_DIR/"
+          ssh "$EC2_USER@$EC2_HOST" "chmod 700 '$REMOTE_RELEASE_DIR'/scripts/*.sh"
       - name: Authenticate EC2 to Docker Hub
         shell: bash
         env:
@@ -102,6 +130,9 @@ jobs:
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          BACKEND_IMAGE_REF: ${{ needs.publish.outputs.backend_image_ref }}
         run: |
+          REMOTE_RELEASE_DIR="/opt/skala-shop/releases/$RELEASE_ID"
           ssh "$EC2_USER@$EC2_HOST" \
-            "/opt/skala-shop/deploy/scripts/deploy.sh '${{ github.sha }}'"
+            "'$REMOTE_RELEASE_DIR/scripts/deploy.sh' '$RELEASE_ID' '$BACKEND_IMAGE_REF'"
