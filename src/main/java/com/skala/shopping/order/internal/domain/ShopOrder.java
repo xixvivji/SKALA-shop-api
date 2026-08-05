@@ -12,6 +12,7 @@ import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -85,8 +86,8 @@ public class ShopOrder {
         this.totalAmount = totalAmount;
         this.canceledAmount = BigDecimal.ZERO;
         this.balanceAfter = balanceAfter;
-        this.orderedAt = now;
-        this.updatedAt = now;
+        this.orderedAt = databaseTimestamp(now);
+        this.updatedAt = databaseTimestamp(now);
     }
 
     public UUID id() {
@@ -108,7 +109,7 @@ public class ShopOrder {
     public void applyCancellation(BigDecimal amount, boolean fullyCanceled, Instant now) {
         canceledAmount = canceledAmount.add(amount);
         status = fullyCanceled ? OrderStatus.CANCELED : OrderStatus.PARTIALLY_CANCELED;
-        updatedAt = now;
+        updatedAt = databaseTimestamp(now);
     }
 
     public OrderView toView(List<OrderItemView> items) {
@@ -135,5 +136,9 @@ public class ShopOrder {
                 orderedAt,
                 items
         );
+    }
+
+    private static Instant databaseTimestamp(Instant timestamp) {
+        return timestamp.truncatedTo(ChronoUnit.MICROS);
     }
 }
