@@ -1,5 +1,6 @@
 package com.skala.shopping.auth.internal;
 
+import com.skala.shopping.auth.BcryptPasswordPolicy;
 import com.skala.shopping.auth.internal.domain.AuthAccount;
 import java.time.Clock;
 import java.util.UUID;
@@ -65,6 +66,11 @@ class BootstrapAdminInitializer implements ApplicationRunner {
                 || bootstrapAdmin.getPassword().length() < 12) {
             throw new IllegalStateException(
                     "BOOTSTRAP_ADMIN_PASSWORD must contain at least 12 characters"
+            );
+        }
+        if (!BcryptPasswordPolicy.isCompatible(bootstrapAdmin.getPassword())) {
+            throw new IllegalStateException(
+                    "BOOTSTRAP_ADMIN_PASSWORD must not exceed 72 UTF-8 bytes"
             );
         }
     }

@@ -10,5 +10,7 @@ public interface MemberApi {
 
     MemberResponse getMemberByCustomerId(String customerId);
 
+    MemberResponse getActiveMemberByIdentity(String customerId, String name);
+
     void deactivateMember(UUID memberId);
 }

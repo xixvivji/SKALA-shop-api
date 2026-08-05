@@ -105,7 +105,8 @@ class SecurityConfiguration {
                                 HttpMethod.POST,
                                 "/api/customers",
                                 "/api/customers/login",
-                                "/api/customers/logout"
+                                "/api/customers/logout",
+                                "/api/customers/password/reset"
                         ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/customers/list").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
@@ -186,6 +187,7 @@ class SecurityConfiguration {
                         "/api/customers".equals(path)
                                 || "/api/customers/login".equals(path)
                                 || "/api/customers/logout".equals(path)
+                                || "/api/customers/password/reset".equals(path)
                 ));
     }
 }
