@@ -3,6 +3,8 @@ package com.skala.shopping.catalog.internal.web.dto.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -22,6 +24,16 @@ public final class CreateProductRequest {
     @Digits(integer = 17, fraction = 2)
     private BigDecimal productPrice;
 
+    @Schema(
+            description = "초기 주문 가능 재고. 생략하면 기존 프론트 호환을 위해 100",
+            example = "100",
+            minimum = "0",
+            maximum = "1000000"
+    )
+    @Min(0)
+    @Max(1_000_000)
+    private int initialQuantity = 100;
+
     public CreateProductRequest() {
     }
 
@@ -39,5 +51,13 @@ public final class CreateProductRequest {
 
     public void setProductPrice(BigDecimal productPrice) {
         this.productPrice = productPrice;
+    }
+
+    public int getInitialQuantity() {
+        return initialQuantity;
+    }
+
+    public void setInitialQuantity(int initialQuantity) {
+        this.initialQuantity = initialQuantity;
     }
 }

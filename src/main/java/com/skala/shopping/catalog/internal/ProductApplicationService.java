@@ -1,6 +1,8 @@
 package com.skala.shopping.catalog.internal;
 
 import com.skala.shopping.catalog.CatalogApi;
+import com.skala.shopping.catalog.ProductCreated;
+import com.skala.shopping.catalog.ProductDeleted;
 import com.skala.shopping.catalog.ProductSnapshot;
 import com.skala.shopping.catalog.internal.domain.Product;
 import com.skala.shopping.catalog.internal.domain.ProductStatus;
@@ -12,6 +14,7 @@ import java.time.Clock;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,10 +22,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProductApplicationService implements CatalogApi {
 
     private final ProductRepository repository;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock = Clock.systemUTC();
 
-    public ProductApplicationService(ProductRepository repository) {
+    public ProductApplicationService(
+            ProductRepository repository,
+            ApplicationEventPublisher eventPublisher
+    ) {
         this.repository = repository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -50,10 +58,14 @@ public class ProductApplicationService implements CatalogApi {
     }
 
     @Transactional
-    public ProductSnapshot createProduct(String name, BigDecimal price) {
+    public ProductSnapshot createProduct(String name, BigDecimal price, int initialQuantity) {
         String normalizedName = normalizeName(name);
         validateUniqueName(normalizedName);
-        return repository.save(new Product(normalizedName, price, clock.instant())).toSnapshot();
+        ProductSnapshot product = repository
+                .save(new Product(normalizedName, price, clock.instant()))
+                .toSnapshot();
+        eventPublisher.publishEvent(new ProductCreated(product.getId(), initialQuantity));
+        return product;
     }
 
     @Transactional
@@ -70,6 +82,7 @@ public class ProductApplicationService implements CatalogApi {
     @Transactional
     public void deleteProduct(UUID productId) {
         findProduct(productId).delete(clock.instant());
+        eventPublisher.publishEvent(new ProductDeleted(productId));
     }
 
     private Product findProduct(UUID productId) {
