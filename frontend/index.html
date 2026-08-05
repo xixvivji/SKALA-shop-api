@@ -10,6 +10,7 @@
     <meta name="theme-color" content="#111827" />
     <title>SKALA Market</title>
     <link rel="stylesheet" href="./styles.css" />
+    <script src="./runtime-config.js"></script>
     <script src="./config.js"></script>
     <script type="module" src="./js/app.js"></script>
   </head>
@@ -26,7 +27,7 @@
       </a>
 
       <nav class="primary-nav" aria-label="주요 메뉴">
-        <button class="nav-link is-active" type="button" data-view="shop">Shop</button>
+        <button class="nav-link is-active" type="button" data-view="shop" aria-current="page">Shop</button>
         <button class="nav-link" type="button" data-view="orders">Orders</button>
         <button class="nav-link" type="button" data-view="account">My</button>
         <button class="nav-link is-hidden" type="button" data-view="admin" id="admin-nav">
@@ -91,6 +92,11 @@
           </div>
 
           <div class="product-grid" id="product-grid" aria-live="polite"></div>
+          <div class="list-pagination">
+            <button class="button button-outline is-hidden" type="button" id="product-load-more" aria-controls="product-grid">
+              상품 더보기
+            </button>
+          </div>
         </section>
       </section>
 
@@ -115,7 +121,14 @@
         </div>
 
         <div class="orders-layout is-hidden" id="orders-content">
-          <div class="order-list" id="order-list"></div>
+          <div class="orders-main">
+            <div class="order-list" id="order-list"></div>
+            <div class="list-pagination">
+              <button class="button button-outline is-hidden" type="button" id="order-load-more" aria-controls="order-list">
+                주문 더보기
+              </button>
+            </div>
+          </div>
           <aside class="order-guide">
             <p class="eyebrow">Cancellation rule</p>
             <h3>부분 취소는<br />최신 주문부터</h3>
@@ -248,12 +261,17 @@
               <tbody id="member-table-body"></tbody>
             </table>
           </div>
+          <div class="list-pagination">
+            <button class="button button-outline is-hidden" type="button" id="member-load-more" aria-controls="member-table-body">
+              고객 더보기
+            </button>
+          </div>
         </section>
       </section>
     </main>
 
     <nav class="mobile-nav" aria-label="모바일 메뉴">
-      <button class="is-active" type="button" data-view="shop"><span>⌂</span>Shop</button>
+      <button class="is-active" type="button" data-view="shop" aria-current="page"><span>⌂</span>Shop</button>
       <button type="button" data-view="orders"><span>▤</span>Orders</button>
       <button type="button" data-view="account"><span>◎</span>My</button>
       <button class="is-hidden" type="button" data-view="admin" id="mobile-admin-nav"><span>◇</span>Admin</button>
@@ -274,13 +292,13 @@
       </div>
       <div class="auth-form-shell">
         <div class="tab-list" role="tablist" aria-label="인증 방식">
-          <button class="is-active" type="button" role="tab" data-auth-tab="login">로그인</button>
-          <button type="button" role="tab" data-auth-tab="signup">회원가입</button>
-          <button type="button" role="tab" data-auth-tab="reset">비밀번호 재설정</button>
+          <button class="is-active" id="auth-tab-login" type="button" role="tab" data-auth-tab="login" aria-controls="login-form" aria-selected="true" tabindex="0">로그인</button>
+          <button id="auth-tab-signup" type="button" role="tab" data-auth-tab="signup" aria-controls="signup-form" aria-selected="false" tabindex="-1">회원가입</button>
+          <button id="auth-tab-reset" type="button" role="tab" data-auth-tab="reset" aria-controls="password-reset-form" aria-selected="false" tabindex="-1">비밀번호 재설정</button>
         </div>
         <div class="auth-feedback is-hidden" id="auth-feedback" role="alert" aria-live="assertive"></div>
 
-        <form id="login-form" class="auth-form" data-auth-panel="login">
+        <form id="login-form" class="auth-form" data-auth-panel="login" role="tabpanel" aria-labelledby="auth-tab-login">
           <div class="form-heading"><small>SIGN IN</small><h3>다시 만나 반가워요</h3></div>
           <label><span>고객 ID</span><input name="customerId" maxlength="50" autocomplete="username" required placeholder="skala01" /></label>
           <label>
@@ -300,7 +318,7 @@
           <button class="button button-dark button-block" type="submit">로그인</button>
         </form>
 
-        <form id="signup-form" class="auth-form is-hidden" data-auth-panel="signup">
+        <form id="signup-form" class="auth-form is-hidden" data-auth-panel="signup" role="tabpanel" aria-labelledby="auth-tab-signup" hidden>
           <div class="form-heading"><small>JOIN US</small><h3>새 계정을 만들어요</h3></div>
           <label>
             <span>고객 ID</span>
@@ -324,7 +342,7 @@
           <button class="button button-accent button-block" type="submit">가입하고 시작하기</button>
         </form>
 
-        <form id="password-reset-form" class="auth-form is-hidden" data-auth-panel="reset">
+        <form id="password-reset-form" class="auth-form is-hidden" data-auth-panel="reset" role="tabpanel" aria-labelledby="auth-tab-reset" hidden>
           <div class="form-heading"><small>RESET PASSWORD</small><h3>비밀번호를 다시 설정해요</h3></div>
           <p class="form-notice">데모용 기능입니다. 고객 ID와 현재 계정에 등록된 이름이 모두 일치해야 합니다.</p>
           <label><span>고객 ID</span><input name="customerId" minlength="3" maxlength="50" pattern="[A-Za-z0-9_-]+" autocomplete="username" required placeholder="가입한 고객 ID" /></label>
@@ -352,10 +370,10 @@
         <form id="order-form" class="stack-form">
           <input type="hidden" name="productId" />
           <label>
-            <span>주문 수량</span>
+            <span id="order-quantity-label">주문 수량</span>
             <div class="quantity-field">
               <button type="button" data-quantity-action="minus" aria-label="수량 줄이기">−</button>
-              <input name="quantity" type="number" min="1" max="99" value="1" required />
+              <input name="quantity" type="number" min="1" max="1000000" value="1" required />
               <button type="button" data-quantity-action="plus" aria-label="수량 늘리기">+</button>
             </div>
           </label>
@@ -389,8 +407,32 @@
       <form id="product-form" class="stack-form compact-modal-body">
         <input type="hidden" name="productId" />
         <label><span>상품명</span><input name="productName" maxlength="200" required placeholder="무선 마우스" /></label>
-        <label><span>판매 가격</span><div class="suffix-input"><input name="productPrice" type="number" min="0.01" step="0.01" required placeholder="15000" /><span>P</span></div></label>
+        <label><span>판매 가격</span><div class="suffix-input"><input name="productPrice" type="number" min="0.01" max="30000000.00" step="0.01" required placeholder="15000" /><span>P</span></div></label>
+        <label id="initial-stock-field"><span>초기 주문 가능 재고</span><input name="initialQuantity" type="number" min="0" max="1000000" value="100" required /></label>
         <button class="button button-accent button-block" type="submit" id="product-submit-button">상품 등록</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal compact-modal" id="stock-dialog" aria-labelledby="stock-dialog-title">
+      <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
+      <div class="product-modal-heading">
+        <p class="eyebrow">Admin inventory editor</p>
+        <h2 id="stock-dialog-title">재고 조정</h2>
+        <p class="modal-note" id="stock-dialog-summary">현재 주문 가능 재고를 확인합니다.</p>
+      </div>
+      <form id="stock-form" class="stack-form compact-modal-body" aria-describedby="stock-dialog-summary">
+        <input type="hidden" name="productId" />
+        <input type="hidden" name="mode" />
+        <label>
+          <span id="stock-quantity-label">재고 증감 수량</span>
+          <input name="quantity" type="number" min="-1000000" max="1000000" step="1" required />
+        </label>
+        <label id="stock-reason-field">
+          <span>조정 사유</span>
+          <input name="reason" maxlength="200" required placeholder="신규 입고" />
+        </label>
+        <div class="modal-feedback is-hidden" id="stock-form-feedback" role="alert" aria-live="assertive"></div>
+        <button class="button button-accent button-block" type="submit" id="stock-submit-button">재고 반영</button>
       </form>
     </dialog>
 
