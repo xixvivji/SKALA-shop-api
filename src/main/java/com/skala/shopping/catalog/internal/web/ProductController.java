@@ -91,7 +91,8 @@ class ProductController {
     ) {
         ProductResponse product = ProductResponse.from(service.createProduct(
                 request.getProductName(),
-                request.getProductPrice()
+                request.getProductPrice(),
+                request.getInitialQuantity()
         ));
         return ResponseEntity.created(URI.create("/api/products/" + product.getId())).body(product);
     }

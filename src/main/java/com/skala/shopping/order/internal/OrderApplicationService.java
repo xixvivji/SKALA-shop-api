@@ -2,6 +2,7 @@ package com.skala.shopping.order.internal;
 
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
+import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.OrderItemView;
@@ -20,7 +21,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -28,12 +32,14 @@ class OrderApplicationService implements OrderApi {
 
     private static final DateTimeFormatter ORDER_DATE =
             DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
+    private static final int MAX_ORDER_QUANTITY = 1_000_000;
 
     private final ShopOrderRepository orderRepository;
     private final OrderItemRepository itemRepository;
     private final OrderCancellationRepository cancellationRepository;
     private final ProductReader productReader;
     private final PointManager pointManager;
+    private final StockManager stockManager;
     private final Clock clock = Clock.systemUTC();
 
     OrderApplicationService(
@@ -41,13 +47,15 @@ class OrderApplicationService implements OrderApi {
             OrderItemRepository itemRepository,
             OrderCancellationRepository cancellationRepository,
             ProductReader productReader,
-            PointManager pointManager
+            PointManager pointManager,
+            StockManager stockManager
     ) {
         this.orderRepository = orderRepository;
         this.itemRepository = itemRepository;
         this.cancellationRepository = cancellationRepository;
         this.productReader = productReader;
         this.pointManager = pointManager;
+        this.stockManager = stockManager;
     }
 
     @Override
@@ -88,22 +96,28 @@ class OrderApplicationService implements OrderApi {
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public List<OrderView> getOrders(UUID memberId) {
-        List<ShopOrder> orders = orderRepository.findAllByMemberIdOrderByOrderedAtDesc(memberId);
-        if (orders.isEmpty()) {
-            return List.of();
-        }
-        Map<UUID, List<OrderItemView>> itemsByOrder = itemRepository
-                .findAllByOrderIdIn(orders.stream().map(ShopOrder::id).toList())
-                .stream()
-                .collect(Collectors.groupingBy(
-                        OrderItem::orderId,
-                        Collectors.mapping(OrderItem::toView, Collectors.toList())
-                ));
-        return orders.stream()
-                .map(order -> order.toView(itemsByOrder.getOrDefault(order.id(), List.of())))
-                .toList();
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PageResponse<OrderView> getOrders(UUID memberId, int page, int size) {
+        var pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Order.desc("orderedAt"), Sort.Order.desc("id"))
+        );
+        var orders = orderRepository.findAllByMemberId(memberId, pageable);
+        Map<UUID, List<OrderItemView>> itemsByOrder = orders.isEmpty()
+                ? Map.of()
+                : itemRepository
+                        .findAllByOrderIdInOrderByOrderIdAscIdAsc(
+                                orders.stream().map(ShopOrder::id).toList()
+                        )
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                OrderItem::orderId,
+                                Collectors.mapping(OrderItem::toView, Collectors.toList())
+                        ));
+        return PageResponse.from(orders.map(
+                order -> order.toView(itemsByOrder.getOrDefault(order.id(), List.of()))
+        ));
     }
 
     @Override
@@ -122,7 +136,8 @@ class OrderApplicationService implements OrderApi {
         }
         return products.values().stream()
                 .map(ProductAccumulator::toView)
-                .sorted(Comparator.comparing(PurchasedProductView::getProductName))
+                .sorted(Comparator.comparing(PurchasedProductView::getProductName)
+                        .thenComparing(PurchasedProductView::getProductId))
                 .toList();
     }
 
@@ -146,6 +161,7 @@ class OrderApplicationService implements OrderApi {
         if (replay.isPresent()) {
             return replayOrder(replay.get(), fingerprint);
         }
+        stockManager.reserve(productId, quantity, orderId);
         var now = clock.instant();
         ShopOrder order = orderRepository.save(new ShopOrder(
                 orderId,
@@ -184,6 +200,7 @@ class OrderApplicationService implements OrderApi {
             throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
         }
 
+        UUID cancellationId = UUID.randomUUID();
         int remaining = quantity;
         BigDecimal refund = BigDecimal.ZERO;
         var now = clock.instant();
@@ -200,7 +217,6 @@ class OrderApplicationService implements OrderApi {
             remaining -= canceled;
         }
 
-        UUID cancellationId = UUID.randomUUID();
         BigDecimal remainingPoints = pointManager.credit(
                 memberId,
                 refund,
@@ -212,6 +228,7 @@ class OrderApplicationService implements OrderApi {
         if (concurrentReplay.isPresent()) {
             return replayCancellation(concurrentReplay.get(), fingerprint);
         }
+        stockManager.release(productId, quantity, cancellationId);
         OrderCancellation cancellation = cancellationRepository.save(new OrderCancellation(
                 cancellationId,
                 commandId,
@@ -230,7 +247,7 @@ class OrderApplicationService implements OrderApi {
         if (!order.hasFingerprint(fingerprint)) {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT);
         }
-        return toView(order);
+        return toCreationView(order);
     }
 
     private CancellationView replayCancellation(
@@ -253,10 +270,10 @@ class OrderApplicationService implements OrderApi {
         );
     }
 
-    private OrderView toView(ShopOrder order) {
-        return order.toView(
-                itemRepository.findAllByOrderId(order.id()).stream()
-                        .map(OrderItem::toView)
+    private OrderView toCreationView(ShopOrder order) {
+        return order.toCreationView(
+                itemRepository.findAllByOrderIdOrderByIdAsc(order.id()).stream()
+                        .map(OrderItem::toCreationView)
                         .toList()
         );
     }
@@ -267,8 +284,11 @@ class OrderApplicationService implements OrderApi {
     }
 
     private void requirePositiveQuantity(int quantity) {
-        if (quantity <= 0) {
-            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "수량은 1 이상이어야 합니다.");
+        if (quantity <= 0 || quantity > MAX_ORDER_QUANTITY) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "수량은 1 이상 1,000,000 이하여야 합니다."
+            );
         }
     }
 

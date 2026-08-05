@@ -42,6 +42,7 @@ deploy/       EC2, Nginx, Certbot 배포 구성
 auth        계정, 비밀번호 해시, JWT
 member      고객 프로필
 catalog     상품
+inventory   주문 가능 재고와 재고 원장
 wallet      포인트 계정과 원장
 order       주문, 주문항목, 취소
 storefront  여러 모듈을 조합하는 HTTP 호환 계층
@@ -83,8 +84,9 @@ DB password skala
 python3 -m http.server 3000 --directory frontend
 ~~~
 
-브라우저에서 `http://localhost:3000`으로 접속합니다. API 주소는
-[frontend/config.js](frontend/config.js)에서 설정하며 자세한 사용 방법은
+브라우저에서 `http://localhost:3000`으로 접속합니다. 로컬 API 주소는 자동으로
+같은 호스트의 8080 포트를 사용합니다. Vercel은 `SKALA_API_BASE_URL` 환경변수로
+배포용 HTTPS API 주소를 정적 빌드에 주입하며 자세한 사용 방법은
 [frontend/README.md](frontend/README.md)를 참고합니다.
 
 ## 테스트
@@ -94,8 +96,9 @@ python3 -m http.server 3000 --directory frontend
 ~~~
 
 테스트는 모듈 경계, Flyway, 회원가입과 로그인, 역할 기반 권한, 실제 쿠키
-CSRF 흐름, 상품 등록, 주문과 포인트 차감의 원자성, 동시 재시도 멱등성,
-부분 취소 환급, BCrypt 비밀번호 저장과 재설정을 실제 PostgreSQL로 검증합니다.
+CSRF 흐름, 상품 등록, 재고 차감·복원, 마지막 재고 동시 주문, 주문과 포인트
+차감의 원자성, 동시 재시도 멱등성, 부분 취소 환급, BCrypt 비밀번호 저장과
+재설정을 실제 PostgreSQL로 검증합니다.
 
 ## 주요 API
 
@@ -105,6 +108,7 @@ GET    /api/auth/csrf
 POST   /api/customers/login
 POST   /api/customers/logout
 POST   /api/customers/password/reset
+PUT    /api/admin/password
 GET    /api/customers/me
 GET    /api/customers/{customerId}
 GET    /api/customers/list
@@ -116,9 +120,13 @@ GET    /api/products/{productId}
 POST   /api/products
 PUT    /api/products/{productId}
 DELETE /api/products/{productId}
+GET    /api/products/stocks?productIds={productId}
+GET    /api/products/{productId}/stock
+POST   /api/products/{productId}/stock
+POST   /api/products/{productId}/stock/adjustments
 
 POST   /api/orders
-GET    /api/orders/me
+GET    /api/orders/me?page=0&size=10
 POST   /api/orders/cancellations
 
 POST   /api/customers/order
@@ -134,15 +142,40 @@ POST   /api/customers/cancel
 반환하고, 같은 키를 다른 내용에 재사용하면 `409 IDEMPOTENCY_CONFLICT`를
 반환합니다.
 
-상품 등록·수정·삭제와 고객 목록 조회는 `ADMIN` 역할만 호출할 수 있습니다.
+내 주문 목록은 `PageResponse` 형식으로 반환하며 `page`는 0부터 시작하고
+`size`는 1~100 범위입니다. 상품 가격은 최대 주문 수량 1,000,000개를 곱한
+합계까지 브라우저에서 센트 단위 정밀도를 유지할 수 있도록
+`0.01`~`30,000,000.00` 범위로 제한합니다. 회원 초기 포인트도 같은 이유로
+`30,000,000,000,000.00` 이하만 허용합니다.
+
+현재 주문 목록은 `(orderedAt, id)` 고정 정렬의 offset pagination입니다. 한 API
+호출 안에서는 일관된 snapshot을 사용하지만 페이지를 따로 조회하는 사이 새 주문이
+추가되면 항목이 밀릴 수 있어, 트래픽이 커지면 cursor pagination으로 전환합니다.
+
+상품 등록 요청에는 `initialQuantity`를 지정할 수 있으며, 기존 프론트 요청과의
+호환을 위해 생략하면 100개로 초기화됩니다. 재고 초기화·조정 요청에도 UUID
+형식의 `X-Idempotency-Key` 헤더가 필요합니다. 상품 등록·수정·삭제, 재고
+초기화·조정과 고객 목록 조회는 `ADMIN` 역할만 호출할 수 있습니다.
 초기 관리자 생성은 기본적으로 꺼져 있으며, 필요할 때만
 `BOOTSTRAP_ADMIN_*` 환경변수로 한 번 활성화한 뒤 다시 비활성화합니다.
+
+재고 movement의 `activeAfter`는 V11부터 멱등 응답 snapshot으로 저장합니다. V11
+이전 `RELEASE` 이력에는 당시 활성 상태가 없어 마이그레이션 시점의 재고 상태로
+보정하므로, 기존 데이터의 아주 오래된 재시도는 활성 상태가 최초 응답과 다를 수
+있습니다.
 
 비밀번호는 평문으로 저장하지 않고 BCrypt 해시로 저장합니다. 현재 비밀번호
 재설정 API는 학습용 데모 흐름으로, 고객 ID와 현재 등록된 이름을 확인한 뒤 새
 비밀번호로 변경하며 기존 JWT를 무효화합니다. 실제 운영에서는 이름 확인을
 이메일·휴대전화 소유 인증과 만료되는 일회용 재설정 토큰으로 교체해야 합니다.
 BCrypt 입력 한계에 맞춰 비밀번호는 UTF-8 인코딩 기준 72바이트 이하여야 합니다.
+로그인, 회원가입과 데모용 비밀번호 초기화에는 IP·계정별 요청 제한을 적용하고
+초과 시 `429 Too Many Requests`와 `Retry-After`를 반환합니다. 현재 제한 저장소는
+단일 인스턴스 메모리이며 추적 키는 기본 50,000개로 제한합니다. 용량이 가득 차면
+새 키 요청도 fail-closed 방식으로 `429`를 반환합니다. 여러 EC2로 확장할 때는 공유
+저장소 구현으로 교체합니다.
+관리자는 현재 비밀번호를 확인하는 `PUT /api/admin/password`로 비밀번호를
+변경하며, 성공하면 기존 관리자 JWT가 모두 무효화됩니다.
 
 ## 운영 배포
 
@@ -153,8 +186,10 @@ BCrypt 입력 한계에 맞춰 비밀번호는 UTF-8 인코딩 기준 72바이�
 - 이미지 저장소: Docker Hub
 - CI/CD: GitHub Actions
 
-Vercel에서 이 저장소를 가져올 때 Root Directory를 `frontend`로 지정합니다.
-운영 API 주소와 쿠키·CORS 설정은 실제 프론트 및 API 도메인에 맞춰야 합니다.
+Vercel에서 이 저장소를 가져올 때 Root Directory를 `frontend`, Production
+Branch를 `main`으로 지정하고 `SKALA_API_BASE_URL`에 실제 HTTPS API 주소를
+설정합니다. 운영 API 주소와 쿠키·CORS 설정은 실제 프론트 및 API 도메인에
+맞춰야 합니다.
 
 EC2 최초 설정과 인증서 발급 방법은
 [deploy/README.md](deploy/README.md)를 참고합니다.

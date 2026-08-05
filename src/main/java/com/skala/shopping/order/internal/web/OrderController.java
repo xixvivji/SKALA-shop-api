@@ -3,6 +3,7 @@ package com.skala.shopping.order.internal.web;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.ErrorCode;
+import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.internal.web.dto.request.CancelOrderRequest;
 import com.skala.shopping.order.internal.web.dto.request.CreateOrderRequest;
@@ -17,7 +18,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.util.List;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -76,7 +79,7 @@ class OrderController {
                     ),
                     @ApiResponse(
                             responseCode = "409",
-                            description = "포인트 부족, 판매 불가 또는 멱등성 충돌",
+                            description = "포인트·재고 부족, 판매 불가 또는 멱등성 충돌",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
                     )
             }
@@ -100,8 +103,12 @@ class OrderController {
 
     @GetMapping("/me")
     @Operation(summary = "내 주문 목록 조회")
-    List<OrderResponse> getMyOrders(@AuthenticationPrincipal Jwt jwt) {
-        return orderApi.getOrders(memberId(jwt)).stream().map(OrderResponse::from).toList();
+    PageResponse<OrderResponse> getMyOrders(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
+    ) {
+        return OrderResponse.pageFrom(orderApi.getOrders(memberId(jwt), page, size));
     }
 
     @PostMapping("/cancellations")

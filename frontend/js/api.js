@@ -1,5 +1,5 @@
 const configuredBaseUrl =
-  window.SKALA_CONFIG?.API_BASE_URL || "http://localhost:8080";
+  window.SKALA_CONFIG?.API_BASE_URL || window.location.origin;
 
 export const API_BASE_URL = configuredBaseUrl.replace(/\/+$/, "");
 
@@ -200,7 +200,8 @@ export const shopApi = {
   updateMe: (name) =>
     request("/api/customers/me", { method: "PUT", body: { name } }),
   deactivateMe: () => request("/api/customers/me", { method: "DELETE" }),
-  orders: () => request("/api/orders/me"),
+  orders: (page = 0, size = 10) =>
+    request(`/api/orders/me?page=${page}&size=${size}`),
   order: (productId, quantity, idempotencyKey = createCommandId()) =>
     request("/api/orders", {
       method: "POST",
@@ -215,10 +216,36 @@ export const shopApi = {
     }),
   members: (page = 0, size = 50) =>
     request(`/api/customers/list?page=${page}&size=${size}`),
-  createProduct: (productName, productPrice) =>
+  stocks: (productIds) => {
+    const query = new URLSearchParams();
+    productIds.forEach((productId) => query.append("productIds", productId));
+    return request(`/api/products/stocks?${query.toString()}`);
+  },
+  initializeStock: (
+    productId,
+    availableQuantity,
+    idempotencyKey = createCommandId(),
+  ) =>
+    request(`/api/products/${productId}/stock`, {
+      method: "POST",
+      body: { availableQuantity },
+      idempotencyKey,
+    }),
+  adjustStock: (
+    productId,
+    quantityDelta,
+    reason,
+    idempotencyKey = createCommandId(),
+  ) =>
+    request(`/api/products/${productId}/stock/adjustments`, {
+      method: "POST",
+      body: { quantityDelta, reason },
+      idempotencyKey,
+    }),
+  createProduct: (productName, productPrice, initialQuantity = 100) =>
     request("/api/products", {
       method: "POST",
-      body: { productName, productPrice },
+      body: { productName, productPrice, initialQuantity },
     }),
   updateProduct: (productId, productName, productPrice) =>
     request(`/api/products/${productId}`, {

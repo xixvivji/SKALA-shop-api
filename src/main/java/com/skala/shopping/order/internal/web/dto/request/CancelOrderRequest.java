@@ -1,6 +1,7 @@
 package com.skala.shopping.order.internal.web.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import java.util.UUID;
@@ -14,6 +15,7 @@ public final class CancelOrderRequest {
 
     @Schema(description = "취소 수량", example = "1", minimum = "1")
     @Min(1)
+    @Max(1_000_000)
     private int quantity;
 
     public CancelOrderRequest() {

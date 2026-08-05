@@ -73,7 +73,11 @@ public class MemberApplicationService implements MemberApi {
 
     @Transactional(readOnly = true)
     public PageResponse<MemberResponse> getMembers(int page, int size) {
-        var pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        var pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
+        );
         return PageResponse.from(repository.findAll(pageable).map(Member::toResponse));
     }
 

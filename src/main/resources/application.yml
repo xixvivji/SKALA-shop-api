@@ -54,6 +54,7 @@ management:
 
 shopping:
   member:
+    # 브라우저에서도 센트 단위 정밀도를 유지하도록 0 이상 30조 이하로 제한합니다.
     initial-points: ${INITIAL_MEMBER_POINTS:1000000}
   security:
     jwt:
@@ -70,3 +71,22 @@ shopping:
       enabled: ${BOOTSTRAP_ADMIN_ENABLED:false}
       login-id: ${BOOTSTRAP_ADMIN_LOGIN_ID:}
       password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    rate-limit:
+      # 단일 EC2 인스턴스용 인메모리 제한입니다. 다중 인스턴스 전환 시 공유 저장소 구현이 필요합니다.
+      enabled: ${AUTH_RATE_LIMIT_ENABLED:true}
+      # 서로 다른 IP·계정 키가 과도하게 쌓이면 새 키 요청을 429로 차단합니다.
+      max-tracked-keys: ${AUTH_RATE_LIMIT_MAX_TRACKED_KEYS:50000}
+      login:
+        max-requests-per-ip: ${AUTH_LOGIN_IP_LIMIT:100}
+        max-requests-per-account: ${AUTH_LOGIN_ACCOUNT_LIMIT:20}
+        window: ${AUTH_LOGIN_RATE_WINDOW:1m}
+      registration:
+        max-requests-per-ip: ${AUTH_REGISTRATION_IP_LIMIT:30}
+        max-requests-per-account: ${AUTH_REGISTRATION_ACCOUNT_LIMIT:5}
+        window: ${AUTH_REGISTRATION_RATE_WINDOW:10m}
+      # 현재 초기화는 SMTP 없이 고객 ID와 이름만 확인하는 임시 흐름입니다.
+      # 계정 소유를 강하게 증명하지 못하므로 외부 공개 시 아래 제한을 낮추고 추후 일회용 토큰 방식으로 교체해야 합니다.
+      password-reset:
+        max-requests-per-ip: ${AUTH_PASSWORD_RESET_IP_LIMIT:20}
+        max-requests-per-account: ${AUTH_PASSWORD_RESET_ACCOUNT_LIMIT:5}
+        window: ${AUTH_PASSWORD_RESET_RATE_WINDOW:10m}

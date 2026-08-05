@@ -1,9 +1,15 @@
 package com.skala.shopping.auth.internal;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
 
+@Validated
 @ConfigurationProperties("shopping.security")
 public class SecurityProperties {
 
@@ -11,6 +17,9 @@ public class SecurityProperties {
     private Cookie cookie = new Cookie();
     private Cors cors = new Cors();
     private BootstrapAdmin bootstrapAdmin = new BootstrapAdmin();
+
+    @Valid
+    private RateLimit rateLimit = new RateLimit();
 
     public SecurityProperties() {
     }
@@ -45,6 +54,14 @@ public class SecurityProperties {
 
     public void setBootstrapAdmin(BootstrapAdmin bootstrapAdmin) {
         this.bootstrapAdmin = bootstrapAdmin;
+    }
+
+    public RateLimit getRateLimit() {
+        return rateLimit;
+    }
+
+    public void setRateLimit(RateLimit rateLimit) {
+        this.rateLimit = rateLimit;
     }
 
     public static class Jwt {
@@ -162,6 +179,119 @@ public class SecurityProperties {
 
         public void setPassword(String password) {
             this.password = password;
+        }
+    }
+
+    public static class RateLimit {
+
+        private boolean enabled = true;
+
+        @Min(2)
+        private int maxTrackedKeys = 50_000;
+
+        @Valid
+        @NotNull
+        private EndpointLimit login = new EndpointLimit(100, 20, Duration.ofMinutes(1));
+
+        @Valid
+        @NotNull
+        private EndpointLimit registration = new EndpointLimit(30, 5, Duration.ofMinutes(10));
+
+        @Valid
+        @NotNull
+        private EndpointLimit passwordReset = new EndpointLimit(20, 5, Duration.ofMinutes(10));
+
+        public RateLimit() {
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getMaxTrackedKeys() {
+            return maxTrackedKeys;
+        }
+
+        public void setMaxTrackedKeys(int maxTrackedKeys) {
+            this.maxTrackedKeys = maxTrackedKeys;
+        }
+
+        public EndpointLimit getLogin() {
+            return login;
+        }
+
+        public void setLogin(EndpointLimit login) {
+            this.login = login;
+        }
+
+        public EndpointLimit getRegistration() {
+            return registration;
+        }
+
+        public void setRegistration(EndpointLimit registration) {
+            this.registration = registration;
+        }
+
+        public EndpointLimit getPasswordReset() {
+            return passwordReset;
+        }
+
+        public void setPasswordReset(EndpointLimit passwordReset) {
+            this.passwordReset = passwordReset;
+        }
+    }
+
+    public static class EndpointLimit {
+
+        @Min(1)
+        private int maxRequestsPerIp;
+
+        @Min(1)
+        private int maxRequestsPerAccount;
+
+        @NotNull
+        private Duration window;
+
+        public EndpointLimit() {
+        }
+
+        EndpointLimit(int maxRequestsPerIp, int maxRequestsPerAccount, Duration window) {
+            this.maxRequestsPerIp = maxRequestsPerIp;
+            this.maxRequestsPerAccount = maxRequestsPerAccount;
+            this.window = window;
+        }
+
+        public int getMaxRequestsPerIp() {
+            return maxRequestsPerIp;
+        }
+
+        public void setMaxRequestsPerIp(int maxRequestsPerIp) {
+            this.maxRequestsPerIp = maxRequestsPerIp;
+        }
+
+        public int getMaxRequestsPerAccount() {
+            return maxRequestsPerAccount;
+        }
+
+        public void setMaxRequestsPerAccount(int maxRequestsPerAccount) {
+            this.maxRequestsPerAccount = maxRequestsPerAccount;
+        }
+
+        public Duration getWindow() {
+            return window;
+        }
+
+        public void setWindow(Duration window) {
+            this.window = window;
+        }
+
+        @AssertTrue(message = "rate limit window must be greater than zero")
+        public boolean isWindowPositive() {
+            return window != null && !window.isZero() && !window.isNegative();
         }
     }
 }

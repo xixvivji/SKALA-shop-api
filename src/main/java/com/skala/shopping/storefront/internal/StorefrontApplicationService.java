@@ -12,6 +12,7 @@ import com.skala.shopping.wallet.WalletApi;
 import java.util.UUID;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -63,7 +64,7 @@ public class StorefrontApplicationService {
         authAccountApi.resetPassword(member.getId(), newPassword);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public CustomerDetailView getCustomer(UUID authenticatedMemberId, String requestedCustomerId) {
         var member = memberApi.getMember(authenticatedMemberId);
         if (!member.getCustomerId().equals(requestedCustomerId)) {
@@ -72,7 +73,7 @@ public class StorefrontApplicationService {
         return customerDetail(member);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public CustomerDetailView getCurrentCustomer(UUID authenticatedMemberId) {
         return customerDetail(memberApi.getMember(authenticatedMemberId));
     }

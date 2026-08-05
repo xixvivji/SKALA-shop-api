@@ -9,10 +9,15 @@ storefront ──> auth
      └──────> order
 
 order ──────> catalog
+      ├─────> inventory
       └─────> wallet
 
-auth / member / catalog / wallet
-└─ 다른 비즈니스 모듈에 의존하지 않음
+catalog ── ProductCreated / ProductDeleted 이벤트 ──> inventory
+
+auth / member / catalog / wallet은 다른 비즈니스 모듈에 의존하지 않습니다.
+inventory는 Catalog가 발행한 공개 상품 생명주기 이벤트를 소비합니다. 레거시
+상품 수동 초기화 API만 orphan 재고를 막기 위해 Catalog 공개 조회 API로 판매
+가능 여부를 확인합니다.
 ~~~
 
 storefront는 테이블과 핵심 도메인 로직을 소유하지 않습니다. 회원가입,
@@ -37,6 +42,8 @@ storefront는 테이블과 핵심 도메인 로직을 소유하지 않습니다.
 auth.accounts
 member.members
 catalog.products
+inventory.stocks
+inventory.stock_movements
 wallet.point_accounts
 wallet.point_transactions
 orders.orders
@@ -52,11 +59,15 @@ orders.order_cancellations
 ~~~text
 판매 상품과 가격 조회
 → 포인트 계정 잠금 및 차감
+→ 동일 주문 재시도 여부 재확인
+→ 상품 재고 잠금 및 차감
 → 상품명과 단가 스냅샷을 가진 주문 저장
 → 모두 commit 또는 모두 rollback
 ~~~
 
-취소도 주문항목과 포인트 계정을 잠근 뒤 주문 당시 단가로 환급합니다.
+취소도 주문항목과 포인트 계정을 잠근 뒤 주문 당시 단가로 환급하고 재고를
+복원합니다. 재고·포인트·주문은 현재 단일 PostgreSQL 트랜잭션으로 함께
+커밋하거나 롤백합니다.
 주문과 취소 명령에는 멱등성 키를 저장하여 동일 요청의 중복 실행을 방지합니다.
 포인트 차감이나 환급을 트랜잭션 커밋 이후 이벤트로 처리하면 안 됩니다.
 
@@ -81,10 +92,24 @@ Wallet 분리부터는 기존 DB 원자성을 사용할 수 없습니다. Outbox
 준비된 후 분리합니다. LocalPointManager는 HTTP 또는 메시지 어댑터로
 교체합니다.
 
-### 4. Order
+### 4. Inventory
+
+Inventory를 별도 서비스로 옮기면 현재 로컬 DB 트랜잭션을 사용할 수
+없습니다. Order의 `LocalStockManager`를 원격 어댑터로 교체하기 전에 주문
+`PENDING` 상태, Outbox, 재고 확보 실패와 포인트 실패 보상, 소비자 멱등성을
+먼저 준비합니다.
+
+### 5. Order
 
 전체 구매 흐름을 조율하므로 가장 마지막에 분리합니다. 모듈을 옮기는
 것보다 장애 복구, 상태 전이와 관측 가능성을 먼저 설계합니다.
+
+## 재고 마이그레이션
+
+Inventory 마이그레이션은 다른 모듈 테이블을 조회하거나 물리 FK를 만들지
+않습니다. 새 상품은 Catalog의 동기 상품 생성 이벤트로 초기 재고를 함께
+생성합니다. Inventory 도입 전에 존재한 상품은 주문을 열기 전에 관리자가
+`POST /api/products/{productId}/stock`으로 한 번 초기화합니다.
 
 ## Flyway 변경 규칙
 

@@ -8,9 +8,13 @@ Spring Boot 쇼핑몰 API의 현재 기능을 시연하는 순수 HTML/CSS/JavaS
 - 고객 ID와 가입 이름을 확인하는 데모용 비밀번호 재설정
 - HttpOnly JWT 쿠키 인증과 CSRF 토큰 처리
 - 내 정보 및 포인트 조회, 이름 변경, 보유 상품 조회
-- 상품 목록과 검색
-- UUID 멱등성 키를 사용한 주문과 부분 취소
-- 관리자 로그인, 고객 목록 조회, 상품 등록·수정·삭제
+- 페이지 단위 상품 목록과 검색, 실시간 주문 가능 재고·품절 표시
+- UUID 멱등성 키를 사용한 주문과 부분 취소, 주문 내역 더보기
+- 관리자 로그인, 페이지 단위 고객 목록, 상품 등록·수정·삭제, 재고 초기화·증감 조정
+
+상품 등록·수정 화면은 백엔드 계약과 동일하게 판매 가격을
+`0.01`~`30,000,000.00`로 제한합니다. 최대 주문 수량 1,000,000개를 곱한
+30조 포인트까지 브라우저 `Number`의 소수 둘째 자리 왕복을 검증합니다.
 
 ## 로컬 실행
 
@@ -28,9 +32,23 @@ python3 -m http.server 3000
 - 프론트 `http://localhost:3000` + 백엔드 `http://localhost:8080`
 - 프론트 `http://127.0.0.1:5500` + 백엔드 `http://127.0.0.1:8080`
 
-## API 주소 변경
+## API 주소 설정
 
-기본 주소는 `http://localhost:8080`입니다. 배포 주소를 바꾸려면 `config.js`의 `API_BASE_URL`을 수정합니다.
+`config.js`는 실행 중인 주소를 기준으로 안전한 기본값을 선택합니다.
+
+- `localhost` 또는 `127.0.0.1`에서 실행하면 같은 호스트의 `8080` 포트를 API로 사용합니다.
+- Vercel 같은 배포 주소에서는 프론트의 HTTPS Origin을 기본값으로 사용하므로 `localhost` 호출이나 혼합 콘텐츠가 발생하지 않습니다.
+- 프론트와 API가 서로 다른 Origin이면 Vercel 환경변수 `SKALA_API_BASE_URL`에 실제 **HTTPS API 주소**를 설정합니다. `vercel.json`의 빌드가 이 값을 `runtime-config.js`에 기록하며, 값이 없거나 HTTP 주소이면 Vercel 빌드를 실패시켜 잘못된 배포를 막습니다. API 주소는 비밀값이 아니며, 정적 파일에 포함되므로 브라우저에서 확인할 수 있습니다.
+
+Vercel 프로젝트의 Root Directory는 `frontend`, Production Branch는 `main`으로
+설정하고 Production과 Preview 환경에 각각 `SKALA_API_BASE_URL`을 등록합니다.
+환경변수를 변경한 뒤에는 새로 배포해야 적용됩니다.
+
+로컬에서만 다른 API를 시험하려면 브라우저 콘솔에서 아래 값을 저장하고 새로고침합니다. 배포 환경에서는 이 로컬 스토리지 재정의를 무시합니다.
+
+```js
+localStorage.setItem("skala-api-base-url", "http://localhost:8080");
+```
 
 ## 비밀번호 재설정 주의사항
 
