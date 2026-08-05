@@ -42,6 +42,7 @@ deploy/       EC2, Nginx, Certbot 배포 구성
 auth        계정, 비밀번호 해시, JWT
 member      고객 프로필
 catalog     상품
+inventory   주문 가능 재고와 재고 원장
 wallet      포인트 계정과 원장
 order       주문, 주문항목, 취소
 storefront  여러 모듈을 조합하는 HTTP 호환 계층
@@ -94,8 +95,9 @@ python3 -m http.server 3000 --directory frontend
 ~~~
 
 테스트는 모듈 경계, Flyway, 회원가입과 로그인, 역할 기반 권한, 실제 쿠키
-CSRF 흐름, 상품 등록, 주문과 포인트 차감의 원자성, 동시 재시도 멱등성,
-부분 취소 환급, BCrypt 비밀번호 저장과 재설정을 실제 PostgreSQL로 검증합니다.
+CSRF 흐름, 상품 등록, 재고 차감·복원, 마지막 재고 동시 주문, 주문과 포인트
+차감의 원자성, 동시 재시도 멱등성, 부분 취소 환급, BCrypt 비밀번호 저장과
+재설정을 실제 PostgreSQL로 검증합니다.
 
 ## 주요 API
 
@@ -116,6 +118,10 @@ GET    /api/products/{productId}
 POST   /api/products
 PUT    /api/products/{productId}
 DELETE /api/products/{productId}
+GET    /api/products/stocks?productIds={productId}
+GET    /api/products/{productId}/stock
+POST   /api/products/{productId}/stock
+POST   /api/products/{productId}/stock/adjustments
 
 POST   /api/orders
 GET    /api/orders/me
@@ -134,7 +140,10 @@ POST   /api/customers/cancel
 반환하고, 같은 키를 다른 내용에 재사용하면 `409 IDEMPOTENCY_CONFLICT`를
 반환합니다.
 
-상품 등록·수정·삭제와 고객 목록 조회는 `ADMIN` 역할만 호출할 수 있습니다.
+상품 등록 요청에는 `initialQuantity`를 지정할 수 있으며, 기존 프론트 요청과의
+호환을 위해 생략하면 100개로 초기화됩니다. 재고 초기화·조정 요청에도 UUID
+형식의 `X-Idempotency-Key` 헤더가 필요합니다. 상품 등록·수정·삭제, 재고
+초기화·조정과 고객 목록 조회는 `ADMIN` 역할만 호출할 수 있습니다.
 초기 관리자 생성은 기본적으로 꺼져 있으며, 필요할 때만
 `BOOTSTRAP_ADMIN_*` 환경변수로 한 번 활성화한 뒤 다시 비활성화합니다.
 
