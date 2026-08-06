@@ -3,6 +3,23 @@
 EC2 단일 인스턴스의 Docker Compose에서 Backend, Nginx, Certbot을 실행하고
 PostgreSQL은 RDS를 사용합니다. Backend 교체 중 짧은 API 중단은 허용합니다.
 
+## 현재 구성 상태
+
+저장소에는 다음 운영 구성이 구현되어 있습니다.
+
+- production Docker Compose와 Backend healthcheck
+- Nginx HTTPS reverse proxy와 인증 요청 IP rate limit
+- Certbot 최초 발급 및 12시간 주기 갱신 컨테이너
+- Docker Hub digest 기반 불변 이미지 배포
+- candidate/current/known-good 릴리스 상태와 실패 시 자동 복구
+- 동시 배포를 막는 GitHub Actions concurrency와 호스트 `flock`
+- 로컬에서 실행하는 릴리스 전환·실패·롤백 시뮬레이션
+
+구성 파일이 준비된 것과 실제 인프라가 배포된 것은 별개입니다. EC2, RDS,
+Elastic IP, DNS, Docker Hub, Vercel 프로젝트와 GitHub Secrets/Variables는 운영자가
+실제 계정에 생성·연결해야 합니다. `PRODUCTION_DEPLOY_ENABLED`의 기본 동작은
+배포 비활성화이며 외부 리소스와 최초 TLS 설정을 확인한 뒤에만 활성화합니다.
+
 ## AWS와 호스트 준비
 
 - EC2, Elastic IP, Docker Engine, Docker Compose plugin
@@ -111,6 +128,16 @@ HTTP 전용 Nginx로 인증서를 발급한 뒤 같은 릴리스의 정상 배�
 합니다. Certbot에는 Docker socket을 마운트하지 않습니다.
 
 ## GitHub Actions 설정
+
+브랜치별 동작은 다음과 같습니다.
+
+- `feature/*` push와 모든 PR: `.github/workflows/ci.yml`에서 백엔드, 프론트와
+  릴리스 흐름을 검증합니다.
+- `develop` push: CI만 실행하고 운영에는 배포하지 않습니다.
+- `main` push: `.github/workflows/deploy-prod.yml`을 실행합니다. 단,
+  `PRODUCTION_DEPLOY_ENABLED`가 `true`일 때만 이미지 게시와 EC2 배포를 진행합니다.
+- `frontend/**`만 변경된 main push는 백엔드 production workflow를 건너뛰며
+  Vercel이 프론트 배포를 담당합니다.
 
 GitHub Actions Secrets:
 
