@@ -1,6 +1,10 @@
 package com.skala.shopping.inventory.internal.web;
 
 import com.skala.shopping.common.ApiError;
+import com.skala.shopping.common.PageResponse;
+import com.skala.shopping.inventory.StockMovementView;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import com.skala.shopping.catalog.CatalogApi;
 import com.skala.shopping.inventory.internal.InventoryApplicationService;
 import com.skala.shopping.inventory.internal.web.dto.request.AdjustStockRequest;
@@ -177,5 +181,13 @@ class InventoryController {
                 request.getReason(),
                 operationId
         ));
+    }
+
+    @GetMapping("/{productId}/stock/movements")
+    @Operation(summary="상품 재고 변경 이력", security={@SecurityRequirement(name="cookieAuth")})
+    PageResponse<StockMovementView> getMovements(@PathVariable UUID productId,
+            @RequestParam(defaultValue="0") @Min(0) int page,
+            @RequestParam(defaultValue="20") @Min(1) @Max(100) int size){
+        return service.getMovements(productId,page,size);
     }
 }

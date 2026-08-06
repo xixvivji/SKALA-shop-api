@@ -112,6 +112,12 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(jsonPath("$['paths']['/api/orders']['post']['responses']['401']").exists())
                 .andExpect(jsonPath("$['paths']['/api/orders']['post']['responses']['403']").exists())
                 .andExpect(jsonPath("$['paths']['/api/orders']['post']['responses']['409']").exists())
+                .andExpect(jsonPath("$['paths']['/api/cart']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/cart/items']['post']").exists())
+                .andExpect(jsonPath("$['paths']['/api/customers/me/addresses']['post']").exists())
+                .andExpect(jsonPath("$['paths']['/api/categories']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/admin/orders']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/wallet/me/transactions']['get']").exists())
                 .andExpect(jsonPath("$['paths']['/api/customers/logout']['post']['responses']['204']").exists())
                 .andExpect(jsonPath("$['paths']['/api/customers/password/reset']['post']['responses']['204']").exists())
                 .andExpect(jsonPath("$['paths']['/api/auth/csrf']['get']['responses']['200']").exists())
@@ -1366,6 +1372,65 @@ class ShoppingJourneyIntegrationTests {
                         .content(registrationBody(customerId)))
                 .andExpect(status().isCreated());
         return new CustomerSession(customerId, password, login(customerId, password));
+    }
+
+    @Test
+    void supportsCartSavedAddressMultiItemOrderFulfillmentAndLedgers() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID first = createProduct(admin, unique("multi-first"), "10000", 10);
+        UUID second = createProduct(admin, unique("multi-second"), "20000", 10);
+        CustomerSession customer = registerAndLogin("multi-order");
+
+        mockMvc.perform(post("/api/customers/me/addresses").with(csrf()).cookie(copy(customer.authCookie))
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"addressName":"집","recipientName":"테스트 고객","phoneNumber":"010-1234-5678",
+                                 "postalCode":"12345","addressLine1":"서울시 테스트로 1","defaultAddress":true}
+                                """))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.defaultAddress").value(true));
+
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(copy(customer.authCookie))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":\"%s\",\"quantity\":2}".formatted(first)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalQuantity").value(2));
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(copy(customer.authCookie))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":\"%s\",\"quantity\":1}".formatted(second)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.itemCount").value(2))
+                .andExpect(jsonPath("$.totalAmount").value(40000));
+
+        MvcResult placed = mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"items":[{"productId":"%s","quantity":2},{"productId":"%s","quantity":1}],
+                                 "shippingAddress":{"recipientName":"테스트 고객","phoneNumber":"010-1234-5678",
+                                 "postalCode":"12345","addressLine1":"서울시 테스트로 1"}}
+                                """.formatted(first, second)))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.remainingPoints").value(960000))
+                .andExpect(jsonPath("$.fulfillmentStatus").value("PAID"))
+                .andExpect(jsonPath("$.shippingAddress.postalCode").value("12345")).andReturn();
+        UUID orderId = UUID.fromString(objectMapper.readTree(placed.getResponse().getContentAsString()).get("id").asText());
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM orders.order_shipping_addresses WHERE order_id = ?", Integer.class, orderId));
+
+        mockMvc.perform(put("/api/admin/orders/{orderId}/fulfillment", orderId).with(csrf()).cookie(copy(admin))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"PREPARING\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.fulfillmentStatus").value("PREPARING"));
+        mockMvc.perform(put("/api/admin/orders/{orderId}/fulfillment", orderId).with(csrf()).cookie(copy(admin))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SHIPPED\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.fulfillmentStatus").value("SHIPPED"));
+        mockMvc.perform(get("/api/admin/orders/{orderId}/history", orderId).cookie(copy(admin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[2].toStatus").value("SHIPPED"));
+
+        mockMvc.perform(post("/api/orders/cancellations").with(csrf()).cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":\"%s\",\"quantity\":1}".formatted(first)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/wallet/me/transactions").cookie(copy(customer.authCookie)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(2));
+        mockMvc.perform(get("/api/products/{productId}/stock/movements", first).cookie(copy(admin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(2));
     }
 
     private Cookie loginAdmin() throws Exception {

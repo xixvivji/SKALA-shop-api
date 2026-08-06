@@ -4,6 +4,8 @@ import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.inventory.InventoryApi;
 import com.skala.shopping.inventory.StockBalance;
+import com.skala.shopping.inventory.StockMovementView;
+import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.inventory.internal.domain.Stock;
 import com.skala.shopping.inventory.internal.domain.StockMovement;
 import com.skala.shopping.inventory.internal.domain.StockMovementType;
@@ -16,6 +18,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 @Service
 public class InventoryApplicationService implements InventoryApi {
@@ -125,11 +129,13 @@ public class InventoryApplicationService implements InventoryApi {
         );
     }
 
+    @Override
     @Transactional(readOnly = true)
     public StockBalance getStock(UUID productId) {
         return findStock(productId).toBalance();
     }
 
+    @Override
     @Transactional(readOnly = true)
     public List<StockBalance> getStocks(List<UUID> productIds) {
         if (productIds == null || productIds.isEmpty()) {
@@ -181,6 +187,13 @@ public class InventoryApplicationService implements InventoryApi {
                 type,
                 normalizedReason
         );
+    }
+
+    @Transactional(readOnly=true)
+    public PageResponse<StockMovementView> getMovements(UUID productId,int page,int size){
+        var pageable=PageRequest.of(page,size,Sort.by(Sort.Order.desc("createdAt"),Sort.Order.desc("id")));
+        return PageResponse.from(movementRepository.findAllByProductId(productId,pageable)
+                .map(StockMovement::toView));
     }
 
     @Transactional

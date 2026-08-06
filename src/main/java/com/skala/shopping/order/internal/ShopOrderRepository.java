@@ -17,6 +17,8 @@ interface ShopOrderRepository extends JpaRepository<ShopOrder, UUID> {
 
     Page<ShopOrder> findAllByMemberId(UUID memberId, Pageable pageable);
 
+    Page<ShopOrder> findAll(Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select shopOrder from ShopOrder shopOrder where shopOrder.id = :orderId")
     Optional<ShopOrder> findByIdForUpdate(@Param("orderId") UUID orderId);

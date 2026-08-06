@@ -93,12 +93,15 @@ class OrderController {
             @RequestHeader(name = "X-Idempotency-Key") UUID commandId,
             @Valid @RequestBody CreateOrderRequest request
     ) {
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            return OrderResponse.from(orderApi.placeOrder(
+                    memberId(jwt), request.getProductId(), request.getQuantity(), commandId));
+        }
         return OrderResponse.from(orderApi.placeOrder(
                 memberId(jwt),
-                request.getProductId(),
-                request.getQuantity(),
-                commandId
-        ));
+                request.getItems().stream().map(item -> item.toCommand()).toList(),
+                request.getShippingAddress() == null ? null : request.getShippingAddress().toCommand(),
+                commandId));
     }
 
     @GetMapping("/me")

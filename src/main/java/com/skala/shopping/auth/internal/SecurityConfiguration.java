@@ -111,11 +111,16 @@ class SecurityConfiguration {
                         ).permitAll()
                         .requestMatchers(HttpMethod.PUT, "/api/admin/password").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/customers/list").hasRole("ADMIN")
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/products/*/stock/movements").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/categories/**").permitAll()
+                        .requestMatchers("/api/categories/**").hasRole("ADMIN")
                         .requestMatchers("/api/orders/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/cart/**", "/api/wallet/**").hasRole("CUSTOMER")
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/customers/order",

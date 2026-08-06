@@ -7,6 +7,10 @@ import com.skala.shopping.wallet.WalletBalance;
 import com.skala.shopping.wallet.internal.domain.PointAccount;
 import com.skala.shopping.wallet.internal.domain.PointTransaction;
 import com.skala.shopping.wallet.internal.domain.PointTransactionType;
+import com.skala.shopping.wallet.PointTransactionView;
+import com.skala.shopping.common.PageResponse;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -109,6 +113,14 @@ class WalletApplicationService implements WalletApi {
         account.credit(amount, now);
         saveTransaction(account, PointTransactionType.REFUND, amount, referenceId, commandId, now);
         return account.toBalance();
+    }
+
+    @Override
+    @Transactional(readOnly=true)
+    public PageResponse<PointTransactionView> getTransactions(UUID memberId,int page,int size){
+        var pageable=PageRequest.of(page,size,Sort.by(Sort.Order.desc("createdAt"),Sort.Order.desc("id")));
+        return PageResponse.from(transactionRepository.findAllByMemberId(memberId,pageable)
+                .map(PointTransaction::toView));
     }
 
     private PointAccount lockedAccount(UUID memberId) {

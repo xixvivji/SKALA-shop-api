@@ -14,7 +14,11 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
 
     List<OrderItem> findAllByOrderIdOrderByIdAsc(UUID orderId);
 
+    List<OrderItem> findAllByOrderIdOrderByLineNumberAsc(UUID orderId);
+
     List<OrderItem> findAllByOrderIdInOrderByOrderIdAscIdAsc(Collection<UUID> orderIds);
+
+    List<OrderItem> findAllByOrderIdInOrderByOrderIdAscLineNumberAsc(Collection<UUID> orderIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

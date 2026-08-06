@@ -1,6 +1,7 @@
 package com.skala.shopping.wallet.internal.domain;
 
 import com.skala.shopping.wallet.WalletBalance;
+import com.skala.shopping.wallet.PointTransactionView;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -77,4 +78,7 @@ public class PointTransaction {
     public WalletBalance toBalance() {
         return new WalletBalance(memberId, balanceAfter);
     }
+
+    public PointTransactionView toView(){return new PointTransactionView(id,transactionType.name(),amount,
+            balanceAfter,referenceId,createdAt);}
 }
