@@ -15,6 +15,8 @@ interface ShopOrderRepository extends JpaRepository<ShopOrder, UUID> {
 
     Optional<ShopOrder> findByMemberIdAndRequestId(UUID memberId, UUID requestId);
 
+    Optional<ShopOrder> findByIdAndMemberId(UUID id, UUID memberId);
+
     Page<ShopOrder> findAllByMemberId(UUID memberId, Pageable pageable);
 
     Page<ShopOrder> findAll(Pageable pageable);

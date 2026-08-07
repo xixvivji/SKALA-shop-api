@@ -120,6 +120,17 @@ public class OrderApplicationService implements OrderApi {
 
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public OrderView getOrder(UUID memberId, UUID orderId) {
+        ShopOrder order = orderRepository.findByIdAndMemberId(orderId, memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
+        return attachAddress(order.toView(
+                itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id())
+                        .stream().map(OrderItem::toView).toList()
+        ));
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<OrderView> getOrders(UUID memberId, int page, int size) {
         var pageable = PageRequest.of(
                 page,

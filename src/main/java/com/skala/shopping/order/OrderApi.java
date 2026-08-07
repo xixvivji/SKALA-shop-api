@@ -22,6 +22,8 @@ public interface OrderApi {
      */
     CancellationView cancelProduct(UUID memberId, UUID productId, int quantity, UUID commandId);
 
+    OrderView getOrder(UUID memberId, UUID orderId);
+
     PageResponse<OrderView> getOrders(UUID memberId, int page, int size);
 
     List<PurchasedProductView> getPurchasedProducts(UUID memberId);
