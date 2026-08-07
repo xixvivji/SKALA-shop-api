@@ -9,6 +9,7 @@ import jakarta.validation.Path;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,11 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private final MeterRegistry meterRegistry;
+
+    GlobalExceptionHandler(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
 
     @ExceptionHandler(RateLimitExceededException.class)
     ResponseEntity<ApiError> handleRateLimitExceeded(RateLimitExceededException exception) {
@@ -158,6 +164,11 @@ class GlobalExceptionHandler {
             String message,
             Map<String, String> fieldErrors
     ) {
+        meterRegistry.counter(
+                "shopping.business.errors",
+                "code", errorCode.name(),
+                "status", Integer.toString(errorCode.status().value())
+        ).increment();
         return ResponseEntity.status(errorCode.status()).body(
                 ApiError.from(errorCode, message, fieldErrors)
         );

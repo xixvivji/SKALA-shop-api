@@ -12,6 +12,9 @@ shopping:
       secure: true
 
 logging:
+  structured:
+    format:
+      console: logstash
   level:
     root: INFO
     com.skala.shopping: INFO
