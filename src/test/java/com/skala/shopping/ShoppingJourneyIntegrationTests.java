@@ -518,15 +518,31 @@ class ShoppingJourneyIntegrationTests {
 
         mockMvc.perform(get("/api/products/not-a-uuid"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors.productId")
+                        .value("요청 값의 형식이 올바르지 않습니다."));
 
         mockMvc.perform(get("/api/products?page=abc"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors.page")
+                        .value("요청 값의 형식이 올바르지 않습니다."));
 
         mockMvc.perform(get("/api/orders/me?page=-1").cookie(copy(customer.authCookie)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors.page").exists());
+
+        mockMvc.perform(post("/api/orders")
+                        .with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors.orderShapeValid")
+                        .value("productId/quantity 또는 items를 입력해야 합니다."));
 
         mockMvc.perform(post("/api/orders")
                         .with(csrf())
@@ -534,14 +550,18 @@ class ShoppingJourneyIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(orderBody(UUID.randomUUID(), 1)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors['X-Idempotency-Key']")
+                        .value("필수 요청 헤더입니다."));
 
         mockMvc.perform(post("/api/customers")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors._request")
+                        .value("요청 본문의 JSON 형식이 올바르지 않습니다."));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.skala.shopping.order.internal.domain;
 
+import com.skala.shopping.common.BusinessException;
+import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.order.OrderItemView;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -89,7 +91,7 @@ public class OrderItem {
 
     public BigDecimal cancel(int quantity) {
         if (quantity <= 0 || quantity > availableQuantity()) {
-            throw new IllegalArgumentException("Invalid cancellation quantity");
+            throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
         }
         canceledQuantity += quantity;
         return unitPrice.multiply(BigDecimal.valueOf(quantity));
