@@ -23,6 +23,8 @@ public final class OrderView {
     private final String usedCouponCode;
     private final BigDecimal originalAmount;
     private final BigDecimal discountAmount;
+    private final BigDecimal pointUsedAmount;
+    private final BigDecimal paymentAmount;
     private final String trackingCarrier;
     private final String trackingNumber;
     private final String trackingUrl;
@@ -51,6 +53,8 @@ public final class OrderView {
                 orderedAt,
                 items,
                 null,
+                totalAmount,
+                BigDecimal.ZERO,
                 totalAmount,
                 BigDecimal.ZERO,
                 null,
@@ -116,6 +120,10 @@ public final class OrderView {
         return discountAmount;
     }
 
+    public BigDecimal getPointUsedAmount() { return pointUsedAmount; }
+
+    public BigDecimal getPaymentAmount() { return paymentAmount; }
+
     public String getTrackingCarrier() {
         return trackingCarrier;
     }
@@ -158,6 +166,8 @@ public final class OrderView {
                 usedCouponCode,
                 originalAmount,
                 discountAmount,
+                this.pointUsedAmount,
+                this.paymentAmount,
                 this.trackingCarrier,
                 this.trackingNumber,
                 this.trackingUrl,
@@ -180,6 +190,8 @@ public final class OrderView {
                 this.usedCouponCode,
                 this.originalAmount,
                 this.discountAmount,
+                this.pointUsedAmount,
+                this.paymentAmount,
                 carrier,
                 number,
                 url,
@@ -202,11 +214,24 @@ public final class OrderView {
                 this.usedCouponCode,
                 this.originalAmount,
                 this.discountAmount,
+                this.pointUsedAmount,
+                this.paymentAmount,
                 this.trackingCarrier,
                 this.trackingNumber,
                 this.trackingUrl,
                 this.estimatedDeliveryAt,
                 statusHistory == null ? new ArrayList<>() : statusHistory
+        );
+    }
+
+    public OrderView withPayment(BigDecimal pointUsedAmount, BigDecimal paymentAmount) {
+        return new OrderView(
+                this.id, this.orderNumber, this.status, this.fulfillmentStatus,
+                this.totalAmount, this.canceledAmount, this.remainingPoints,
+                this.orderedAt, this.items, this.usedCouponCode,
+                this.originalAmount, this.discountAmount, pointUsedAmount,
+                paymentAmount, this.trackingCarrier, this.trackingNumber,
+                this.trackingUrl, this.estimatedDeliveryAt, this.statusHistory
         );
     }
 
@@ -223,6 +248,8 @@ public final class OrderView {
             String usedCouponCode,
             BigDecimal originalAmount,
             BigDecimal discountAmount,
+            BigDecimal pointUsedAmount,
+            BigDecimal paymentAmount,
             String trackingCarrier,
             String trackingNumber,
             String trackingUrl,
@@ -242,6 +269,8 @@ public final class OrderView {
         this.usedCouponCode = usedCouponCode;
         this.originalAmount = originalAmount == null ? totalAmount : originalAmount;
         this.discountAmount = discountAmount == null ? BigDecimal.ZERO : discountAmount;
+        this.pointUsedAmount = pointUsedAmount == null ? totalAmount : pointUsedAmount;
+        this.paymentAmount = paymentAmount == null ? BigDecimal.ZERO : paymentAmount;
         this.trackingCarrier = trackingCarrier;
         this.trackingNumber = trackingNumber;
         this.trackingUrl = trackingUrl;
@@ -263,6 +292,8 @@ public final class OrderView {
                 source.usedCouponCode,
                 source.originalAmount,
                 source.discountAmount,
+                source.pointUsedAmount,
+                source.paymentAmount,
                 source.trackingCarrier,
                 source.trackingNumber,
                 source.trackingUrl,
@@ -285,6 +316,8 @@ public final class OrderView {
             String usedCouponCode,
             BigDecimal originalAmount,
             BigDecimal discountAmount,
+            BigDecimal pointUsedAmount,
+            BigDecimal paymentAmount,
             String trackingCarrier,
             String trackingNumber,
             String trackingUrl,
@@ -305,6 +338,8 @@ public final class OrderView {
         this.usedCouponCode = usedCouponCode;
         this.originalAmount = originalAmount == null ? totalAmount : originalAmount;
         this.discountAmount = discountAmount == null ? BigDecimal.ZERO : discountAmount;
+        this.pointUsedAmount = pointUsedAmount == null ? totalAmount : pointUsedAmount;
+        this.paymentAmount = paymentAmount == null ? BigDecimal.ZERO : paymentAmount;
         this.trackingCarrier = trackingCarrier;
         this.trackingNumber = trackingNumber;
         this.trackingUrl = trackingUrl;

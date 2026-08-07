@@ -23,6 +23,8 @@ public enum ErrorCode {
     INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "INSUFFICIENT_STOCK", "주문 가능한 재고가 부족합니다."),
     INSUFFICIENT_QUANTITY(HttpStatus.CONFLICT, "INSUFFICIENT_QUANTITY", "취소할 수량이 부족합니다."),
     PRODUCT_NOT_SALEABLE(HttpStatus.CONFLICT, "PRODUCT_NOT_SALEABLE", "현재 판매할 수 없는 상품입니다."),
+    PAYMENT_DECLINED(HttpStatus.CONFLICT, "PAYMENT_DECLINED", "모의 결제가 승인되지 않았습니다."),
+    PAYMENT_NOT_READY(HttpStatus.CONFLICT, "PAYMENT_NOT_READY", "현재 결제를 처리할 수 없는 상태입니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "서버 내부 오류가 발생했습니다.");
 
     private final HttpStatus status;
