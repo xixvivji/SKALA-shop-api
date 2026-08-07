@@ -52,12 +52,13 @@ python3 -m http.server 3000
 `config.js`는 실행 중인 주소를 기준으로 안전한 기본값을 선택합니다.
 
 - `localhost` 또는 `127.0.0.1`에서 실행하면 같은 호스트의 `8080` 포트를 API로 사용합니다.
-- Vercel 같은 배포 주소에서는 프론트의 HTTPS Origin을 기본값으로 사용하므로 `localhost` 호출이나 혼합 콘텐츠가 발생하지 않습니다.
-- 프론트와 API가 서로 다른 Origin이면 Vercel 환경변수 `SKALA_API_BASE_URL`에 실제 **HTTPS API 주소**를 설정합니다. `vercel.json`의 빌드가 이 값을 `runtime-config.js`에 기록하며, 값이 없거나 HTTP 주소이면 Vercel 빌드를 실패시켜 잘못된 배포를 막습니다. API 주소는 비밀값이 아니며, 정적 파일에 포함되므로 브라우저에서 확인할 수 있습니다.
+- Vercel 배포에서는 프론트의 HTTPS Origin을 기본값으로 사용하고, `vercel.json`이 `/api`와 `/actuator` 요청을 EC2 API로 프록시합니다. 브라우저에는 Vercel 주소만 보이고 인증 쿠키도 같은 Origin에서 동작합니다.
+- 프론트와 API를 서로 다른 Origin으로 직접 연결해야 할 때만 Vercel 환경변수 `SKALA_API_BASE_URL`에 실제 **HTTPS API 주소**를 설정합니다. 빌드는 이 값을 `runtime-config.js`에 기록하며 HTTP 주소는 거부합니다. API 주소는 비밀값이 아니며 정적 파일에서 확인할 수 있습니다.
 
 Vercel 프로젝트의 Root Directory는 `frontend`, Production Branch는 `main`으로
-설정하고 Production과 Preview 환경에 각각 `SKALA_API_BASE_URL`을 등록합니다.
-환경변수를 변경한 뒤에는 새로 배포해야 적용됩니다.
+설정합니다. 기본 프록시 구성에서는 `SKALA_API_BASE_URL` 환경변수를 등록하지
+않습니다. 외부 API 직접 연결로 변경해 환경변수를 추가했다면 새로 배포해야
+적용됩니다.
 
 정적 프론트에 주입되는 API 주소는 비밀값이 아닙니다. DB 비밀번호, JWT secret,
 Docker Hub 토큰이나 AWS 자격 증명은 Vercel 환경변수에 넣지 않습니다.
