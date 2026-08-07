@@ -1357,6 +1357,10 @@ main {
   line-height: 1.7;
 }
 
+.error-state .product-retry {
+  margin-top: 14px;
+}
+
 .product-skeleton {
   position: relative;
   overflow: hidden;

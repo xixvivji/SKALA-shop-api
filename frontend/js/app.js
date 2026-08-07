@@ -622,6 +622,7 @@ function renderProducts() {
         <span aria-hidden="true">!</span>
         <h3>상품을 불러오지 못했어요</h3>
         <p>${escapeHtml(state.productsError.message)}</p>
+        <button class="button button-outline product-retry" type="button" data-product-retry>다시 불러오기</button>
       </div>
     `;
     elements.productCount.textContent = "0";
@@ -1798,6 +1799,14 @@ function bindProducts() {
   elements.adminAddProductButton.addEventListener("click", () => openProductEditor());
 
   elements.productGrid.addEventListener("click", async (event) => {
+    if (event.target.closest("[data-product-retry]")) {
+      if (!state.productsError && !state.productsLoading) {
+        return;
+      }
+      await loadProducts();
+      return;
+    }
+
     const buy = event.target.closest("[data-product-buy]");
     const cart = event.target.closest("[data-product-cart]");
     const stock = event.target.closest("[data-product-stock]");
