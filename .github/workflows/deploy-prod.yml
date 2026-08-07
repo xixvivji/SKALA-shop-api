@@ -95,54 +95,83 @@ jobs:
   deploy:
     needs: publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Configure SSH
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Deploy commit through Systems Manager
         shell: bash
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Sync deployment files
-        shell: bash
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          REMOTE_RELEASE_DIR="/opt/skala-shop/releases/$RELEASE_ID"
-          ssh "$EC2_USER@$EC2_HOST" "install -d -m 755 '$REMOTE_RELEASE_DIR'"
-          scp deploy/compose.prod.yml "$EC2_USER@$EC2_HOST:$REMOTE_RELEASE_DIR/"
-          scp -r deploy/nginx deploy/scripts "$EC2_USER@$EC2_HOST:$REMOTE_RELEASE_DIR/"
-          ssh "$EC2_USER@$EC2_HOST" "chmod 700 '$REMOTE_RELEASE_DIR'/scripts/*.sh"
-      - name: Authenticate EC2 to Docker Hub
-        shell: bash
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_PULL_TOKEN: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
-        run: |
-          printf '%s' "$DOCKERHUB_PULL_TOKEN" |
-            ssh "$EC2_USER@$EC2_HOST" "docker login -u '$DOCKERHUB_USERNAME' --password-stdin"
-      - name: Deploy commit
-        shell: bash
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
           RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           BACKEND_IMAGE_REF: ${{ vars.DOCKERHUB_IMAGE }}@${{ needs.publish.outputs.image_digest }}
           BOOTSTRAP_TLS: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_tls || false }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_REVISION: ${{ github.sha }}
         run: |
+          [[ "$EC2_INSTANCE_ID" =~ ^i-[0-9a-f]+$ ]]
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BACKEND_IMAGE_REF" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]
+
           REMOTE_RELEASE_DIR="/opt/skala-shop/releases/$RELEASE_ID"
           if [[ "$BOOTSTRAP_TLS" == "true" ]]; then
             DEPLOY_SCRIPT=bootstrap-tls.sh
           else
             DEPLOY_SCRIPT=deploy.sh
           fi
-          ssh "$EC2_USER@$EC2_HOST" \
-            "'$REMOTE_RELEASE_DIR/scripts/$DEPLOY_SCRIPT' '$RELEASE_ID' '$BACKEND_IMAGE_REF'"
+
+          REMOTE_COMMAND=$(cat <<EOF
+          set -euo pipefail
+          RELEASE_ID='$RELEASE_ID'
+          SOURCE_REPOSITORY='$SOURCE_REPOSITORY'
+          SOURCE_REVISION='$SOURCE_REVISION'
+          BACKEND_IMAGE_REF='$BACKEND_IMAGE_REF'
+          DEPLOY_SCRIPT='$DEPLOY_SCRIPT'
+          REMOTE_RELEASE_DIR='$REMOTE_RELEASE_DIR'
+          ARCHIVE_ROOT='${SOURCE_REPOSITORY#*/}-$SOURCE_REVISION'
+          ARCHIVE_FILE="/tmp/skala-shop-$RELEASE_ID.tar.gz"
+          trap 'rm -f "\$ARCHIVE_FILE"' EXIT
+          install -d -m 755 -o ubuntu -g ubuntu "\$REMOTE_RELEASE_DIR"
+          curl -fsSL "https://codeload.github.com/\$SOURCE_REPOSITORY/tar.gz/\$SOURCE_REVISION" -o "\$ARCHIVE_FILE"
+          tar -xzf "\$ARCHIVE_FILE" -C "\$REMOTE_RELEASE_DIR" --strip-components=2 "\$ARCHIVE_ROOT/deploy"
+          chown -R ubuntu:ubuntu "\$REMOTE_RELEASE_DIR"
+          chmod 700 "\$REMOTE_RELEASE_DIR"/scripts/*.sh
+          runuser -u ubuntu -- env HOME=/home/ubuntu "\$REMOTE_RELEASE_DIR/scripts/\$DEPLOY_SCRIPT" "\$RELEASE_ID" "\$BACKEND_IMAGE_REF"
+          EOF
+          )
+
+          PARAMETERS=$(jq -n --arg command "$REMOTE_COMMAND" '{commands: [$command]}')
+          COMMAND_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --document-name AWS-RunShellScript \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --comment "SKALA Shop release $RELEASE_ID" \
+            --timeout-seconds 900 \
+            --parameters "$PARAMETERS" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          set +e
+          aws ssm wait command-executed \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$EC2_INSTANCE_ID"
+          WAIT_STATUS=$?
+          set -e
+
+          INVOCATION=$(aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --output json)
+          jq -r '.StandardOutputContent' <<< "$INVOCATION"
+          jq -r '.StandardErrorContent' <<< "$INVOCATION" >&2
+          COMMAND_STATUS=$(jq -r '.Status' <<< "$INVOCATION")
+          [[ "$WAIT_STATUS" -eq 0 && "$COMMAND_STATUS" == "Success" ]]
