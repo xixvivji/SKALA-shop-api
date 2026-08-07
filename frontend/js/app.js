@@ -8,6 +8,8 @@ const REMEMBERED_CUSTOMER_ID_KEY = "skala-remembered-customer-id";
 const PRODUCT_PAGE_SIZE = 12;
 const ORDER_PAGE_SIZE = 5;
 const MEMBER_PAGE_SIZE = 20;
+const TRANSACTION_PAGE_SIZE = 10;
+const ADMIN_ORDER_PAGE_SIZE = 10;
 
 const state = {
   view: "shop",
@@ -34,12 +36,25 @@ const state = {
   orderTotalPages: 0,
   ordersLoading: false,
   ordersError: null,
+  wallet: null,
+  transactions: [],
+  transactionTotal: 0,
+  transactionPage: -1,
+  transactionTotalPages: 0,
+  transactionsLoading: false,
+  transactionsError: null,
   members: [],
   memberTotal: 0,
   memberPage: -1,
   memberTotalPages: 0,
   membersLoading: false,
   membersError: null,
+  adminOrders: [],
+  adminOrderTotal: 0,
+  adminOrderPage: -1,
+  adminOrderTotalPages: 0,
+  adminOrdersLoading: false,
+  adminOrdersError: null,
 };
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
@@ -90,10 +105,15 @@ const elements = {
   memberBalance: $("#member-balance"),
   profileNameInput: $("#profile-name-input"),
   purchasedList: $("#purchased-list"),
+  transactionList: $("#transaction-list"),
+  transactionLoadMore: $("#transaction-load-more"),
   memberTableBody: $("#member-table-body"),
   memberLoadMore: $("#member-load-more"),
   adminProductCount: $("#admin-product-count"),
   adminMemberCount: $("#admin-member-count"),
+  adminOrderCount: $("#admin-order-count"),
+  adminOrderList: $("#admin-order-list"),
+  adminOrderLoadMore: $("#admin-order-load-more"),
   toastRegion: $("#toast-region"),
   loadingOverlay: $("#loading-overlay"),
   loadingMessage: $("#loading-message"),
@@ -105,6 +125,8 @@ let authGeneration = 0;
 let productsReloadQueued = false;
 let ordersReloadQueued = false;
 let membersReloadQueued = false;
+let transactionsReloadQueued = false;
+let adminOrdersReloadQueued = false;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -373,11 +395,22 @@ function clearSession() {
   state.orderPage = -1;
   state.orderTotalPages = 0;
   state.ordersError = null;
+  state.wallet = null;
+  state.transactions = [];
+  state.transactionTotal = 0;
+  state.transactionPage = -1;
+  state.transactionTotalPages = 0;
+  state.transactionsError = null;
   state.members = [];
   state.memberTotal = 0;
   state.memberPage = -1;
   state.memberTotalPages = 0;
   state.membersError = null;
+  state.adminOrders = [];
+  state.adminOrderTotal = 0;
+  state.adminOrderPage = -1;
+  state.adminOrderTotalPages = 0;
+  state.adminOrdersError = null;
   state.cart = { items: [], itemCount: 0, totalQuantity: 0, totalAmount: 0 };
   state.cartError = null;
   state.addresses = [];
@@ -388,6 +421,8 @@ function clearSession() {
   renderMembers();
   renderCart();
   renderAddresses();
+  renderTransactions();
+  renderAdminOrders();
 }
 
 function setSession(session, customer = null) {
@@ -455,7 +490,7 @@ function renderCustomer() {
   elements.memberRole.textContent = customer.role;
   elements.memberName.textContent = customer.name || customer.customerId;
   elements.memberId.textContent = customer.customerId;
-  elements.memberBalance.textContent = points(customer.customerPoint);
+  elements.memberBalance.textContent = points(state.wallet?.balance ?? customer.customerPoint);
   elements.profileNameInput.value = customer.name || "";
 
   const products = customer.products || [];
@@ -626,6 +661,20 @@ function orderStatus(status) {
   return labels[status] || status;
 }
 
+function fulfillmentStatus(status) {
+  const labels = {
+    PAID: "결제 완료",
+    PREPARING: "상품 준비 중",
+    SHIPPED: "배송 중",
+    DELIVERED: "배송 완료",
+  };
+  return labels[status] || status || "-";
+}
+
+function nextFulfillmentStatus(status) {
+  return { PAID: "PREPARING", PREPARING: "SHIPPED", SHIPPED: "DELIVERED" }[status] || null;
+}
+
 function renderOrders() {
   elements.orderCount.textContent = String(state.orderTotal);
   renderLoadMore(elements.orderLoadMore, {
@@ -696,9 +745,14 @@ function renderOrders() {
         <article class="order-card">
           <header class="order-card-head">
             <span class="order-number"><small>${dateTime(order.orderedAt)}</small><strong>${escapeHtml(order.orderNumber)}</strong></span>
-            <span class="order-status ${String(order.status).toLowerCase().replaceAll("_", "-")}">${escapeHtml(orderStatus(order.status))}</span>
+            <span class="order-status ${String(order.status).toLowerCase().replaceAll("_", "-")}">${escapeHtml(orderStatus(order.status))} · ${escapeHtml(fulfillmentStatus(order.fulfillmentStatus))}</span>
           </header>
           <div>${items}</div>
+          ${
+            order.shippingAddress
+              ? `<div class="order-shipping"><strong>배송지</strong><span>${escapeHtml(order.shippingAddress.recipientName)} · ${escapeHtml(order.shippingAddress.phoneNumber)}</span><small>[${escapeHtml(order.shippingAddress.postalCode)}] ${escapeHtml(order.shippingAddress.addressLine1)} ${escapeHtml(order.shippingAddress.addressLine2 || "")}</small></div>`
+              : ""
+          }
           <footer class="order-summary">
             <div><small>ORDER TOTAL</small><strong>${points(order.totalAmount)}</strong></div>
             <div><small>CANCELED</small><strong>${points(order.canceledAmount)}</strong></div>
@@ -871,6 +925,106 @@ function updateCheckoutAddressPreview() {
     : '<span>배송지를 먼저 추가해 주세요.</span>';
 }
 
+function transactionType(type) {
+  return {
+    SIGN_UP: "가입 포인트",
+    DEBIT: "주문 사용",
+    REFUND: "취소 환급",
+    ADJUSTMENT: "관리자 조정",
+  }[type] || type;
+}
+
+function renderTransactions() {
+  renderLoadMore(elements.transactionLoadMore, {
+    loading: state.transactionsLoading,
+    page: state.transactionPage,
+    totalPages: state.transactionTotalPages,
+    loaded: state.transactions.length,
+    total: state.transactionTotal,
+    label: "포인트 내역",
+  });
+  if (!isCustomer()) {
+    elements.transactionList.innerHTML = "";
+    return;
+  }
+  if (state.transactionsLoading && !state.transactions.length) {
+    elements.transactionList.innerHTML = '<div class="empty-inline">포인트 내역을 불러오는 중입니다.</div>';
+    return;
+  }
+  if (state.transactionsError) {
+    elements.transactionList.innerHTML = `<div class="error-state compact"><p>${escapeHtml(state.transactionsError.message)}</p></div>`;
+    return;
+  }
+  if (!state.transactions.length) {
+    elements.transactionList.innerHTML = '<div class="empty-inline">포인트 거래내역이 없습니다.</div>';
+    return;
+  }
+  elements.transactionList.innerHTML = state.transactions
+    .map((transaction) => {
+      const amount = Number(transaction.amount || 0);
+      return `
+        <article class="transaction-item">
+          <span class="transaction-symbol ${amount >= 0 ? "credit" : "debit"}">${amount >= 0 ? "+" : "−"}</span>
+          <div><strong>${escapeHtml(transactionType(transaction.type))}</strong><small>${dateTime(transaction.createdAt)}</small></div>
+          <div><strong>${amount >= 0 ? "+" : ""}${points(amount)}</strong><small>잔액 ${points(transaction.balanceAfter)}</small></div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderAdminOrders() {
+  elements.adminOrderCount.textContent = String(state.adminOrderTotal);
+  renderLoadMore(elements.adminOrderLoadMore, {
+    loading: state.adminOrdersLoading,
+    page: state.adminOrderPage,
+    totalPages: state.adminOrderTotalPages,
+    loaded: state.adminOrders.length,
+    total: state.adminOrderTotal,
+    label: "관리자 주문",
+  });
+  if (!isAdmin()) {
+    elements.adminOrderList.innerHTML = "";
+    return;
+  }
+  if (state.adminOrdersLoading && !state.adminOrders.length) {
+    elements.adminOrderList.innerHTML = productSkeletons();
+    return;
+  }
+  if (state.adminOrdersError) {
+    elements.adminOrderList.innerHTML = `<div class="error-state"><span>!</span><h3>주문을 불러오지 못했어요</h3><p>${escapeHtml(state.adminOrdersError.message)}</p></div>`;
+    return;
+  }
+  if (!state.adminOrders.length) {
+    elements.adminOrderList.innerHTML = '<div class="empty-state"><span>▤</span><h3>접수된 주문이 없습니다</h3><p>고객 주문이 생성되면 배송 상태를 관리할 수 있습니다.</p></div>';
+    return;
+  }
+  elements.adminOrderList.innerHTML = state.adminOrders
+    .map((order) => {
+      const nextStatus = nextFulfillmentStatus(order.fulfillmentStatus);
+      const itemSummary = (order.items || [])
+        .map((item) => `${escapeHtml(item.productName)} × ${Number(item.orderedQuantity) - Number(item.canceledQuantity)}`)
+        .join(" · ");
+      return `
+        <article class="admin-order-card">
+          <header>
+            <div><small>${dateTime(order.orderedAt)}</small><strong>${escapeHtml(order.orderNumber)}</strong></div>
+            <span class="status-chip">${escapeHtml(fulfillmentStatus(order.fulfillmentStatus))}</span>
+          </header>
+          <p>${itemSummary || "주문 상품 없음"}</p>
+          ${order.shippingAddress ? `<small>${escapeHtml(order.shippingAddress.recipientName)} · ${escapeHtml(addressSummary(order.shippingAddress))}</small>` : '<small>배송지 정보 없음</small>'}
+          <footer>
+            <strong>${points(Number(order.totalAmount) - Number(order.canceledAmount))}</strong>
+            <button class="mini-button" type="button" data-order-history="${escapeHtml(order.id)}">이력</button>
+            ${nextStatus ? `<button class="button button-dark" type="button" data-fulfillment-order="${escapeHtml(order.id)}" data-fulfillment-status="${nextStatus}">${escapeHtml(fulfillmentStatus(nextStatus))} 처리</button>` : '<span class="status-chip">처리 완료</span>'}
+          </footer>
+          <div class="order-history is-hidden" data-order-history-panel="${escapeHtml(order.id)}"></div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 function switchView(view, updateHash = true) {
   if (view === "admin" && !isAdmin()) {
     showToast("관리자 전용 화면입니다", "ADMIN 역할로 로그인해 주세요.", "error");
@@ -899,8 +1053,12 @@ function switchView(view, updateHash = true) {
   if (view === "account" && isCustomer()) {
     loadCustomer();
     loadAddresses();
+    loadTransactions();
   }
-  if (view === "admin" && isAdmin()) loadMembers();
+  if (view === "admin" && isAdmin()) {
+    loadMembers();
+    loadAdminOrders();
+  }
 
   if (updateHash) {
     window.history.replaceState(null, "", `#${view}`);
@@ -1083,6 +1241,49 @@ async function loadOrders({ append = false } = {}) {
   }
 }
 
+async function loadTransactions({ append = false } = {}) {
+  if (!isCustomer()) return;
+  if (state.transactionsLoading) {
+    if (!append) transactionsReloadQueued = true;
+    return;
+  }
+  if (append && state.transactionPage + 1 >= state.transactionTotalPages) return;
+  const targetPage = append ? state.transactionPage + 1 : 0;
+  if (!append) {
+    state.transactions = [];
+    state.transactionTotal = 0;
+    state.transactionPage = -1;
+    state.transactionTotalPages = 0;
+    state.transactionsError = null;
+  }
+  state.transactionsLoading = true;
+  renderTransactions();
+  try {
+    const [wallet, page] = await Promise.all([
+      shopApi.wallet(),
+      shopApi.walletTransactions(targetPage, TRANSACTION_PAGE_SIZE),
+    ]);
+    state.wallet = wallet;
+    const loaded = page.content || [];
+    const combined = append ? [...state.transactions, ...loaded] : loaded;
+    state.transactions = [...new Map(combined.map((item) => [item.id, item])).values()];
+    state.transactionPage = Number(page.page ?? targetPage);
+    state.transactionTotalPages = Number(page.totalPages || 0);
+    state.transactionTotal = Number(page.totalElements ?? state.transactions.length);
+    renderCustomer();
+  } catch (error) {
+    if (append) showApiError(error, "다음 포인트 내역을 불러오지 못했습니다.");
+    else state.transactionsError = error;
+  } finally {
+    state.transactionsLoading = false;
+    renderTransactions();
+    if (transactionsReloadQueued) {
+      transactionsReloadQueued = false;
+      loadTransactions();
+    }
+  }
+}
+
 async function loadMembers({ append = false } = {}) {
   if (!isAdmin()) return;
   if (state.membersLoading) {
@@ -1122,6 +1323,44 @@ async function loadMembers({ append = false } = {}) {
     if (membersReloadQueued) {
       membersReloadQueued = false;
       loadMembers();
+    }
+  }
+}
+
+async function loadAdminOrders({ append = false } = {}) {
+  if (!isAdmin()) return;
+  if (state.adminOrdersLoading) {
+    if (!append) adminOrdersReloadQueued = true;
+    return;
+  }
+  if (append && state.adminOrderPage + 1 >= state.adminOrderTotalPages) return;
+  const targetPage = append ? state.adminOrderPage + 1 : 0;
+  if (!append) {
+    state.adminOrders = [];
+    state.adminOrderTotal = 0;
+    state.adminOrderPage = -1;
+    state.adminOrderTotalPages = 0;
+    state.adminOrdersError = null;
+  }
+  state.adminOrdersLoading = true;
+  renderAdminOrders();
+  try {
+    const page = await shopApi.adminOrders(targetPage, ADMIN_ORDER_PAGE_SIZE);
+    const loaded = page.content || [];
+    const combined = append ? [...state.adminOrders, ...loaded] : loaded;
+    state.adminOrders = [...new Map(combined.map((order) => [order.id, order])).values()];
+    state.adminOrderPage = Number(page.page ?? targetPage);
+    state.adminOrderTotalPages = Number(page.totalPages || 0);
+    state.adminOrderTotal = Number(page.totalElements ?? state.adminOrders.length);
+  } catch (error) {
+    if (append) showApiError(error, "다음 관리자 주문을 불러오지 못했습니다.");
+    else state.adminOrdersError = error;
+  } finally {
+    state.adminOrdersLoading = false;
+    renderAdminOrders();
+    if (adminOrdersReloadQueued) {
+      adminOrdersReloadQueued = false;
+      loadAdminOrders();
     }
   }
 }
@@ -1960,6 +2199,50 @@ function bindAccountActions() {
   elements.memberLoadMore.addEventListener("click", () =>
     loadMembers({ append: true }),
   );
+  $("#refresh-wallet-button").addEventListener("click", () => loadTransactions());
+  elements.transactionLoadMore.addEventListener("click", () =>
+    loadTransactions({ append: true }),
+  );
+  $("#refresh-admin-orders-button").addEventListener("click", () => loadAdminOrders());
+  elements.adminOrderLoadMore.addEventListener("click", () =>
+    loadAdminOrders({ append: true }),
+  );
+  elements.adminOrderList.addEventListener("click", async (event) => {
+    const fulfillmentButton = event.target.closest("[data-fulfillment-order]");
+    const historyButton = event.target.closest("[data-order-history]");
+    if (fulfillmentButton) {
+      const nextStatus = fulfillmentButton.dataset.fulfillmentStatus;
+      if (!window.confirm(`배송 상태를 '${fulfillmentStatus(nextStatus)}'(으)로 변경할까요?`)) return;
+      try {
+        await withLoading("배송 상태를 변경하고 있습니다", () =>
+          shopApi.updateFulfillment(fulfillmentButton.dataset.fulfillmentOrder, nextStatus),
+        );
+        await loadAdminOrders();
+        showToast("배송 상태를 변경했습니다", fulfillmentStatus(nextStatus));
+      } catch (error) {
+        showApiError(error, "배송 상태를 변경하지 못했습니다.");
+      }
+    }
+    if (historyButton) {
+      const orderId = historyButton.dataset.orderHistory;
+      const panel = elements.adminOrderList.querySelector(`[data-order-history-panel="${orderId}"]`);
+      if (!panel) return;
+      if (!panel.classList.contains("is-hidden")) {
+        panel.classList.add("is-hidden");
+        return;
+      }
+      panel.classList.remove("is-hidden");
+      panel.textContent = "변경 이력을 불러오는 중입니다.";
+      try {
+        const history = await shopApi.orderHistory(orderId);
+        panel.innerHTML = history.length
+          ? history.map((item) => `<div><span>${escapeHtml(fulfillmentStatus(item.fromStatus))} → ${escapeHtml(fulfillmentStatus(item.toStatus))}</span><small>${dateTime(item.changedAt)}</small></div>`).join("")
+          : '<div>아직 배송 상태 변경 이력이 없습니다.</div>';
+      } catch (error) {
+        panel.textContent = error?.message || "변경 이력을 불러오지 못했습니다.";
+      }
+    }
+  });
 }
 
 function bindShoppingActions() {
@@ -2040,6 +2323,8 @@ async function initialize() {
   renderMembers();
   renderCart();
   renderAddresses();
+  renderTransactions();
+  renderAdminOrders();
 
   await Promise.allSettled([
     issueCsrfToken(),
