@@ -211,6 +211,142 @@ select {
   gap: 5px;
 }
 
+.order-shipping {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 12px;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(88, 101, 242, .07);
+}
+
+.order-shipping small {
+  grid-column: 2;
+  color: var(--muted);
+}
+
+.transaction-list {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--line);
+}
+
+.transaction-item {
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  background: rgba(255, 255, 255, .8);
+}
+
+.transaction-item > div {
+  display: grid;
+  gap: 3px;
+}
+
+.transaction-item > div:last-child {
+  text-align: right;
+}
+
+.transaction-item small {
+  color: var(--muted);
+}
+
+.transaction-symbol {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 900;
+}
+
+.transaction-symbol.credit {
+  background: rgba(123, 224, 195, .25);
+  color: #08745a;
+}
+
+.transaction-symbol.debit {
+  background: rgba(255, 105, 72, .16);
+  color: var(--accent-dark);
+}
+
+.admin-order-section {
+  padding-top: 10px;
+}
+
+.admin-order-list {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-order-card {
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--white);
+}
+
+.admin-order-card header,
+.admin-order-card footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-order-card header {
+  justify-content: space-between;
+}
+
+.admin-order-card header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-order-card header small,
+.admin-order-card > small {
+  color: var(--muted);
+}
+
+.admin-order-card > p {
+  margin: 20px 0 8px;
+  line-height: 1.6;
+}
+
+.admin-order-card footer {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.admin-order-card footer > strong {
+  margin-right: auto;
+  font-size: 20px;
+}
+
+.order-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.order-history > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+.order-history small {
+  color: var(--muted);
+}
+
 .address-card span,
 .address-card small {
   color: var(--muted);
@@ -284,6 +420,24 @@ select {
 
   .address-card {
     flex-direction: column;
+  }
+
+  .transaction-item {
+    grid-template-columns: 34px 1fr;
+  }
+
+  .transaction-item > div:last-child {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .admin-order-card footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-order-card footer > strong {
+    margin-right: 0;
   }
 }
 

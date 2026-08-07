@@ -224,6 +224,9 @@ export const shopApi = {
   clearCart: () => request("/api/cart", { method: "DELETE" }),
   orders: (page = 0, size = 10) =>
     request(`/api/orders/me?page=${page}&size=${size}`),
+  wallet: () => request("/api/wallet/me"),
+  walletTransactions: (page = 0, size = 20) =>
+    request(`/api/wallet/me/transactions?page=${page}&size=${size}`),
   order: (productId, quantity, idempotencyKey = createCommandId()) =>
     request("/api/orders", {
       method: "POST",
@@ -244,6 +247,14 @@ export const shopApi = {
     }),
   members: (page = 0, size = 50) =>
     request(`/api/customers/list?page=${page}&size=${size}`),
+  adminOrders: (page = 0, size = 20) =>
+    request(`/api/admin/orders?page=${page}&size=${size}`),
+  updateFulfillment: (orderId, status) =>
+    request(`/api/admin/orders/${orderId}/fulfillment`, {
+      method: "PUT",
+      body: { status },
+    }),
+  orderHistory: (orderId) => request(`/api/admin/orders/${orderId}/history`),
   stocks: (productIds) => {
     const query = new URLSearchParams();
     productIds.forEach((productId) => query.append("productIds", productId));

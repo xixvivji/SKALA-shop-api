@@ -230,6 +230,15 @@
               <div class="address-list" id="address-list"></div>
             </article>
 
+            <article class="panel wallet-panel">
+              <div class="panel-heading">
+                <div><small>POINT LEDGER</small><h2>포인트 내역</h2></div>
+                <button class="text-button" type="button" id="refresh-wallet-button">새로고침 ↻</button>
+              </div>
+              <div class="transaction-list" id="transaction-list"></div>
+              <button class="button button-outline is-hidden" type="button" id="transaction-load-more" aria-controls="transaction-list">내역 더보기</button>
+            </article>
+
             <article class="panel danger-panel">
               <div class="panel-heading">
                 <div><small>ACCOUNT</small><h2>세션과 계정</h2></div>
@@ -274,8 +283,8 @@
           </article>
           <article class="admin-stat-card dark-card">
             <small>ACCESS CONTROL</small>
-            <strong>ADMIN</strong>
-            <span>관리자 권한으로 접속 중</span>
+            <strong id="admin-order-count">0</strong>
+            <span>전체 주문</span>
           </article>
         </div>
 
@@ -296,6 +305,17 @@
             <button class="button button-outline is-hidden" type="button" id="member-load-more" aria-controls="member-table-body">
               고객 더보기
             </button>
+          </div>
+        </section>
+
+        <section class="admin-table-section admin-order-section" aria-labelledby="admin-orders-title">
+          <div class="section-heading compact-heading">
+            <div><p class="eyebrow">Fulfillment desk</p><h2 id="admin-orders-title">주문·배송 관리</h2></div>
+            <button class="text-button" type="button" id="refresh-admin-orders-button">새로고침 ↻</button>
+          </div>
+          <div class="admin-order-list" id="admin-order-list"></div>
+          <div class="list-pagination">
+            <button class="button button-outline is-hidden" type="button" id="admin-order-load-more" aria-controls="admin-order-list">주문 더보기</button>
           </div>
         </section>
       </section>
