@@ -1,5 +1,7 @@
 package com.skala.shopping.order.internal.domain;
 
+import com.skala.shopping.common.BusinessException;
+import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.order.OrderItemView;
 import com.skala.shopping.order.OrderView;
 import jakarta.persistence.Column;
@@ -115,7 +117,7 @@ public class ShopOrder {
 
     public void transitionFulfillment(FulfillmentStatus next, Instant now) {
         if (!fulfillmentStatus.canTransitionTo(next)) {
-            throw new IllegalArgumentException("Invalid fulfillment transition");
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "허용되지 않는 배송 상태 변경입니다.");
         }
         fulfillmentStatus = next;
         updatedAt = databaseTimestamp(now);
