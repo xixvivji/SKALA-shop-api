@@ -26,13 +26,15 @@ Elastic IP, DNS, Docker Hub, Vercel 프로젝트와 GitHub Secrets/Variables는 
 - `flock` 명령을 제공하는 util-linux 패키지
 - 암호화된 EBS
 - EC2 보안 그룹의 80과 443 허용
-- SSH 22는 관리자 IP로 제한하거나 SSM 사용
+- SSH 22는 관리자 IP로만 제한하고 자동 배포는 SSM Run Command 사용
 - 비공개 RDS PostgreSQL
 - RDS 보안 그룹은 EC2 보안 그룹에서 오는 5432만 허용
 - RDS 자동 백업, 저장소 자동 확장과 삭제 방지
 - `api.example.com`이 EC2 Elastic IP를 가리키도록 DNS 설정
 
-EC2 IAM Role을 사용하고 AWS Access Key를 파일에 저장하지 않습니다.
+EC2에는 `AmazonSSMManagedInstanceCore` 정책을 가진 IAM Role을 연결합니다. GitHub
+Actions는 GitHub OIDC로 배포 전용 IAM Role을 맡으며 AWS Access Key나 EC2 SSH 키를
+GitHub Secrets에 저장하지 않습니다.
 
 ## EC2 디렉터리 구조
 
@@ -142,19 +144,20 @@ HTTP 전용 Nginx로 인증서를 발급한 뒤 같은 릴리스의 정상 배�
 GitHub Actions Secrets:
 
 ~~~text
-EC2_HOST
-EC2_USER
-EC2_SSH_PRIVATE_KEY
-EC2_KNOWN_HOSTS
 DOCKERHUB_USERNAME
 DOCKERHUB_PUSH_TOKEN
-DOCKERHUB_PULL_TOKEN
 ~~~
+
+EC2는 최초 준비 단계에서 Docker Hub read-only 토큰으로 한 번 로그인합니다. 해당
+자격 증명은 EC2의 `ubuntu` 사용자에만 저장되며 GitHub Actions로 전달하지 않습니다.
 
 GitHub Actions Variables:
 
 ~~~text
 DOCKERHUB_IMAGE=<dockerhub-username>/skala-shop-api
+AWS_DEPLOY_ROLE_ARN=arn:aws:iam::<account-id>:role/SKALAShopGitHubDeployRole
+AWS_REGION=ap-northeast-2
+EC2_INSTANCE_ID=i-xxxxxxxxxxxxxxxxx
 PRODUCTION_DEPLOY_ENABLED=true
 ~~~
 
@@ -172,10 +175,12 @@ main push 배포는 다음 순서로 동작합니다.
 
 1. Java 21 테스트, 프론트 검사와 릴리스 흐름 시뮬레이션을 실행합니다.
 2. `linux/amd64` 이미지를 Docker Hub에 게시하고 registry digest를 받습니다.
-3. Compose/Nginx/스크립트를 실행별 버전 디렉터리에 복사합니다.
-4. digest로 Candidate Backend를 기동하고 healthcheck를 확인합니다.
-5. Candidate 구성으로 일회성 컨테이너의 실제 `nginx -t`를 실행합니다.
-6. Nginx와 인증서 갱신 컨테이너를 같은 구성으로 전환하고 live `nginx -t`와
+3. GitHub OIDC로 단기 AWS 자격 증명을 발급받고 SSM Run Command를 전송합니다.
+4. EC2가 정확한 Git commit SHA의 공개 소스 압축 파일에서 `deploy/`만 받아 실행별
+   버전 디렉터리에 배치합니다.
+5. digest로 Candidate Backend를 기동하고 healthcheck를 확인합니다.
+6. Candidate 구성으로 일회성 컨테이너의 실제 `nginx -t`를 실행합니다.
+7. Nginx와 인증서 갱신 컨테이너를 같은 구성으로 전환하고 live `nginx -t`와
    reload까지 성공한 뒤에만 current로 승격합니다.
 
 Workflow의 production concurrency는 `cancel-in-progress: false`이므로 main 배포가
