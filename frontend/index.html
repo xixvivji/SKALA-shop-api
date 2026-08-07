@@ -461,7 +461,9 @@
             </div>
           </label>
           <label><span>쿠폰 코드 (선택)</span><input name="couponCode" maxlength="50" placeholder="WELCOME10" /></label>
-          <div class="checkout-total"><span>결제 예정 포인트</span><strong id="order-total">0 P</strong></div>
+          <label><span>사용 포인트 (비우면 전액)</span><input name="pointAmount" type="number" min="0" step="0.01" placeholder="0" /></label>
+          <label><span>Fake PG 테스트 카드</span><input name="testCardNumber" inputmode="numeric" value="4242-4242-4242-4242" required /></label>
+          <div class="checkout-total"><span>주문 금액</span><strong id="order-total">0 P</strong></div>
           <button class="button button-accent button-block" type="submit">주문하기</button>
         </form>
       </div>
@@ -551,7 +553,9 @@
         </label>
         <div class="checkout-address-preview" id="checkout-address-preview"></div>
         <label><span>쿠폰 코드 (선택)</span><input name="couponCode" maxlength="50" placeholder="WELCOME10" /></label>
-        <div class="checkout-total"><span>결제 예정 포인트</span><strong id="checkout-total">0 P</strong></div>
+        <label><span>사용 포인트 (비우면 전액)</span><input name="pointAmount" type="number" min="0" step="0.01" placeholder="0" /></label>
+        <label><span>Fake PG 테스트 카드</span><input name="testCardNumber" inputmode="numeric" value="4242-4242-4242-4242" required /></label>
+        <div class="checkout-total"><span>주문 금액</span><strong id="checkout-total">0 P</strong></div>
         <button class="button button-accent button-block" type="submit">전체 주문하기</button>
       </form>
     </dialog>
