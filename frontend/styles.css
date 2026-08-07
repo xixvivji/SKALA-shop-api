@@ -44,8 +44,247 @@ body:has(dialog[open]) {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
+}
+
+.cart-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cart-button strong {
+  display: grid;
+  min-width: 23px;
+  height: 23px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+}
+
+.catalog-filters {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.3fr) repeat(2, minmax(130px, 1fr)) auto auto;
+  gap: 12px;
+  align-items: end;
+  margin: 0 0 32px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 253, 248, 0.65);
+}
+
+.catalog-filters label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.catalog-filters input,
+.catalog-filters select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--ink);
+}
+
+.shop-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cart-modal {
+  width: min(860px, calc(100vw - 30px));
+}
+
+.cart-modal-heading,
+.cart-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 28px 34px;
+}
+
+.cart-modal-heading {
+  border-bottom: 1px solid var(--line);
+}
+
+.cart-modal-heading h2 {
+  margin: 4px 0 0;
+  font-size: 34px;
+}
+
+.cart-list {
+  display: grid;
+  gap: 1px;
+  max-height: 55vh;
+  overflow: auto;
+  background: var(--line);
+}
+
+.cart-item {
+  display: grid;
+  grid-template-columns: 58px minmax(150px, 1fr) 80px 110px auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px 34px;
+  background: var(--white);
+}
+
+.cart-item.is-unavailable {
+  opacity: .65;
+}
+
+.cart-item-thumb {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 16px;
+  font-weight: 900;
+}
+
+.cart-item-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.cart-item-copy small,
+.checkout-address-preview span {
+  color: var(--muted);
+}
+
+.cart-quantity input {
+  width: 76px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.cart-summary {
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.cart-summary > strong {
+  margin-left: auto;
+  font-size: 24px;
+}
+
+.address-list {
+  display: grid;
+  gap: 12px;
+}
+
+.address-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .55);
+}
+
+.address-card > div:first-child,
+.checkout-address-preview {
+  display: grid;
+  gap: 5px;
+}
+
+.address-card span,
+.address-card small {
+  color: var(--muted);
+}
+
+.address-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.checkbox-row {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+}
+
+.checkbox-row input {
+  width: 18px;
+  height: 18px;
+}
+
+.checkout-address-preview {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+@media (max-width: 820px) {
+  .catalog-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .catalog-filters label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .cart-item {
+    grid-template-columns: 48px 1fr auto;
+    padding: 16px 20px;
+  }
+
+  .cart-quantity,
+  .cart-item > strong,
+  .cart-item > .text-button {
+    grid-column: 2 / -1;
+  }
+
+  .cart-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cart-summary > strong {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .catalog-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-filters label:first-child {
+    grid-column: auto;
+  }
+
+  .cart-button > span {
+    display: none;
+  }
+
+  .address-card {
+    flex-direction: column;
+  }
 }
 
 button,
