@@ -66,7 +66,7 @@ jobs:
       - frontend
     runs-on: ubuntu-latest
     outputs:
-      backend_image_ref: ${{ steps.immutable_image.outputs.backend_image_ref }}
+      image_digest: ${{ steps.immutable_image.outputs.image_digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -84,16 +84,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - id: immutable_image
-        name: Record immutable image reference
+        name: Record immutable image digest
         shell: bash
         env:
-          IMAGE_REPOSITORY: ${{ vars.DOCKERHUB_IMAGE }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          [[ "$IMAGE_REPOSITORY" =~ ^[A-Za-z0-9._/-]+$ ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          printf 'backend_image_ref=%s@%s\n' \
-            "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          printf 'image_digest=%s\n' "$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: publish
@@ -138,7 +135,7 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
           RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          BACKEND_IMAGE_REF: ${{ needs.publish.outputs.backend_image_ref }}
+          BACKEND_IMAGE_REF: ${{ vars.DOCKERHUB_IMAGE }}@${{ needs.publish.outputs.image_digest }}
           BOOTSTRAP_TLS: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_tls || false }}
         run: |
           REMOTE_RELEASE_DIR="/opt/skala-shop/releases/$RELEASE_ID"
