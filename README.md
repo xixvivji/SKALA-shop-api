@@ -22,6 +22,7 @@
 - 저장 배송지와 기본 배송지 관리
 - 장바구니와 다중 상품 주문
 - 주문 내역, 부분 취소와 포인트 환급
+- 회원별 1회 쿠폰, 위시리스트, 구매 인증 상품 리뷰와 재입고 알림
 - 포인트 잔액과 거래 원장 조회
 
 ### 관리자
@@ -30,7 +31,7 @@
 - 상품 설명, 이미지 URL과 초기 재고 관리
 - 재고 증감 조정과 변경 이력 조회
 - 고객·전체 주문 조회
-- `PAID → PREPARING → SHIPPED → DELIVERED` 배송 상태 관리
+- `PAID → PREPARING → SHIPPED → DELIVERED` 배송 상태와 운송장·예상 배송일 관리
 
 ### 안정성
 
@@ -78,7 +79,7 @@ RDS를 사용합니다.
 ```text
 .
 ├── src/main/java/com/skala/shopping/   # 도메인 모듈과 Spring Boot 코드
-├── src/main/resources/                 # profile 설정과 Flyway V1~V16
+├── src/main/resources/                 # profile 설정과 Flyway V1~V20
 ├── src/test/                           # 단위·통합·모듈 경계 테스트
 ├── frontend/                           # Vercel 정적 프론트와 Playwright E2E
 ├── deploy/                             # EC2 Compose, Nginx, Certbot, 배포·롤백
@@ -107,6 +108,10 @@ RDS를 사용합니다.
 | `cart` | 회원별 장바구니와 상품·재고 검증 |
 | `wallet` | 포인트 계정과 거래 원장 |
 | `order` | 주문, 취소, 스냅샷, 배송 상태와 이력 |
+| `coupon` | 쿠폰 규칙과 회원별 사용 이력 |
+| `wishlist` | 회원별 관심 상품 |
+| `review` | 구매 이력을 확인한 상품 리뷰 |
+| `stockalert` | 품절 상품 구독과 재입고 알림 상태 |
 | `storefront` | 여러 모듈을 조합하는 고객용 호환 API |
 | `common` | 공통 오류와 페이지 응답 등 최소 공통 코드 |
 
@@ -174,7 +179,7 @@ Repository는 해당 모듈의 DB 접근을 담당합니다. JPA Entity를 HTTP 
 
 ## API 규칙
 
-- 현재 OpenAPI 기준으로 33개 path, 45개 HTTP operation이 있습니다.
+- 현재 Controller 기준으로 56개 HTTP operation이 있습니다.
 - 상태 변경 요청은 CSRF 토큰과 `credentials: "include"`가 필요합니다.
 - 주문·취소와 재고 초기화·조정은 `X-Idempotency-Key` UUID가 필수입니다.
 - 목록의 `page`는 0부터 시작하며 `size`는 1~100입니다.
@@ -200,7 +205,7 @@ npm --prefix frontend ci
 npm --prefix frontend run test:e2e
 ```
 
-현재 백엔드 82개 테스트와 데스크톱·모바일 브라우저 E2E가 모듈 경계, 인증,
+현재 백엔드 90개 테스트와 데스크톱·모바일 브라우저 E2E가 모듈 경계, 인증,
 Validation, PostgreSQL 트랜잭션, 동시 주문, 멱등 재시도, 프론트 고객·관리자 흐름을
 검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를 변경하므로
 명시적으로 활성화할 때만 실행합니다. 자세한 구분은 [테스트 전략](docs/testing.md)에
