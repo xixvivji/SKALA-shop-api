@@ -45,6 +45,11 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend test dependencies
+        working-directory: frontend
+        run: npm ci
       - name: Check JavaScript syntax
         run: |
           node --check frontend/runtime-config.js
@@ -58,6 +63,12 @@ jobs:
         env:
           SKALA_API_BASE_URL: https://api.example.com
         run: node frontend/scripts/build.mjs
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run browser E2E tests
+        working-directory: frontend
+        run: npm run test:e2e
 
   publish:
     if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
