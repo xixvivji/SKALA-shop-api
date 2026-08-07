@@ -214,6 +214,7 @@ public class InventoryApplicationService implements InventoryApi {
             return replay;
         }
         Stock stock = lockedStock(productId);
+        // 잠금을 기다리는 동안 선행 요청이 완료될 수 있으므로 잠금 획득 후 멱등 기록을 다시 확인합니다.
         replay = replayIfProcessed(operationId, productId, fingerprint);
         if (replay != null) {
             return replay;

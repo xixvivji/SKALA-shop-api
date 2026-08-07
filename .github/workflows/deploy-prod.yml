@@ -130,6 +130,7 @@ jobs:
           [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
           [[ "$BACKEND_IMAGE_REF" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]
 
+          # private 저장소의 codeload URL은 EC2에서 인증할 수 없으므로 필요한 런타임 파일만 SSM으로 전달합니다.
           DEPLOY_ARCHIVE_BASE64=$(
             tar -czf - deploy/compose.prod.yml deploy/nginx deploy/scripts | base64 -w 0
           )

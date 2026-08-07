@@ -229,6 +229,7 @@ public class OrderApplicationService implements OrderApi {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "주문 총액 한도를 초과했습니다.");
         }
         UUID orderId = UUID.randomUUID();
+        // 포인트 모듈도 같은 commandId로 멱등 처리하므로 동시 재시도에서 중복 차감되지 않습니다.
         BigDecimal remainingPoints = pointManager.debit(
                 memberId,
                 totalAmount,
@@ -237,6 +238,7 @@ public class OrderApplicationService implements OrderApi {
         );
         var replay = orderRepository.findByMemberIdAndRequestId(memberId, commandId);
         if (replay.isPresent()) {
+            // 포인트 계정 잠금 대기 중 다른 요청이 주문을 완료했다면 최초 응답 스냅샷을 재생합니다.
             return replayOrder(replay.get(), fingerprint);
         }
         for (OrderLineCommand line : lines) {
@@ -297,6 +299,7 @@ public class OrderApplicationService implements OrderApi {
             }
             int canceled = Math.min(remaining, item.availableQuantity());
             BigDecimal itemRefund = item.cancel(canceled);
+            // 여러 주문에 걸친 부분 취소가 서로 덮어쓰지 않도록 주문 행을 순서대로 잠급니다.
             ShopOrder order = orderRepository.findByIdForUpdate(item.orderId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND));
             if (!order.isCancelable()) {
@@ -413,7 +416,10 @@ public class OrderApplicationService implements OrderApi {
         if (distinct != items.size()) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "같은 상품은 주문에 한 번만 포함할 수 있습니다.");
         }
-        return items.stream().sorted(Comparator.comparing(line -> line.getProductId().toString())).toList();
+        // 모든 주문이 같은 상품 순서로 재고를 잠그게 해 다중 상품 주문 간 교착 가능성을 낮춥니다.
+        return items.stream()
+                .sorted(Comparator.comparing(line -> line.getProductId().toString()))
+                .toList();
     }
 
     private void validateShippingAddress(ShippingAddressCommand address) {

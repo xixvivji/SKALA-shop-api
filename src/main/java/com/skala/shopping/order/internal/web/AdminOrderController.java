@@ -1,6 +1,7 @@
 package com.skala.shopping.order.internal.web;
 
 import com.skala.shopping.common.BusinessException;
+import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.order.internal.OrderApplicationService;
@@ -9,6 +10,10 @@ import com.skala.shopping.order.internal.web.dto.response.OrderResponse;
 import com.skala.shopping.order.OrderStatusHistoryView;
 import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -27,25 +32,66 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin/orders")
-@Tag(name="관리자 주문", description="전체 주문과 배송 상태 관리")
-@SecurityRequirement(name="cookieAuth")
+@Tag(name = "관리자 주문", description = "전체 주문과 배송 상태 관리")
+@SecurityRequirement(name = "cookieAuth")
+@ApiResponses({
+        @ApiResponse(responseCode = "401", description = "인증 필요",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+        @ApiResponse(responseCode = "403", description = "관리자 권한 또는 CSRF 토큰 필요",
+                content = @Content(schema = @Schema(implementation = ApiError.class)))
+})
 class AdminOrderController {
+
     private final OrderApplicationService service;
-    AdminOrderController(OrderApplicationService service) { this.service=service; }
-    @GetMapping @Operation(summary="전체 주문 조회")
-    PageResponse<OrderResponse> orders(@RequestParam(defaultValue="0") @Min(0) int page,
-                                       @RequestParam(defaultValue="20") @Min(1) @Max(100) int size) {
+
+    AdminOrderController(OrderApplicationService service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    @Operation(summary = "전체 주문 조회")
+    @ApiResponse(responseCode = "400", description = "페이지 요청값 오류",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    PageResponse<OrderResponse> orders(
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+    ) {
         return OrderResponse.pageFrom(service.getAllOrders(page, size));
     }
-    @PutMapping("/{orderId}/fulfillment") @Operation(summary="배송 상태 변경")
-    OrderResponse fulfillment(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID orderId,
-                              @Valid @RequestBody UpdateFulfillmentRequest request) {
+
+    @PutMapping("/{orderId}/fulfillment")
+    @Operation(summary = "배송 상태 변경")
+    @ApiResponses({
+            @ApiResponse(responseCode = "400", description = "주문 ID 또는 배송 상태 전이 오류",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "주문을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    OrderResponse fulfillment(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID orderId,
+            @Valid @RequestBody UpdateFulfillmentRequest request
+    ) {
         return OrderResponse.from(service.changeFulfillment(adminId(jwt), orderId, request.getStatus()));
     }
-    @GetMapping("/{orderId}/history") @Operation(summary="배송 상태 변경 이력")
-    List<OrderStatusHistoryView> history(@PathVariable UUID orderId){return service.getStatusHistory(orderId);}
+
+    @GetMapping("/{orderId}/history")
+    @Operation(summary = "배송 상태 변경 이력")
+    @ApiResponses({
+            @ApiResponse(responseCode = "400", description = "주문 ID 오류",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "주문을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    List<OrderStatusHistoryView> history(@PathVariable UUID orderId) {
+        return service.getStatusHistory(orderId);
+    }
+
     private UUID adminId(Jwt jwt) {
-        try { return UUID.fromString(jwt.getSubject()); }
-        catch (RuntimeException exception) { throw new BusinessException(ErrorCode.NOT_AUTHENTICATED); }
+        try {
+            return UUID.fromString(jwt.getSubject());
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ErrorCode.NOT_AUTHENTICATED);
+        }
     }
 }

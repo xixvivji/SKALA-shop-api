@@ -24,6 +24,7 @@ class ActiveAccountJwtAuthenticationConverter
     @Override
     public AbstractOAuth2TokenAuthenticationToken<Jwt> convert(Jwt jwt) {
         UUID accountId = accountId(jwt);
+        // 서명이 유효해도 탈퇴·비활성화된 계정의 과거 토큰은 매 요청마다 거부합니다.
         var account = repository.findById(accountId)
                 .filter(candidate -> candidate.isActive())
                 .orElseThrow(() -> new BadCredentialsException("Active account not found"));
@@ -32,6 +33,7 @@ class ActiveAccountJwtAuthenticationConverter
         if (account.role() != tokenRole) {
             throw new BadCredentialsException("Account role has changed");
         }
+        // 비밀번호 변경 시 credentialVersion이 증가하므로 이전에 발급한 JWT가 즉시 무효화됩니다.
         if (account.credentialVersion() != credentialVersion(jwt)) {
             throw new BadCredentialsException("Account credentials have changed");
         }
