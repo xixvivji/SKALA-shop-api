@@ -5,7 +5,12 @@ import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.member.internal.MemberAddressApplicationService;
 import com.skala.shopping.member.internal.web.dto.request.SaveMemberAddressRequest;
 import com.skala.shopping.member.internal.web.dto.response.MemberAddressResponse;
+import com.skala.shopping.common.ApiError;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -28,6 +33,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/customers/me/addresses")
 @Tag(name = "회원 배송지", description = "내 저장 배송지 관리")
 @SecurityRequirement(name = "cookieAuth")
+@ApiResponses({
+        @ApiResponse(responseCode = "401", description = "인증 필요",
+                content = @Content(schema = @Schema(implementation = ApiError.class))),
+        @ApiResponse(responseCode = "403", description = "고객 권한 또는 CSRF 토큰 필요",
+                content = @Content(schema = @Schema(implementation = ApiError.class)))
+})
 class MemberAddressController {
 
     private final MemberAddressApplicationService service;
@@ -46,6 +57,13 @@ class MemberAddressController {
 
     @PostMapping
     @Operation(summary = "배송지 저장")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "저장된 배송지"),
+            @ApiResponse(responseCode = "400", description = "배송지 입력값 오류",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "배송지 이름 중복",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
     ResponseEntity<MemberAddressResponse> createAddress(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody SaveMemberAddressRequest request
@@ -67,6 +85,14 @@ class MemberAddressController {
 
     @PutMapping("/{addressId}")
     @Operation(summary = "배송지 수정")
+    @ApiResponses({
+            @ApiResponse(responseCode = "400", description = "배송지 ID 또는 입력값 오류",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "배송지를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "배송지 이름 중복",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
     MemberAddressResponse updateAddress(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID addressId,
@@ -87,6 +113,13 @@ class MemberAddressController {
 
     @DeleteMapping("/{addressId}")
     @Operation(summary = "배송지 삭제")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "배송지 삭제 완료"),
+            @ApiResponse(responseCode = "400", description = "배송지 ID 오류",
+                    content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "배송지를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
     ResponseEntity<Void> deleteAddress(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID addressId
