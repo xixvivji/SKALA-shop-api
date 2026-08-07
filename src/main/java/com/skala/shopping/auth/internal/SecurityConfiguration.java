@@ -60,6 +60,7 @@ class SecurityConfiguration {
 
     @Bean
     BearerTokenResolver cookieBearerTokenResolver(SecurityProperties properties) {
+        // 브라우저 JavaScript에서 토큰을 읽지 못하도록 Authorization 헤더 대신 HttpOnly 쿠키를 사용합니다.
         return request -> {
             if (ignoresAuthenticationCookie(request)) {
                 return null;
@@ -190,6 +191,7 @@ class SecurityConfiguration {
         String requestUri = request.getRequestURI();
         String contextPath = request.getContextPath();
         String path = requestUri.substring(contextPath.length());
+        // 만료되거나 손상된 기존 쿠키가 로그인·가입 같은 공개 요청까지 가로막지 않도록 무시합니다.
         return (HttpMethod.GET.matches(method) && "/api/auth/csrf".equals(path))
                 || (HttpMethod.POST.matches(method) && (
                         "/api/customers".equals(path)

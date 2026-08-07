@@ -17,6 +17,7 @@ class OpenApiConfiguration {
     OpenAPI shopOpenApi(
             @Value("${shopping.security.cookie.name:bff-access}") String cookieName
     ) {
+        // Swagger UI에서도 운영 브라우저와 동일하게 HttpOnly 쿠키 인증 방식을 설명합니다.
         SecurityScheme cookieSecurityScheme = new SecurityScheme()
                 .type(SecurityScheme.Type.APIKEY)
                 .in(SecurityScheme.In.COOKIE)
