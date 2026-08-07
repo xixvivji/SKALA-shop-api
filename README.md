@@ -21,9 +21,8 @@ PostgreSQL을 사용하되 도메인별 패키지, 공개 API와 DB 스키마를
 - Swagger/OpenAPI, Actuator health, Flyway와 Testcontainers 통합 테스트
 - EC2·RDS·Docker Compose·Nginx·Certbot·Docker Hub 기반 배포 구성
 
-현재 정적 프론트는 기존 회원·상품·단일 상품 주문·취소·관리자 재고 기능까지
-연결되어 있습니다. 장바구니, 저장 배송지, 다중 상품 주문, 카테고리와 배송 관리
-화면은 백엔드 API 구현이 먼저 완료된 상태이며 프론트 연결이 다음 작업입니다.
+현재 정적 프론트는 회원·상품·카테고리 검색, 장바구니, 저장 배송지, 다중 상품
+주문·취소, 포인트 원장과 관리자 상품·재고·주문·배송 관리까지 연결되어 있습니다.
 
 ## 저장소 구조
 
@@ -119,7 +118,8 @@ python3 -m http.server 3000 --directory frontend
 - Swagger/OpenAPI 계약
 
 GitHub Actions는 74개 Gradle 테스트에 더해 프론트 JavaScript 문법·정적 파일·
-배포 빌드 검사와 배포 릴리스 흐름 시뮬레이션을 실행합니다.
+배포 빌드 검사, Chromium 고객·관리자 E2E와 배포 릴리스 흐름 시뮬레이션을
+실행합니다.
 
 ## 주요 API
 

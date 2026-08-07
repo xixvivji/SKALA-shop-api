@@ -11,3 +11,6 @@ deploy/.release.previous
 deploy/.release.failed
 *.log
 .DS_Store
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
