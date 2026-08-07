@@ -18,7 +18,8 @@ PostgreSQL을 사용하되 도메인별 패키지, 공개 API와 DB 스키마를
 - 결제/취소 상태와 별도로 관리하는 배송 상태 및 변경 이력
 - 관리자 전체 주문, 배송 상태, 재고 조정·변경 이력 조회
 - 고객 포인트 잔액과 거래 원장 조회
-- Swagger/OpenAPI, Actuator health, Flyway와 Testcontainers 통합 테스트
+- Swagger/OpenAPI, Actuator health와 민감정보를 제외한 API 처리시간 AOP 로그
+- Flyway와 Testcontainers 단위·통합 테스트
 - EC2·RDS·Docker Compose·Nginx·Certbot·Docker Hub 기반 배포 구성
 
 현재 정적 프론트는 회원·상품·카테고리 검색, 장바구니, 저장 배송지, 다중 상품
@@ -107,7 +108,7 @@ python3 -m http.server 3000 --directory frontend
 ./gradlew clean test
 ~~~
 
-현재 전체 74개 테스트가 다음 범위를 검증합니다.
+현재 전체 82개 테스트가 다음 범위를 검증합니다.
 
 - Spring Modulith 모듈 경계와 Flyway V1~V16
 - 회원가입·로그인·권한·쿠키 JWT·CSRF·BCrypt와 요청 제한
@@ -116,8 +117,9 @@ python3 -m http.server 3000 --directory frontend
 - 주문·취소 멱등 재시도와 마지막 재고 동시 주문
 - 재고·포인트·주문 원자성, 실패 롤백과 취소 동시성
 - Swagger/OpenAPI 계약
+- API 로그의 경로 변수·요청 본문·예외 상세 비노출
 
-GitHub Actions는 74개 Gradle 테스트에 더해 프론트 JavaScript 문법·정적 파일·
+GitHub Actions는 82개 Gradle 테스트에 더해 프론트 JavaScript 문법·정적 파일·
 배포 빌드 검사, Chromium 고객·관리자 E2E와 배포 릴리스 흐름 시뮬레이션을
 실행합니다.
 
@@ -192,6 +194,10 @@ POST   /api/customers/cancel
 브라우저는 먼저 `GET /api/auth/csrf`를 호출하고 상태 변경 요청에 응답 토큰을
 `X-XSRF-TOKEN` 헤더로 전달해야 합니다. 쿠키 전송을 위해 `fetch`에는
 `credentials: "include"`를 사용합니다.
+
+API AOP 로그는 HTTP 메서드, 실제 값이 제거된 매핑 경로, 컨트롤러 메서드,
+상태 코드와 처리 시간만 기록합니다. 요청 본문·쿼리·헤더·쿠키·예외 상세는
+기록하지 않으며, 필요하면 `API_LOGGING_ENABLED=false`로 끌 수 있습니다.
 
 주문·취소와 재고 초기화·조정에는 UUID 형식의 `X-Idempotency-Key`가
 필수입니다. 동일 사용자와 동일 요청 내용으로 재시도하면 최초 결과를 반환하고,
