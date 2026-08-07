@@ -88,7 +88,15 @@ printf '%s\n' \
     'LETSENCRYPT_EMAIL=admin@example.com' \
     "APP_ENV_FILE=$TEST_ROOT/deploy/.env.app" \
     > "$TEST_ROOT/deploy/.env.infra"
-printf '%s\n' 'SPRING_PROFILES_ACTIVE=prod' > "$TEST_ROOT/deploy/.env.app"
+printf '%s\n' \
+    'DB_URL=jdbc:postgresql://database.example.com:5432/skala_shop?sslmode=require' \
+    'DB_USERNAME=skala_app' \
+    'DB_PASSWORD=test-only-password' \
+    'JWT_SECRET=test-only-jwt-secret-that-is-at-least-32-characters' \
+    'JWT_COOKIE_SECURE=true' \
+    'CORS_ALLOWED_ORIGINS=https://shop.example.com' \
+    'BOOTSTRAP_ADMIN_ENABLED=false' \
+    > "$TEST_ROOT/deploy/.env.app"
 
 prepare_release release-a
 prepare_release release-b

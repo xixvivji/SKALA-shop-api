@@ -106,6 +106,52 @@ BOOTSTRAP_ADMIN_PASSWORD=
 관리자 ID와 비밀번호 환경변수도 제거합니다. 이후 비밀번호 변경은 관리자
 비밀번호 변경 API를 사용합니다.
 
+일반 자동 배포는 `BOOTSTRAP_ADMIN_ENABLED=true`를 거부합니다. 최초 생성이 꼭
+필요한 한 번의 수동 배포에서만 프로세스 환경에
+`ALLOW_BOOTSTRAP_ADMIN_ONCE=true`를 지정할 수 있습니다. 관리자가 만들어지면
+즉시 bootstrap 세 값을 비활성화·삭제하고 다시 배포합니다.
+
+### 운영 초기 상품
+
+관리자 계정을 만든 뒤 예시 JSON을 복사해 실제 카테고리·상품·재고를 작성하고,
+아래 도구로 없는 항목만 등록합니다. 관리자 비밀번호는 환경변수로만 전달하며
+출력하거나 파일에 저장하지 않습니다. `--confirm-origin`은 실수로 다른 서버를
+변경하지 않도록 API origin과 정확히 같아야 합니다.
+
+~~~bash
+SKALA_API_BASE_URL=https://api-3-39-64-119.sslip.io \
+SKALA_ADMIN_ID=<관리자-ID> \
+SKALA_ADMIN_PASSWORD=<터미널에서-주입> \
+node deploy/tools/bootstrap-catalog.mjs \
+  --seed=deploy/seed/catalog.example.json \
+  --confirm-origin=https://api-3-39-64-119.sslip.io
+~~~
+
+### 운영 점검
+
+공개 화면과 health, 카테고리, 상품, OpenAPI는 다음 읽기 전용 검사로 확인합니다.
+
+~~~bash
+SKALA_FRONTEND_ORIGIN=https://skala-shop-bice.vercel.app \
+SKALA_API_BASE_URL=https://api-3-39-64-119.sslip.io \
+node deploy/tools/smoke-production.mjs
+~~~
+
+GitHub의 `Production smoke` workflow도 같은 검사를 수동 실행합니다. 운영 데이터를
+변경하는 브라우저 검사는 `run_mutating_e2e`를 직접 선택한 경우에만 실행됩니다.
+저장소 Variables에는 `PRODUCTION_FRONTEND_ORIGIN`, `PRODUCTION_API_ORIGIN`을
+설정하고, 관리자 읽기 검사까지 필요할 때만 production environment secret에
+`PRODUCTION_ADMIN_ID`, `PRODUCTION_ADMIN_PASSWORD`를 저장합니다.
+
+AWS 구성은 자격 증명이 설정된 관리자 PC에서 읽기 전용 audit으로 확인합니다.
+
+~~~bash
+AWS_REGION=ap-northeast-2 \
+EC2_INSTANCE_ID=i-xxxxxxxxxxxxxxxxx \
+RDS_INSTANCE_ID=skala-shop-postgres \
+sh deploy/tools/audit-aws.sh
+~~~
+
 비공개 Docker Hub 저장소라면 EC2에서 read-only 토큰으로 로그인합니다.
 
 ~~~bash
