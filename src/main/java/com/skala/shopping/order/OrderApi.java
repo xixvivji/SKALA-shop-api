@@ -3,6 +3,7 @@ package com.skala.shopping.order;
 import com.skala.shopping.common.PageResponse;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 public interface OrderApi {
 
@@ -19,6 +20,21 @@ public interface OrderApi {
             UUID commandId,
             String couponCode
     );
+
+    OrderView placeOrder(
+            UUID memberId,
+            List<OrderLineCommand> items,
+            ShippingAddressCommand shippingAddress,
+            UUID commandId,
+            String couponCode,
+            BigDecimal pointAmount
+    );
+
+    PaymentOrderView getPaymentOrder(UUID memberId, UUID orderId);
+
+    OrderView confirmExternalPayment(UUID memberId, UUID orderId, UUID paymentId);
+
+    OrderView failExternalPayment(UUID memberId, UUID orderId, UUID paymentId);
 
     OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
                          ShippingAddressCommand shippingAddress, UUID commandId);

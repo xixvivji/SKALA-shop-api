@@ -228,6 +228,8 @@ function isCurrentSessionRequest(generation, snapshot) {
 function stockStatusLabel(stock) {
   if (!stock) return "재고 미설정";
   const labels = {
+    PAYMENT_PENDING: "결제 대기",
+    PAYMENT_FAILED: "결제 실패",
     IN_STOCK: `재고 ${stock.availableQuantity}개`,
     LOW_STOCK: `품절 임박 · ${stock.availableQuantity}개`,
     OUT_OF_STOCK: "품절",
@@ -713,6 +715,7 @@ function renderProducts() {
 
 function orderStatus(status) {
   const labels = {
+    PAYMENT_PENDING: "결제 대기",
     PAID: "결제 완료",
     PARTIALLY_CANCELED: "부분 취소",
     CANCELED: "취소 완료",
@@ -1622,6 +1625,19 @@ function refreshOrderCommand() {
   elements.orderDialog.dataset.commandKey = createCommandId();
 }
 
+async function completeFakePayment(order, testCardNumber) {
+  if (Number(order.paymentAmount || 0) <= 0) return order;
+  const payment = await shopApi.preparePayment(order.id, "CARD");
+  const approved = await shopApi.approveFakePayment(payment.id, testCardNumber);
+  if (approved.status !== "PAID") {
+    const error = new Error(approved.failureMessage || "모의 결제가 승인되지 않았습니다.");
+    error.code = approved.failureCode || "PAYMENT_DECLINED";
+    error.status = 409;
+    throw error;
+  }
+  return { ...order, status: "PAID", fulfillmentStatus: "PAID" };
+}
+
 function openOrder(product) {
   if (!isCustomer()) {
     if (isAdmin()) {
@@ -1646,6 +1662,8 @@ function openOrder(product) {
   form.elements.productId.value = product.id;
   form.elements.quantity.value = 1;
   form.elements.couponCode.value = "";
+  form.elements.pointAmount.value = "";
+  form.elements.testCardNumber.value = "4242-4242-4242-4242";
   form.elements.quantity.max = maxOrderQuantity;
   $("#order-quantity-label").textContent = `주문 수량 · 최대 ${maxOrderQuantity}개`;
   form.dataset.unitPrice = product.price;
@@ -1773,6 +1791,8 @@ async function openCheckout() {
     return;
   }
   renderCheckoutAddresses();
+  elements.checkoutForm.elements.pointAmount.value = "";
+  elements.checkoutForm.elements.testCardNumber.value = "4242-4242-4242-4242";
   elements.checkoutDialog.dataset.commandKey = createCommandId();
   openDialog(elements.checkoutDialog);
 }
@@ -2178,10 +2198,15 @@ function bindForms() {
     const productId = orderForm.elements.productId.value;
     const quantity = Number(orderForm.elements.quantity.value);
     const couponCode = orderForm.elements.couponCode.value.trim();
+    const rawPointAmount = orderForm.elements.pointAmount.value.trim();
+    const pointAmount = rawPointAmount === "" ? null : Number(rawPointAmount);
     const commandKey = elements.orderDialog.dataset.commandKey;
     try {
-      const order = await withLoading("포인트를 확인하고 주문을 처리하고 있습니다", () =>
-        shopApi.order(productId, quantity, couponCode, commandKey),
+      const pendingOrder = await withLoading("주문과 결제를 준비하고 있습니다", () =>
+        shopApi.order(productId, quantity, couponCode, pointAmount, commandKey),
+      );
+      const order = await withLoading("Fake PG 결제를 승인하고 있습니다", () =>
+        completeFakePayment(pendingOrder, orderForm.elements.testCardNumber.value),
       );
       closeDialog(elements.orderDialog);
       await Promise.all([loadCustomer({ quiet: false }), loadProducts()]);
@@ -2347,8 +2372,13 @@ function bindForms() {
           items,
           shippingAddress,
           elements.checkoutForm.elements.couponCode.value.trim(),
+          elements.checkoutForm.elements.pointAmount.value.trim() === ""
+            ? null : Number(elements.checkoutForm.elements.pointAmount.value),
           commandKey,
         ),
+      );
+      await withLoading("Fake PG 결제를 승인하고 있습니다", () =>
+        completeFakePayment(order, elements.checkoutForm.elements.testCardNumber.value),
       );
       try {
         state.cart = await shopApi.clearCart();

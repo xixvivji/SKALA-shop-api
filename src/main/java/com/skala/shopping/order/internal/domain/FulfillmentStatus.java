@@ -1,7 +1,7 @@
 package com.skala.shopping.order.internal.domain;
 
 public enum FulfillmentStatus {
-    PAID, PREPARING, SHIPPED, DELIVERED;
+    PAYMENT_PENDING, PAID, PREPARING, SHIPPED, DELIVERED;
 
     public boolean canTransitionTo(FulfillmentStatus next) {
         return next != null && next.ordinal() == ordinal() + 1;

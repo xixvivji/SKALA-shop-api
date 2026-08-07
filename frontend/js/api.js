@@ -227,16 +227,28 @@ export const shopApi = {
   wallet: () => request("/api/wallet/me"),
   walletTransactions: (page = 0, size = 20) =>
     request(`/api/wallet/me/transactions?page=${page}&size=${size}`),
-  order: (productId, quantity, couponCode, idempotencyKey = createCommandId()) =>
+  order: (productId, quantity, couponCode, pointAmount, idempotencyKey = createCommandId()) =>
     request("/api/orders", {
       method: "POST",
-      body: { productId, quantity, couponCode: couponCode || null },
+      body: { productId, quantity, couponCode: couponCode || null, pointAmount },
       idempotencyKey,
     }),
-  createOrder: (items, shippingAddress, couponCode, idempotencyKey = createCommandId()) =>
+  createOrder: (items, shippingAddress, couponCode, pointAmount, idempotencyKey = createCommandId()) =>
     request("/api/orders", {
       method: "POST",
-      body: { items, shippingAddress, couponCode: couponCode || null },
+      body: { items, shippingAddress, couponCode: couponCode || null, pointAmount },
+      idempotencyKey,
+    }),
+  preparePayment: (orderId, method = "CARD", idempotencyKey = createCommandId()) =>
+    request("/api/payments", {
+      method: "POST",
+      body: { orderId, method },
+      idempotencyKey,
+    }),
+  approveFakePayment: (paymentId, testCardNumber, idempotencyKey = createCommandId()) =>
+    request(`/api/payments/${paymentId}/approve`, {
+      method: "POST",
+      body: { testCardNumber },
       idempotencyKey,
     }),
   cancel: (productId, quantity, idempotencyKey = createCommandId()) =>

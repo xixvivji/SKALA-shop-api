@@ -70,6 +70,12 @@ public class ShopOrder {
     @Column(name = "balance_after", nullable = false, precision = 19, scale = 2)
     private BigDecimal balanceAfter;
 
+    @Column(name = "point_used_amount", nullable = false, precision = 19, scale = 2)
+    private BigDecimal pointUsedAmount;
+
+    @Column(name = "payment_amount", nullable = false, precision = 19, scale = 2)
+    private BigDecimal paymentAmount;
+
     @Version
     private long version;
 
@@ -114,6 +120,8 @@ public class ShopOrder {
                 totalAmount,
                 BigDecimal.ZERO,
                 null,
+                totalAmount,
+                BigDecimal.ZERO,
                 balanceAfter,
                 now
         );
@@ -129,6 +137,8 @@ public class ShopOrder {
             BigDecimal originalAmount,
             BigDecimal discountAmount,
             String usedCouponCode,
+            BigDecimal pointUsedAmount,
+            BigDecimal paymentAmount,
             BigDecimal balanceAfter,
             Instant now
     ) {
@@ -137,14 +147,18 @@ public class ShopOrder {
         this.requestFingerprint = requestFingerprint;
         this.orderNumber = orderNumber;
         this.memberId = memberId;
-        this.status = OrderStatus.PAID;
-        this.fulfillmentStatus = FulfillmentStatus.PAID;
+        this.status = paymentAmount.signum() == 0
+                ? OrderStatus.PAID : OrderStatus.PAYMENT_PENDING;
+        this.fulfillmentStatus = paymentAmount.signum() == 0
+                ? FulfillmentStatus.PAID : FulfillmentStatus.PAYMENT_PENDING;
         this.totalAmount = totalAmount;
         this.originalAmount = originalAmount;
         this.discountAmount = discountAmount;
         this.usedCouponCode = normalizeCouponCode(usedCouponCode);
         this.canceledAmount = BigDecimal.ZERO;
         this.balanceAfter = balanceAfter;
+        this.pointUsedAmount = pointUsedAmount;
+        this.paymentAmount = paymentAmount;
         this.orderedAt = databaseTimestamp(now);
         this.updatedAt = databaseTimestamp(now);
     }
@@ -180,6 +194,36 @@ public class ShopOrder {
     public BigDecimal discountAmount() { return discountAmount; }
 
     public String usedCouponCode() { return usedCouponCode; }
+
+    public UUID requestId() { return requestId; }
+
+    public BigDecimal totalAmount() { return totalAmount; }
+
+    public BigDecimal pointUsedAmount() { return pointUsedAmount; }
+
+    public BigDecimal paymentAmount() { return paymentAmount; }
+
+    public boolean isPaymentPending() { return status == OrderStatus.PAYMENT_PENDING; }
+
+    public void confirmPayment(Instant now) {
+        if (status == OrderStatus.PAID) return;
+        if (status != OrderStatus.PAYMENT_PENDING) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "결제 대기 주문만 승인할 수 있습니다.");
+        }
+        status = OrderStatus.PAID;
+        fulfillmentStatus = FulfillmentStatus.PAID;
+        updatedAt = databaseTimestamp(now);
+    }
+
+    public void failPayment(BigDecimal restoredBalance, Instant now) {
+        if (status == OrderStatus.PAYMENT_FAILED) return;
+        if (status != OrderStatus.PAYMENT_PENDING) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "결제 대기 주문만 실패 처리할 수 있습니다.");
+        }
+        status = OrderStatus.PAYMENT_FAILED;
+        balanceAfter = restoredBalance;
+        updatedAt = databaseTimestamp(now);
+    }
 
     public void transitionFulfillment(FulfillmentStatus next, Instant now) {
         if (!fulfillmentStatus.canTransitionTo(next)) {
@@ -232,15 +276,18 @@ public class ShopOrder {
                 items
         )
                 .withTracking(trackingCarrier, trackingNumber, trackingUrl, estimatedDeliveryAt)
-                .withCoupon(usedCouponCode, originalAmount, discountAmount);
+                .withCoupon(usedCouponCode, originalAmount, discountAmount)
+                .withPayment(pointUsedAmount, paymentAmount);
     }
 
     public OrderView toCreationView(List<OrderItemView> items) {
         return new OrderView(
                 id,
                 orderNumber,
-                OrderStatus.PAID.name(),
-                FulfillmentStatus.PAID.name(),
+                paymentAmount.signum() == 0
+                        ? OrderStatus.PAID.name() : OrderStatus.PAYMENT_PENDING.name(),
+                paymentAmount.signum() == 0
+                        ? FulfillmentStatus.PAID.name() : FulfillmentStatus.PAYMENT_PENDING.name(),
                 totalAmount,
                 BigDecimal.ZERO,
                 balanceAfter,
@@ -248,7 +295,8 @@ public class ShopOrder {
                 items
         )
                 .withTracking(trackingCarrier, trackingNumber, trackingUrl, estimatedDeliveryAt)
-                .withCoupon(usedCouponCode, originalAmount, discountAmount);
+                .withCoupon(usedCouponCode, originalAmount, discountAmount)
+                .withPayment(pointUsedAmount, paymentAmount);
     }
 
     private static String normalizeTrackingField(String value) {
