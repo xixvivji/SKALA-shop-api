@@ -127,7 +127,7 @@ jobs:
             DEPLOY_SCRIPT=deploy.sh
           fi
 
-          REMOTE_COMMAND=$(cat <<EOF
+          REMOTE_SCRIPT=$(cat <<EOF
           set -euo pipefail
           RELEASE_ID='$RELEASE_ID'
           SOURCE_REPOSITORY='$SOURCE_REPOSITORY'
@@ -146,6 +146,8 @@ jobs:
           runuser -u ubuntu -- env HOME=/home/ubuntu "\$REMOTE_RELEASE_DIR/scripts/\$DEPLOY_SCRIPT" "\$RELEASE_ID" "\$BACKEND_IMAGE_REF"
           EOF
           )
+          REMOTE_SCRIPT_BASE64=$(printf '%s' "$REMOTE_SCRIPT" | base64 -w 0)
+          REMOTE_COMMAND="printf '%s' '$REMOTE_SCRIPT_BASE64' | base64 -d | bash"
 
           PARAMETERS=$(jq -n --arg command "$REMOTE_COMMAND" '{commands: [$command]}')
           COMMAND_ID=$(aws ssm send-command \
