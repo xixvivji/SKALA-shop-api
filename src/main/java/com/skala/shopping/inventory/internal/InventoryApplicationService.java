@@ -5,6 +5,7 @@ import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.inventory.InventoryApi;
 import com.skala.shopping.inventory.StockBalance;
 import com.skala.shopping.inventory.StockMovementView;
+import com.skala.shopping.inventory.StockReplenished;
 import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.inventory.internal.domain.Stock;
 import com.skala.shopping.inventory.internal.domain.StockMovement;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -28,14 +30,17 @@ public class InventoryApplicationService implements InventoryApi {
 
     private final StockRepository stockRepository;
     private final StockMovementRepository movementRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock = Clock.systemUTC();
 
     public InventoryApplicationService(
             StockRepository stockRepository,
-            StockMovementRepository movementRepository
+            StockMovementRepository movementRepository,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.stockRepository = stockRepository;
         this.movementRepository = movementRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -219,6 +224,7 @@ public class InventoryApplicationService implements InventoryApi {
         if (replay != null) {
             return replay;
         }
+        int previousAvailableQuantity = stock.toBalance().getAvailableQuantity();
         Instant now = clock.instant();
         switch (type) {
             case RESERVE -> stock.reserve(quantity, now);
@@ -228,7 +234,15 @@ public class InventoryApplicationService implements InventoryApi {
             default -> throw new IllegalStateException("Unsupported stock movement: " + type);
         }
         saveMovement(operationId, stock, type, quantity, fingerprint, reason, now);
-        return stock.toBalance();
+        StockBalance balance = stock.toBalance();
+        if (previousAvailableQuantity == 0 && balance.isOrderable()) {
+            eventPublisher.publishEvent(new StockReplenished(
+                    productId,
+                    balance.getAvailableQuantity(),
+                    now
+            ));
+        }
+        return balance;
     }
 
     private void saveMovement(

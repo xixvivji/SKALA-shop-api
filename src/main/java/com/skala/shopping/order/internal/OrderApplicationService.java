@@ -3,23 +3,26 @@ package com.skala.shopping.order.internal;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.common.PageResponse;
+import com.skala.shopping.coupon.CouponDiscount;
 import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.OrderItemView;
-import com.skala.shopping.order.OrderView;
 import com.skala.shopping.order.OrderLineCommand;
+import com.skala.shopping.order.OrderStatusHistoryView;
+import com.skala.shopping.order.OrderView;
+import com.skala.shopping.order.PurchasedProductView;
 import com.skala.shopping.order.ShippingAddressCommand;
 import com.skala.shopping.order.ShippingAddressView;
-import com.skala.shopping.order.OrderStatusHistoryView;
-import com.skala.shopping.order.PurchasedProductView;
 import com.skala.shopping.order.internal.domain.OrderCancellation;
-import com.skala.shopping.order.internal.domain.OrderItem;
-import com.skala.shopping.order.internal.domain.ShopOrder;
-import com.skala.shopping.order.internal.domain.OrderShippingAddress;
 import com.skala.shopping.order.internal.domain.FulfillmentStatus;
+import com.skala.shopping.order.internal.domain.OrderItem;
+import com.skala.shopping.order.internal.domain.OrderShippingAddress;
 import com.skala.shopping.order.internal.domain.OrderStatusHistory;
+import com.skala.shopping.order.internal.domain.ShopOrder;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
@@ -51,6 +54,7 @@ public class OrderApplicationService implements OrderApi {
     private final ProductReader productReader;
     private final PointManager pointManager;
     private final StockManager stockManager;
+    private final CouponManager couponManager;
     private final Clock clock = Clock.systemUTC();
 
     OrderApplicationService(
@@ -61,7 +65,8 @@ public class OrderApplicationService implements OrderApi {
             OrderStatusHistoryRepository statusHistoryRepository,
             ProductReader productReader,
             PointManager pointManager,
-            StockManager stockManager
+            StockManager stockManager,
+            CouponManager couponManager
     ) {
         this.orderRepository = orderRepository;
         this.itemRepository = itemRepository;
@@ -71,21 +76,39 @@ public class OrderApplicationService implements OrderApi {
         this.productReader = productReader;
         this.pointManager = pointManager;
         this.stockManager = stockManager;
+        this.couponManager = couponManager;
     }
 
     @Override
     @Transactional
     public OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId) {
-        return placeOrder(memberId, List.of(new OrderLineCommand(productId, quantity)), null, commandId);
+        return placeOrder(memberId, List.of(new OrderLineCommand(productId, quantity)), null, commandId, null);
+    }
+
+    @Override
+    @Transactional
+    public OrderView placeOrder(UUID memberId, UUID productId, int quantity,
+                               UUID commandId, String couponCode) {
+        return placeOrder(memberId, List.of(new OrderLineCommand(productId, quantity)), null,
+                commandId, couponCode);
     }
 
     @Override
     @Transactional
     public OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
                                 ShippingAddressCommand shippingAddress, UUID commandId) {
+        return placeOrder(memberId, items, shippingAddress, commandId, null);
+    }
+
+    @Override
+    @Transactional
+    public OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
+                                ShippingAddressCommand shippingAddress, UUID commandId,
+                                String couponCode) {
         List<OrderLineCommand> normalizedItems = validateAndSortItems(items);
         validateShippingAddress(shippingAddress);
-        String fingerprint = OrderCommandFingerprint.order(memberId, normalizedItems, shippingAddress);
+        String normalizedCoupon = normalizeText(couponCode);
+        String fingerprint = OrderCommandFingerprint.order(memberId, normalizedItems, shippingAddress, normalizedCoupon);
         return orderRepository.findByMemberIdAndRequestId(memberId, commandId)
                 .map(order -> replayOrder(order, fingerprint))
                 .orElseGet(() -> createOrder(
@@ -93,7 +116,8 @@ public class OrderApplicationService implements OrderApi {
                         normalizedItems,
                         shippingAddress,
                         commandId,
-                        fingerprint
+                        fingerprint,
+                        normalizedCoupon
                 ));
     }
 
@@ -116,6 +140,20 @@ public class OrderApplicationService implements OrderApi {
                         commandId,
                         fingerprint
                 ));
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public OrderView getOrder(UUID memberId, UUID orderId) {
+        ShopOrder order = orderRepository.findByIdAndMemberId(orderId, memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
+        List<OrderItemView> items = itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id())
+                .stream().map(OrderItem::toView).toList();
+        OrderView orderView = order.toView(items);
+        List<OrderStatusHistoryView> history = statusHistoryRepository
+                .findAllByOrderIdOrderByChangedAtAscIdAsc(orderId)
+                .stream().map(OrderStatusHistory::toView).toList();
+        return attachAddress(orderView.withStatusHistory(history));
     }
 
     @Override
@@ -145,7 +183,6 @@ public class OrderApplicationService implements OrderApi {
         ));
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PurchasedProductView> getPurchasedProducts(UUID memberId) {
         Map<UUID, ProductAccumulator> products = new LinkedHashMap<>();
@@ -166,6 +203,13 @@ public class OrderApplicationService implements OrderApi {
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasPurchasedProduct(UUID memberId, UUID productId) {
+        return memberId != null && productId != null
+                && itemRepository.hasPurchasedProduct(memberId, productId);
+    }
+
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<OrderView> getAllOrders(int page, int size) {
         var pageable = PageRequest.of(page, size,
@@ -184,23 +228,53 @@ public class OrderApplicationService implements OrderApi {
 
     @Transactional
     public OrderView changeFulfillment(UUID adminId, UUID orderId, String requestedStatus) {
-        FulfillmentStatus next;
-        try { next = FulfillmentStatus.valueOf(requestedStatus); }
-        catch (RuntimeException exception) {
-            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송 상태가 올바르지 않습니다.");
-        }
+        return changeFulfillment(adminId, orderId, requestedStatus, null, null, null, null);
+    }
+
+    @Transactional
+    public OrderView changeFulfillment(
+            UUID adminId,
+            UUID orderId,
+            String requestedStatus,
+            String trackingCarrier,
+            String trackingNumber,
+            String trackingUrl,
+            Instant estimatedDeliveryAt
+    ) {
         ShopOrder order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
-        FulfillmentStatus previous = order.fulfillmentStatus();
-        try { order.transitionFulfillment(next, clock.instant()); }
-        catch (IllegalArgumentException exception) {
-            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
-                    "배송 상태는 PAID → PREPARING → SHIPPED → DELIVERED 순서로만 변경할 수 있습니다.");
+        if (hasText(requestedStatus)) {
+            FulfillmentStatus next;
+            try {
+                next = FulfillmentStatus.valueOf(requestedStatus);
+            } catch (RuntimeException exception) {
+                throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송 상태가 올바르지 않습니다.");
+            }
+            FulfillmentStatus previous = order.fulfillmentStatus();
+            try {
+                order.transitionFulfillment(next, clock.instant());
+            } catch (IllegalArgumentException exception) {
+                throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                        "배송 상태는 PAID → PREPARING → SHIPPED → DELIVERED 순서로만 변경할 수 있습니다.");
+            }
+            statusHistoryRepository.save(new OrderStatusHistory(
+                    order.id(), previous, next, adminId, clock.instant()));
         }
-        statusHistoryRepository.save(new OrderStatusHistory(
-                order.id(), previous, next, adminId, clock.instant()));
-        return attachAddress(order.toView(itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id())
-                .stream().map(OrderItem::toView).toList()));
+
+        if (trackingCarrier != null || trackingNumber != null || trackingUrl != null
+                || estimatedDeliveryAt != null) {
+            order.applyTracking(
+                    trackingCarrier,
+                    trackingNumber,
+                    trackingUrl,
+                    estimatedDeliveryAt,
+                    clock.instant()
+            );
+        }
+        return attachAddress(order.toView(
+                itemRepository.findAllByOrderIdOrderByLineNumberAsc(order.id())
+                        .stream().map(OrderItem::toView).toList()
+        ));
     }
 
     @Transactional(readOnly=true)
@@ -215,31 +289,41 @@ public class OrderApplicationService implements OrderApi {
             List<OrderLineCommand> lines,
             ShippingAddressCommand shippingAddress,
             UUID commandId,
-            String fingerprint
+            String fingerprint,
+            String couponCode
     ) {
         List<OrderProduct> products = lines.stream()
                 .map(line -> productReader.getSaleableProduct(line.getProductId()))
                 .toList();
-        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal originalAmount = BigDecimal.ZERO;
         for (int index = 0; index < lines.size(); index++) {
-            totalAmount = totalAmount.add(products.get(index).getPrice()
+            originalAmount = originalAmount.add(products.get(index).getPrice()
                     .multiply(BigDecimal.valueOf(lines.get(index).getQuantity())));
         }
-        if (totalAmount.compareTo(MAX_ORDER_AMOUNT) > 0) {
+        if (originalAmount.compareTo(MAX_ORDER_AMOUNT) > 0) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "주문 총액 한도를 초과했습니다.");
         }
+        CouponDiscount coupon = couponManager.applyPreview(memberId, couponCode, originalAmount);
+        BigDecimal discountAmount = coupon.getDiscountAmount();
+        BigDecimal finalAmount = originalAmount.subtract(discountAmount);
+        if (finalAmount.signum() <= 0) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "쿠폰 할인액은 주문 금액보다 작아야 합니다."
+            );
+        }
         UUID orderId = UUID.randomUUID();
-        // 포인트 모듈도 같은 commandId로 멱등 처리하므로 동시 재시도에서 중복 차감되지 않습니다.
         BigDecimal remainingPoints = pointManager.debit(
                 memberId,
-                totalAmount,
+                finalAmount,
                 orderId,
                 commandId
         );
-        var replay = orderRepository.findByMemberIdAndRequestId(memberId, commandId);
-        if (replay.isPresent()) {
-            // 포인트 계정 잠금 대기 중 다른 요청이 주문을 완료했다면 최초 응답 스냅샷을 재생합니다.
-            return replayOrder(replay.get(), fingerprint);
+        // 포인트 계정 잠금을 기다리는 사이 동일 멱등 요청이 완료됐을 수 있다.
+        // 이 시점에 재확인해야 중복 재고 차감과 주문 UNIQUE 충돌을 피할 수 있다.
+        var concurrentReplay = orderRepository.findByMemberIdAndRequestId(memberId, commandId);
+        if (concurrentReplay.isPresent()) {
+            return replayOrder(concurrentReplay.get(), fingerprint);
         }
         for (OrderLineCommand line : lines) {
             stockManager.reserve(line.getProductId(), line.getQuantity(), orderId);
@@ -251,25 +335,77 @@ public class OrderApplicationService implements OrderApi {
                 fingerprint,
                 orderNumber(orderId, now),
                 memberId,
-                totalAmount,
+                finalAmount,
+                originalAmount,
+                discountAmount,
+                coupon.getCouponCode(),
                 remainingPoints,
                 now
         ));
         statusHistoryRepository.save(new OrderStatusHistory(
                 orderId, null, FulfillmentStatus.PAID, null, now));
-        List<OrderItem> savedItems = new java.util.ArrayList<>();
+        List<BigDecimal> paidAmounts = allocatePaidAmounts(lines, products, finalAmount);
         for (int index = 0; index < lines.size(); index++) {
             OrderProduct product = products.get(index);
-            savedItems.add(itemRepository.save(new OrderItem(
+            itemRepository.save(new OrderItem(
                     orderId, product.getId(), product.getName(), product.getPrice(),
-                    lines.get(index).getQuantity(), index)));
+                    lines.get(index).getQuantity(), paidAmounts.get(index), index));
         }
-        OrderView view = order.toView(savedItems.stream().map(OrderItem::toView).toList());
+        if (coupon.getCouponId() != null) {
+            couponManager.applyUsage(memberId, orderId, commandId, coupon);
+        }
+        OrderView view = order.toView(
+                itemRepository.findAllByOrderIdOrderByLineNumberAsc(orderId)
+                        .stream().map(OrderItem::toView).toList()
+        );
         if (shippingAddress != null) {
-            OrderShippingAddress saved = shippingAddressRepository.save(new OrderShippingAddress(orderId, shippingAddress));
-            view = view.withShippingAddress(saved.toView());
+            ShippingAddressView savedAddress = orderShippingAddressRepositorySave(
+                    order.id(),
+                    shippingAddress
+            );
+            return view.withShippingAddress(savedAddress);
         }
         return view;
+    }
+
+    /**
+     * 쿠폰이 주문 전체에 적용되므로 실제 결제액을 각 주문 항목에 원가 비율로 배분한다.
+     * 마지막 항목이 소수점 절사 오차를 흡수하여 항목 결제액 합계가 주문 결제액과 정확히 일치한다.
+     */
+    private List<BigDecimal> allocatePaidAmounts(
+            List<OrderLineCommand> lines,
+            List<OrderProduct> products,
+            BigDecimal finalAmount
+    ) {
+        BigDecimal originalAmount = BigDecimal.ZERO;
+        for (int index = 0; index < lines.size(); index++) {
+            originalAmount = originalAmount.add(products.get(index).getPrice()
+                    .multiply(BigDecimal.valueOf(lines.get(index).getQuantity())));
+        }
+        List<BigDecimal> allocations = new java.util.ArrayList<>(lines.size());
+        BigDecimal allocated = BigDecimal.ZERO.setScale(2);
+        for (int index = 0; index < lines.size(); index++) {
+            BigDecimal amount;
+            if (index == lines.size() - 1) {
+                amount = finalAmount.subtract(allocated);
+            } else {
+                BigDecimal lineOriginal = products.get(index).getPrice()
+                        .multiply(BigDecimal.valueOf(lines.get(index).getQuantity()));
+                amount = finalAmount.multiply(lineOriginal)
+                        .divide(originalAmount, 2, RoundingMode.DOWN);
+            }
+            allocations.add(amount);
+            allocated = allocated.add(amount);
+        }
+        return allocations;
+    }
+
+    private ShippingAddressView orderShippingAddressRepositorySave(
+            UUID orderId,
+            ShippingAddressCommand shippingAddress
+    ) {
+        OrderShippingAddress saved = shippingAddressRepository.save(new OrderShippingAddress(orderId, shippingAddress));
+        return saved.toView();
     }
 
     private CancellationView executeCancellation(
@@ -299,7 +435,6 @@ public class OrderApplicationService implements OrderApi {
             }
             int canceled = Math.min(remaining, item.availableQuantity());
             BigDecimal itemRefund = item.cancel(canceled);
-            // 여러 주문에 걸친 부분 취소가 서로 덮어쓰지 않도록 주문 행을 순서대로 잠급니다.
             ShopOrder order = orderRepository.findByIdForUpdate(item.orderId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND));
             if (!order.isCancelable()) {
@@ -314,12 +449,9 @@ public class OrderApplicationService implements OrderApi {
             remaining -= canceled;
         }
 
-        BigDecimal remainingPoints = pointManager.credit(
-                memberId,
-                refund,
-                cancellationId,
-                commandId
-        );
+        BigDecimal remainingPoints = refund.signum() == 0
+                ? pointManager.balance(memberId)
+                : pointManager.credit(memberId, refund, cancellationId, commandId);
         var concurrentReplay = cancellationRepository
                 .findByMemberIdAndCommandId(memberId, commandId);
         if (concurrentReplay.isPresent()) {
@@ -375,22 +507,31 @@ public class OrderApplicationService implements OrderApi {
         ));
     }
 
-    private OrderView attachAddress(OrderView order){
-        return shippingAddressRepository.findById(order.getId())
-                .map(address -> order.withShippingAddress(address.toView())).orElse(order);
+    private OrderView attachAddress(OrderView order) {
+        return attachAddress(order, shippingAddresses(List.of(order.getId())));
     }
+
+    private OrderView attachAddress(OrderView order, Map<UUID, ShippingAddressView> addresses){
+        ShippingAddressView address = addresses.get(order.getId());
+        return address == null ? order : order.withShippingAddress(address);
+    }
+
+    private OrderView withAddress(OrderView order,Map<UUID,ShippingAddressView> addresses){
+        return attachAddress(order, addresses);
+    }
+
     private Map<UUID,ShippingAddressView> shippingAddresses(List<UUID> orderIds){
         if(orderIds.isEmpty()) return Map.of();
         return shippingAddressRepository.findAllByOrderIdIn(orderIds).stream()
-                .collect(Collectors.toMap(OrderShippingAddress::orderId,OrderShippingAddress::toView));
-    }
-    private OrderView withAddress(OrderView order,Map<UUID,ShippingAddressView> addresses){
-        ShippingAddressView address=addresses.get(order.getId());return address==null?order:order.withShippingAddress(address);
+                .collect(Collectors.toMap(OrderShippingAddress::orderId, OrderShippingAddress::toView));
     }
 
-    private String orderNumber(UUID id, java.time.Instant now) {
-        return "SKALA-" + ORDER_DATE.format(now) + "-" +
-                id.toString().replace("-", "").substring(0, 12).toUpperCase();
+    private void validateShippingAddress(ShippingAddressCommand address) {
+        if (address == null) return;
+        if (isBlank(address.getRecipientName()) || isBlank(address.getPhoneNumber())
+                || isBlank(address.getPostalCode()) || isBlank(address.getAddressLine1())) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송지 필수 항목을 입력해야 합니다.");
+        }
     }
 
     private void requirePositiveQuantity(int quantity) {
@@ -416,21 +557,21 @@ public class OrderApplicationService implements OrderApi {
         if (distinct != items.size()) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "같은 상품은 주문에 한 번만 포함할 수 있습니다.");
         }
-        // 모든 주문이 같은 상품 순서로 재고를 잠그게 해 다중 상품 주문 간 교착 가능성을 낮춥니다.
         return items.stream()
                 .sorted(Comparator.comparing(line -> line.getProductId().toString()))
                 .toList();
     }
 
-    private void validateShippingAddress(ShippingAddressCommand address) {
-        if (address == null) return;
-        if (isBlank(address.getRecipientName()) || isBlank(address.getPhoneNumber())
-                || isBlank(address.getPostalCode()) || isBlank(address.getAddressLine1())) {
-            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송지 필수 항목을 입력해야 합니다.");
-        }
-    }
-
     private boolean isBlank(String value) { return value == null || value.isBlank(); }
+
+    private boolean hasText(String value) { return value != null && !value.isBlank(); }
+
+    private String normalizeText(String value) { return value == null ? null : value.trim(); }
+
+    private String orderNumber(UUID id, java.time.Instant now) {
+        return "SKALA-" + ORDER_DATE.format(now) + "-" +
+                id.toString().replace("-", "").substring(0, 12).toUpperCase();
+    }
 
     private static final class ProductAccumulator {
 

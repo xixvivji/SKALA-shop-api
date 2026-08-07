@@ -1,6 +1,6 @@
 @ApplicationModule(
         displayName = "Order",
-        allowedDependencies = {"catalog", "common", "inventory", "wallet"}
+        allowedDependencies = {"catalog", "common", "coupon", "inventory", "wallet"}
 )
 package com.skala.shopping.order;
 

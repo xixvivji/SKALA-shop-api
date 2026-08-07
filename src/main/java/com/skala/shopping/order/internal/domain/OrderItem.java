@@ -8,6 +8,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.UUID;
 
 @Entity
@@ -29,6 +30,12 @@ public class OrderItem {
     @Column(name = "unit_price", nullable = false, precision = 19, scale = 2)
     private BigDecimal unitPrice;
 
+    @Column(name = "paid_amount", nullable = false, precision = 19, scale = 2)
+    private BigDecimal paidAmount;
+
+    @Column(name = "refunded_amount", nullable = false, precision = 19, scale = 2)
+    private BigDecimal refundedAmount;
+
     @Column(name = "ordered_quantity", nullable = false)
     private int orderedQuantity;
 
@@ -48,7 +55,8 @@ public class OrderItem {
             BigDecimal unitPrice,
             int orderedQuantity
     ) {
-        this(orderId, productId, productName, unitPrice, orderedQuantity, 0);
+        this(orderId, productId, productName, unitPrice, orderedQuantity,
+                unitPrice.multiply(BigDecimal.valueOf(orderedQuantity)), 0);
     }
 
     public OrderItem(
@@ -59,11 +67,26 @@ public class OrderItem {
             int orderedQuantity,
             int lineNumber
     ) {
+        this(orderId, productId, productName, unitPrice, orderedQuantity,
+                unitPrice.multiply(BigDecimal.valueOf(orderedQuantity)), lineNumber);
+    }
+
+    public OrderItem(
+            UUID orderId,
+            UUID productId,
+            String productName,
+            BigDecimal unitPrice,
+            int orderedQuantity,
+            BigDecimal paidAmount,
+            int lineNumber
+    ) {
         this.id = UUID.randomUUID();
         this.orderId = orderId;
         this.productId = productId;
         this.productName = productName;
         this.unitPrice = unitPrice;
+        this.paidAmount = paidAmount.setScale(2, RoundingMode.UNNECESSARY);
+        this.refundedAmount = BigDecimal.ZERO.setScale(2);
         this.orderedQuantity = orderedQuantity;
         this.canceledQuantity = 0;
         this.lineNumber = lineNumber;
@@ -93,8 +116,14 @@ public class OrderItem {
         if (quantity <= 0 || quantity > availableQuantity()) {
             throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
         }
-        canceledQuantity += quantity;
-        return unitPrice.multiply(BigDecimal.valueOf(quantity));
+        int quantityAfterCancellation = canceledQuantity + quantity;
+        BigDecimal refund = quantityAfterCancellation == orderedQuantity
+                ? paidAmount.subtract(refundedAmount)
+                : paidAmount.multiply(BigDecimal.valueOf(quantity))
+                        .divide(BigDecimal.valueOf(orderedQuantity), 2, RoundingMode.DOWN);
+        canceledQuantity = quantityAfterCancellation;
+        refundedAmount = refundedAmount.add(refund);
+        return refund;
     }
 
     public OrderItemView toView() {
@@ -103,6 +132,8 @@ public class OrderItem {
                 productId,
                 productName,
                 unitPrice,
+                paidAmount,
+                refundedAmount,
                 orderedQuantity,
                 canceledQuantity
         );
@@ -114,6 +145,8 @@ public class OrderItem {
                 productId,
                 productName,
                 unitPrice,
+                paidAmount,
+                BigDecimal.ZERO.setScale(2),
                 orderedQuantity,
                 0
         );

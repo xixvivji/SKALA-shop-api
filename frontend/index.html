@@ -255,6 +255,22 @@
               <button class="button button-outline is-hidden" type="button" id="transaction-load-more" aria-controls="transaction-list">내역 더보기</button>
             </article>
 
+            <article class="panel wishlist-panel">
+              <div class="panel-heading">
+                <div><small>WISHLIST</small><h2>관심 상품</h2></div>
+                <button class="text-button" type="button" id="refresh-wishlist-button">새로고침 ↻</button>
+              </div>
+              <div class="address-list" id="wishlist-list"></div>
+            </article>
+
+            <article class="panel stock-alert-panel">
+              <div class="panel-heading">
+                <div><small>RESTOCK</small><h2>재입고 알림</h2></div>
+                <button class="text-button" type="button" id="refresh-stock-alerts-button">새로고침 ↻</button>
+              </div>
+              <div class="address-list" id="stock-alert-list"></div>
+            </article>
+
             <article class="panel danger-panel">
               <div class="panel-heading">
                 <div><small>ACCOUNT</small><h2>세션과 계정</h2></div>
@@ -444,6 +460,7 @@
               <button type="button" data-quantity-action="plus" aria-label="수량 늘리기">+</button>
             </div>
           </label>
+          <label><span>쿠폰 코드 (선택)</span><input name="couponCode" maxlength="50" placeholder="WELCOME10" /></label>
           <div class="checkout-total"><span>결제 예정 포인트</span><strong id="order-total">0 P</strong></div>
           <button class="button button-accent button-block" type="submit">주문하기</button>
         </form>
@@ -533,9 +550,27 @@
           <select name="addressId" required></select>
         </label>
         <div class="checkout-address-preview" id="checkout-address-preview"></div>
+        <label><span>쿠폰 코드 (선택)</span><input name="couponCode" maxlength="50" placeholder="WELCOME10" /></label>
         <div class="checkout-total"><span>결제 예정 포인트</span><strong id="checkout-total">0 P</strong></div>
         <button class="button button-accent button-block" type="submit">전체 주문하기</button>
       </form>
+    </dialog>
+
+    <dialog class="modal compact-modal" id="review-dialog" aria-labelledby="review-dialog-title">
+      <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
+      <div class="product-modal-heading">
+        <p class="eyebrow">Verified reviews</p>
+        <h2 id="review-dialog-title">상품 리뷰</h2>
+        <p class="modal-note" id="review-product-name"></p>
+      </div>
+      <div class="compact-modal-body">
+        <div class="address-list" id="review-list" aria-live="polite"></div>
+        <form id="review-form" class="stack-form is-hidden">
+          <label><span>평점</span><select name="rating" required><option value="5">5 · 최고예요</option><option value="4">4 · 좋아요</option><option value="3">3 · 보통이에요</option><option value="2">2 · 아쉬워요</option><option value="1">1 · 별로예요</option></select></label>
+          <label><span>리뷰</span><textarea name="comment" maxlength="2000" rows="3" placeholder="구매한 상품의 후기를 남겨주세요."></textarea></label>
+          <div class="danger-actions"><button class="button button-dark" type="submit">리뷰 저장</button><button class="text-button text-danger is-hidden" type="button" id="delete-review-button">리뷰 삭제</button></div>
+        </form>
+      </div>
     </dialog>
 
     <dialog class="modal compact-modal" id="address-dialog" aria-labelledby="address-dialog-title">

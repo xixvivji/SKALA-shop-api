@@ -15,6 +15,11 @@ class LocalPointManager implements PointManager {
     }
 
     @Override
+    public BigDecimal balance(UUID memberId) {
+        return walletApi.getBalance(memberId).getBalance();
+    }
+
+    @Override
     public BigDecimal debit(
             UUID memberId,
             BigDecimal amount,

@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -95,13 +96,15 @@ class OrderController {
     ) {
         if (request.getItems() == null || request.getItems().isEmpty()) {
             return OrderResponse.from(orderApi.placeOrder(
-                    memberId(jwt), request.getProductId(), request.getQuantity(), commandId));
+                    memberId(jwt), request.getProductId(), request.getQuantity(), commandId,
+                    request.getCouponCode()));
         }
         return OrderResponse.from(orderApi.placeOrder(
                 memberId(jwt),
                 request.getItems().stream().map(item -> item.toCommand()).toList(),
                 request.getShippingAddress() == null ? null : request.getShippingAddress().toCommand(),
-                commandId));
+                commandId,
+                request.getCouponCode()));
     }
 
     @GetMapping("/me")
@@ -112,6 +115,25 @@ class OrderController {
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
     ) {
         return OrderResponse.pageFrom(orderApi.getOrders(memberId(jwt), page, size));
+    }
+
+    @GetMapping("/{orderId}")
+    @Operation(summary = "내 주문 상세 조회")
+    @ApiResponse(
+            responseCode = "200",
+            description = "주문 상세 응답",
+            content = @Content(schema = @Schema(implementation = OrderResponse.class))
+    )
+    @ApiResponse(
+            responseCode = "404",
+            description = "주문을 찾을 수 없음",
+            content = @Content(schema = @Schema(implementation = ApiError.class))
+    )
+    OrderResponse getMyOrder(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID orderId
+    ) {
+        return OrderResponse.from(orderApi.getOrder(memberId(jwt), orderId));
     }
 
     @PostMapping("/cancellations")

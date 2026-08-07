@@ -44,4 +44,17 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             order by shopOrder.orderedAt desc, shopOrder.id desc, item.id asc
             """)
     List<OrderItem> findPurchasedItems(@Param("memberId") UUID memberId);
+
+    @Query("""
+            select (count(item) > 0)
+            from OrderItem item
+            join ShopOrder shopOrder on shopOrder.id = item.orderId
+            where shopOrder.memberId = :memberId
+              and item.productId = :productId
+              and item.canceledQuantity < item.orderedQuantity
+            """)
+    boolean hasPurchasedProduct(
+            @Param("memberId") UUID memberId,
+            @Param("productId") UUID productId
+    );
 }
