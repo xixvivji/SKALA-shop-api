@@ -281,15 +281,15 @@ export const shopApi = {
       body: { quantityDelta, reason },
       idempotencyKey,
     }),
-  createProduct: (productName, productPrice, initialQuantity = 100) =>
+  createProduct: ({ productName, productPrice, initialQuantity = 100, categoryId, description, imageUrl }) =>
     request("/api/products", {
       method: "POST",
-      body: { productName, productPrice, initialQuantity },
+      body: { productName, productPrice, initialQuantity, categoryId: categoryId || null, description, imageUrl },
     }),
-  updateProduct: (productId, productName, productPrice) =>
+  updateProduct: (productId, { productName, productPrice, categoryId, description, imageUrl }) =>
     request(`/api/products/${productId}`, {
       method: "PUT",
-      body: { productName, productPrice },
+      body: { productName, productPrice, categoryId: categoryId || null, description, imageUrl },
     }),
   deleteProduct: (productId) =>
     request(`/api/products/${productId}`, { method: "DELETE" }),
