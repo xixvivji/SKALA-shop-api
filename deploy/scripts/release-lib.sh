@@ -37,6 +37,67 @@ require_shared_files() {
         echo "APP_ENV_FILE must be exactly $APP_ENV" >&2
         return 1
     fi
+    validate_app_environment || return 1
+}
+
+app_env_value() {
+    app_key=$1
+    allow_empty=${2:-false}
+    awk -v prefix="${app_key}=" -v allow_empty="$allow_empty" '
+        index($0, prefix) == 1 {
+            count += 1
+            value = substr($0, length(prefix) + 1)
+        }
+        END {
+            if (count != 1 || (allow_empty != "true" && value == "")) exit 1
+            print value
+        }
+    ' "$APP_ENV" || {
+        echo "$app_key must occur exactly once in $APP_ENV" >&2
+        return 1
+    }
+}
+
+validate_app_environment() {
+    db_url=$(app_env_value DB_URL) || return 1
+    db_username=$(app_env_value DB_USERNAME) || return 1
+    db_password=$(app_env_value DB_PASSWORD) || return 1
+    jwt_secret=$(app_env_value JWT_SECRET) || return 1
+    cookie_secure=$(app_env_value JWT_COOKIE_SECURE) || return 1
+    cors_origins=$(app_env_value CORS_ALLOWED_ORIGINS) || return 1
+    bootstrap_enabled=$(app_env_value BOOTSTRAP_ADMIN_ENABLED) || return 1
+
+    case "$db_url" in
+        jdbc:postgresql://*) ;;
+        *) echo "DB_URL must be a PostgreSQL JDBC URL" >&2; return 1 ;;
+    esac
+    case "$db_username:$db_password" in
+        *replace-me*|*'<application-user>'*|*'<password>'*)
+            echo "database credentials still contain example placeholders" >&2
+            return 1
+            ;;
+    esac
+    if [ "${#jwt_secret}" -lt 32 ]; then
+        echo "JWT_SECRET must contain at least 32 characters" >&2
+        return 1
+    fi
+    if [ "$cookie_secure" != "true" ]; then
+        echo "JWT_COOKIE_SECURE must be true in production" >&2
+        return 1
+    fi
+    if ! printf '%s\n' "$cors_origins" | awk -F, -v expected="$INFRA_FRONTEND_ORIGIN" '
+        { for (i = 1; i <= NF; i += 1) if ($i == expected) found = 1 }
+        END { exit found ? 0 : 1 }
+    '; then
+        echo "CORS_ALLOWED_ORIGINS must contain FRONTEND_ORIGIN exactly" >&2
+        return 1
+    fi
+    if [ "$bootstrap_enabled" != "false" ] \
+            && [ "${ALLOW_BOOTSTRAP_ADMIN_ONCE:-false}" != "true" ]; then
+        echo "BOOTSTRAP_ADMIN_ENABLED must be false for normal deployments" >&2
+        echo "use ALLOW_BOOTSTRAP_ADMIN_ONCE=true only for the first manual admin bootstrap" >&2
+        return 1
+    fi
 }
 
 infra_env_value() {

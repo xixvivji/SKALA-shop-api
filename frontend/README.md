@@ -51,6 +51,19 @@ npm run test:e2e
 주문 조회 → 배송 상태 변경 → 변경 이력 조회를 Chromium에서 확인합니다. GitHub
 Actions의 프론트 검사와 운영 배포 검사에서도 같은 테스트를 실행합니다.
 
+실제 Vercel과 운영 API를 연결한 검사는 명시적으로 활성화할 때만 실행합니다.
+임시 고객과 주문 기록이 생성되므로 일반 E2E와 분리되어 있습니다. 주문은 테스트
+안에서 전량 취소하고 임시 고객은 비활성화합니다.
+
+```bash
+LIVE_E2E_ENABLED=true \
+E2E_BASE_URL=https://skala-shop-bice.vercel.app \
+npm run test:e2e:live
+```
+
+관리자 목록까지 읽기 검증하려면 `SKALA_ADMIN_ID`, `SKALA_ADMIN_PASSWORD`를
+로컬 환경변수로만 추가합니다. 비밀번호는 명령 기록이나 저장소 파일에 넣지 않습니다.
+
 ## API 주소 설정
 
 `config.js`는 실행 중인 주소를 기준으로 안전한 기본값을 선택합니다.
