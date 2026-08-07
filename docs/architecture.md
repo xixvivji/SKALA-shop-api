@@ -49,6 +49,10 @@ com.skala.shopping.<module>
 | `cart` | 회원 장바구니 | 장바구니 HTTP API |
 | `wallet` | 포인트 잔액과 거래 원장 | `WalletApi` |
 | `order` | 주문·취소·배송 상태 | 주문 HTTP API와 View |
+| `coupon` | 쿠폰 규칙과 사용 이력 | `CouponApi` |
+| `wishlist` | 회원별 관심 상품 | `WishlistApi` |
+| `review` | 구매 인증 리뷰 | `ReviewApi` |
+| `stockalert` | 재입고 구독과 알림 상태 | `StockAlertApi` |
 | `storefront` | 고객 중심 호환 유스케이스 조합 | 회원가입·기존 URI |
 | `common` | 공통 오류와 페이지 응답 | `ApiError`, `PageResponse` |
 
@@ -68,6 +72,13 @@ flowchart LR
     O --> CA
     O --> I
     O --> W
+    O --> CP[coupon]
+    RV[review] --> O
+    RV --> CA
+    WL[wishlist] --> CA
+    SA[stockalert] --> CA
+    SA --> I
+    I -->|StockReplenished| SA
     CA -->|ProductCreated| I
     CA -->|ProductDeleted| I
     CA -->|ProductDeleted| C
@@ -123,6 +134,18 @@ orders
 ├── order_cancellations
 ├── order_shipping_addresses
 └── order_status_histories
+
+coupon
+└── coupon_usages
+
+wishlist
+└── wishlist_items
+
+reviews
+└── product_reviews
+
+stockalert
+└── stock_alert_subscriptions
 ```
 
 모든 모듈은 현재 같은 PostgreSQL 인스턴스를 사용하지만 테이블 소유자는 하나로
@@ -180,7 +203,9 @@ fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니�
 ### 취소와 환급
 
 취소 가능한 주문항목을 잠그고 최신 구매부터 요청 수량을 차감합니다. 주문 당시
-단가로 포인트를 환급하고 같은 취소 ID로 재고를 복원합니다. 주문 상태, 취소 이력,
+쿠폰 할인 후 항목별로 배분해 저장한 실제 결제액을 기준으로 포인트를 환급하고
+같은 취소 ID로 재고를 복원합니다. 부분 취소의 소수점 절사 차이는 마지막 취소가
+흡수하므로 항목별 누적 환불액이 결제액을 넘지 않습니다. 주문 상태, 취소 이력,
 포인트 환급과 재고 복원 중 하나라도 실패하면 전체를 롤백합니다.
 
 금전 상태 `PAID/PARTIALLY_CANCELED/CANCELED`와 배송 상태는 별도입니다. 배송은
@@ -210,10 +235,11 @@ fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니�
 
 ## 8. 이벤트 사용
 
-Catalog는 상품 생성·삭제 이벤트를 발행합니다.
+Catalog와 Inventory는 모듈 간 상태 변경 이벤트를 발행합니다.
 
 - `ProductCreated`: 같은 트랜잭션에서 초기 재고 생성
 - `ProductDeleted`: 재고 비활성화와 해당 상품 장바구니 항목 정리
+- `StockReplenished`: 재고가 0에서 양수로 바뀔 때 대기 중 구독을 알림 완료로 변경
 
 현재 이벤트는 같은 프로세스와 트랜잭션에서 처리됩니다. Catalog를 분리하면
 Outbox를 통해 메시지로 발행하고 소비자 멱등성과 재처리를 추가해야 합니다.

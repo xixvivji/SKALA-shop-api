@@ -79,7 +79,7 @@ await fetch("/api/customers/login", {
 | 역할 | 접근 범위 |
 | --- | --- |
 | 비로그인 | CSRF, 회원가입·로그인·비밀번호 재설정, 상품·카테고리·재고 조회 |
-| `CUSTOMER` | 내 정보, 배송지, 장바구니, 주문·취소, 포인트 |
+| `CUSTOMER` | 내 정보, 배송지, 장바구니, 주문·취소, 포인트, 위시리스트·리뷰·재입고 알림 |
 | `ADMIN` | 고객 목록, 카테고리·상품·재고, 전체 주문·배송 관리 |
 
 관리자 계정으로 고객 주문 API를 호출하거나 고객 계정으로 관리자 API를 호출하면
@@ -171,7 +171,8 @@ await fetch("/api/orders", {
 
 ## 8. API 목록
 
-OpenAPI 기준 33개 path와 45개 HTTP operation이 있습니다.
+현재 Controller 기준 56개 HTTP operation이 있으며, 실행 중인 버전의 정확한 계약은
+OpenAPI 문서를 기준으로 합니다.
 
 | 그룹 | 대표 경로 |
 | --- | --- |
@@ -184,6 +185,9 @@ OpenAPI 기준 33개 path와 45개 HTTP operation이 있습니다.
 | 주문·취소 | `/api/orders/**` |
 | 관리자 주문 | `/api/admin/orders/**` |
 | 포인트 | `/api/wallet/me/**` |
+| 위시리스트 | `/api/wishlist/**` |
+| 상품 리뷰 | `/api/products/{id}/reviews`, `/api/reviews/me` |
+| 재입고 알림 | `/api/stock-alerts/**` |
 
 각 endpoint의 정확한 Request/Response DTO, 예시와 상태 코드는 Swagger에서
 확인합니다. `/api/customers/order`, `/api/customers/cancel`,
@@ -202,6 +206,15 @@ OpenAPI 기준 33개 path와 45개 HTTP operation이 있습니다.
 | 장바구니 | 회원당 최대 50종 |
 | 저장 배송지 | 회원당 최대 10개 |
 | 주문 총액·초기 포인트 | 최대 `30,000,000,000,000.00` |
+
+쿠폰은 주문의 `couponCode`로 전달합니다. 현재 제공 코드(`WELCOME10`, `NEWBIE5`,
+`SAVE5000`, `SAVE10000`)는 회원별 한 번만 사용할 수 있으며, 취소 환불액은 상품
+원가가 아니라 쿠폰 할인 후 각 항목에 배분된 실제 결제액을 기준으로 계산합니다.
+
+리뷰는 취소되지 않은 구매 수량이 있는 고객만 작성할 수 있습니다. 공개 리뷰
+응답에는 내부 회원 UUID가 포함되지 않습니다. 재입고 알림은 현재 재고가 0인
+상품만 신청할 수 있고, 재고가 양수로 전환되면 상태가 `WAITING`에서 `NOTIFIED`로
+변경됩니다.
 
 ## 10. 비밀번호 재설정 주의
 

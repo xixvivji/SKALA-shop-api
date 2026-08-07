@@ -28,4 +28,22 @@ class OrderItemTests {
 
         assertEquals(ErrorCode.INSUFFICIENT_QUANTITY, exception.errorCode());
     }
+
+    @Test
+    void refundsOnlyTheDiscountedPaidAmountAcrossPartialCancellations() {
+        OrderItem item = new OrderItem(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "할인 상품",
+                new BigDecimal("10.00"),
+                3,
+                new BigDecimal("10.00"),
+                0
+        );
+
+        assertEquals(new BigDecimal("3.33"), item.cancel(1));
+        assertEquals(new BigDecimal("3.33"), item.cancel(1));
+        assertEquals(new BigDecimal("3.34"), item.cancel(1));
+        assertEquals(new BigDecimal("10.00"), item.toView().getRefundedAmount());
+    }
 }

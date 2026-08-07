@@ -1465,6 +1465,150 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(2));
     }
 
+    @Test
+    void refundsOnlyCouponDiscountedPaymentAndPreventsCouponReuse() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID first = createProduct(admin, unique("coupon-first"), "10000", 3);
+        UUID second = createProduct(admin, unique("coupon-second"), "10000", 3);
+        CustomerSession customer = registerAndLogin("coupon-refund");
+
+        mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"productId":"%s","quantity":1,"couponCode":"SAVE5000"}
+                                """.formatted(first)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.originalAmount").value(10000))
+                .andExpect(jsonPath("$.discountAmount").value(5000))
+                .andExpect(jsonPath("$.totalAmount").value(5000))
+                .andExpect(jsonPath("$.items[0].paidAmount").value(5000));
+
+        performCancellation(customer.authCookie, first, 1, UUID.randomUUID())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refundAmount").value(5000))
+                .andExpect(jsonPath("$.remainingPoints").value(1_000_000));
+
+        mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"productId":"%s","quantity":1,"couponCode":"SAVE5000"}
+                                """.formatted(second)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DATA_DUPLICATED"));
+    }
+
+    @Test
+    void cancelsZeroPaidCouponLineWithoutCreatingZeroPointTransaction() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID first = createProduct(admin, unique("zero-paid-a"), "1666.67", 1);
+        UUID second = createProduct(admin, unique("zero-paid-b"), "1666.67", 1);
+        UUID third = createProduct(admin, unique("zero-paid-c"), "1666.67", 1);
+        CustomerSession customer = registerAndLogin("zero-paid-refund");
+
+        MvcResult placed = mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"items":[{"productId":"%s","quantity":1},
+                                {"productId":"%s","quantity":1},{"productId":"%s","quantity":1}],
+                                "couponCode":"SAVE5000"}
+                                """.formatted(first, second, third)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.totalAmount").value(0.01))
+                .andReturn();
+
+        JsonNode zeroPaidItem = null;
+        for (JsonNode item : objectMapper.readTree(
+                placed.getResponse().getContentAsString()).get("items")) {
+            if (item.get("paidAmount").decimalValue().signum() == 0) {
+                zeroPaidItem = item;
+                break;
+            }
+        }
+        assertNotNull(zeroPaidItem);
+        UUID zeroPaidProductId = UUID.fromString(zeroPaidItem.get("productId").asText());
+
+        performCancellation(customer.authCookie, zeroPaidProductId, 1, UUID.randomUUID())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refundAmount").value(0))
+                .andExpect(jsonPath("$.remainingPoints").value(999999.99));
+    }
+
+    @Test
+    void permitsCustomerReviewOnlyAfterPurchaseAndKeepsMemberIdPrivate() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID productId = createProduct(admin, unique("verified-review"), "15000", 3);
+        CustomerSession customer = registerAndLogin("verified-review");
+        String review = "{\"rating\":5,\"comment\":\"좋아요\"}";
+
+        mockMvc.perform(post("/api/products/{productId}/reviews", productId)
+                        .with(csrf()).cookie(copy(customer.authCookie))
+                        .contentType(MediaType.APPLICATION_JSON).content(review))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+
+        performOrder(customer.authCookie, productId, 1, UUID.randomUUID())
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/products/{productId}/reviews", productId)
+                        .with(csrf()).cookie(copy(customer.authCookie))
+                        .contentType(MediaType.APPLICATION_JSON).content(review))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rating").value(5))
+                .andExpect(jsonPath("$.memberId").doesNotExist());
+
+        mockMvc.perform(get("/api/products/{productId}/reviews", productId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].comment").value("좋아요"))
+                .andExpect(jsonPath("$.content[0].memberId").doesNotExist());
+    }
+
+    @Test
+    void marksStockAlertNotifiedAndPreservesTrackingOnPartialUpdate() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID soldOutProduct = createProduct(admin, unique("stock-alert"), "12000", 0);
+        CustomerSession customer = registerAndLogin("stock-alert");
+
+        mockMvc.perform(post("/api/stock-alerts/{productId}", soldOutProduct)
+                        .with(csrf()).cookie(copy(customer.authCookie)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("WAITING"));
+
+        performStockAdjustment(admin, soldOutProduct, 3, "재입고", UUID.randomUUID())
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/stock-alerts").cookie(copy(customer.authCookie)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value("NOTIFIED"))
+                .andExpect(jsonPath("$.content[0].availableQuantityAtNotification").value(3));
+
+        UUID orderProduct = createProduct(admin, unique("tracking"), "10000", 2);
+        MvcResult placed = performOrder(customer.authCookie, orderProduct, 1, UUID.randomUUID())
+                .andExpect(status().isCreated()).andReturn();
+        UUID orderId = UUID.fromString(objectMapper.readTree(
+                placed.getResponse().getContentAsString()).get("id").asText());
+
+        mockMvc.perform(put("/api/admin/orders/{orderId}/fulfillment", orderId)
+                        .with(csrf()).cookie(copy(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"trackingCarrier":"SKALA택배","trackingNumber":"TRACK-1",
+                                 "trackingUrl":"https://tracking.example/TRACK-1"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/admin/orders/{orderId}/fulfillment", orderId)
+                        .with(csrf()).cookie(copy(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"estimatedDeliveryAt\":\"2030-01-01T00:00:00Z\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trackingCarrier").value("SKALA택배"))
+                .andExpect(jsonPath("$.trackingNumber").value("TRACK-1"))
+                .andExpect(jsonPath("$.estimatedDeliveryAt").value("2030-01-01T00:00:00Z"));
+    }
+
     private Cookie loginAdmin() throws Exception {
         return login("integration-admin", "integration-admin-password");
     }

@@ -14,7 +14,7 @@ final class OrderCommandFingerprint {
     }
 
     static String order(UUID memberId, UUID productId, int quantity) {
-        return build(ORDER_OPERATION, memberId, productId, quantity);
+        return order(memberId, List.of(new OrderLineCommand(productId, quantity)), null, null);
     }
 
     static String cancellation(UUID memberId, UUID productId, int quantity) {
@@ -22,6 +22,10 @@ final class OrderCommandFingerprint {
     }
 
     static String order(UUID memberId, List<OrderLineCommand> items, ShippingAddressCommand address) {
+        return order(memberId, items, address, null);
+    }
+
+    static String order(UUID memberId, List<OrderLineCommand> items, ShippingAddressCommand address, String couponCode) {
         String lines = items.stream()
                 .sorted(java.util.Comparator.comparing(line -> line.getProductId().toString()))
                 .map(line -> line.getProductId() + ":" + line.getQuantity())
@@ -29,7 +33,8 @@ final class OrderCommandFingerprint {
         String shipping = address == null ? "" : String.join("|",
                 address.getRecipientName(), address.getPhoneNumber(), address.getPostalCode(),
                 address.getAddressLine1(), address.getAddressLine2() == null ? "" : address.getAddressLine2());
-        return ORDER_OPERATION + "|" + memberId + "|" + lines + "|" + shipping;
+        String normalizedCoupon = couponCode == null ? "" : couponCode.trim().toUpperCase();
+        return ORDER_OPERATION + "|" + memberId + "|" + lines + "|" + shipping + "|" + normalizedCoupon;
     }
 
     private static String build(

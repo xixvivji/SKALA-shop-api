@@ -12,6 +12,8 @@ public final class OrderItemResponse {
     private final UUID productId;
     private final String productName;
     private final BigDecimal unitPrice;
+    private final BigDecimal paidAmount;
+    private final BigDecimal refundedAmount;
     private final int orderedQuantity;
     private final int canceledQuantity;
 
@@ -20,6 +22,8 @@ public final class OrderItemResponse {
             UUID productId,
             String productName,
             BigDecimal unitPrice,
+            BigDecimal paidAmount,
+            BigDecimal refundedAmount,
             int orderedQuantity,
             int canceledQuantity
     ) {
@@ -27,6 +31,8 @@ public final class OrderItemResponse {
         this.productId = productId;
         this.productName = productName;
         this.unitPrice = unitPrice;
+        this.paidAmount = paidAmount;
+        this.refundedAmount = refundedAmount;
         this.orderedQuantity = orderedQuantity;
         this.canceledQuantity = canceledQuantity;
     }
@@ -37,6 +43,8 @@ public final class OrderItemResponse {
                 item.getProductId(),
                 item.getProductName(),
                 item.getUnitPrice(),
+                item.getPaidAmount(),
+                item.getRefundedAmount(),
                 item.getOrderedQuantity(),
                 item.getCanceledQuantity()
         );
@@ -57,6 +65,10 @@ public final class OrderItemResponse {
     public BigDecimal getUnitPrice() {
         return unitPrice;
     }
+
+    public BigDecimal getPaidAmount() { return paidAmount; }
+
+    public BigDecimal getRefundedAmount() { return refundedAmount; }
 
     public int getOrderedQuantity() {
         return orderedQuantity;

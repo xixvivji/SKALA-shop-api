@@ -227,16 +227,16 @@ export const shopApi = {
   wallet: () => request("/api/wallet/me"),
   walletTransactions: (page = 0, size = 20) =>
     request(`/api/wallet/me/transactions?page=${page}&size=${size}`),
-  order: (productId, quantity, idempotencyKey = createCommandId()) =>
+  order: (productId, quantity, couponCode, idempotencyKey = createCommandId()) =>
     request("/api/orders", {
       method: "POST",
-      body: { productId, quantity },
+      body: { productId, quantity, couponCode: couponCode || null },
       idempotencyKey,
     }),
-  createOrder: (items, shippingAddress, idempotencyKey = createCommandId()) =>
+  createOrder: (items, shippingAddress, couponCode, idempotencyKey = createCommandId()) =>
     request("/api/orders", {
       method: "POST",
-      body: { items, shippingAddress },
+      body: { items, shippingAddress, couponCode: couponCode || null },
       idempotencyKey,
     }),
   cancel: (productId, quantity, idempotencyKey = createCommandId()) =>
@@ -249,10 +249,10 @@ export const shopApi = {
     request(`/api/customers/list?page=${page}&size=${size}`),
   adminOrders: (page = 0, size = 20) =>
     request(`/api/admin/orders?page=${page}&size=${size}`),
-  updateFulfillment: (orderId, status) =>
+  updateFulfillment: (orderId, fulfillment) =>
     request(`/api/admin/orders/${orderId}/fulfillment`, {
       method: "PUT",
-      body: { status },
+      body: typeof fulfillment === "string" ? { status: fulfillment } : fulfillment,
     }),
   orderHistory: (orderId) => request(`/api/admin/orders/${orderId}/history`),
   stocks: (productIds) => {
@@ -293,4 +293,25 @@ export const shopApi = {
     }),
   deleteProduct: (productId) =>
     request(`/api/products/${productId}`, { method: "DELETE" }),
+  wishlist: () => request("/api/wishlist"),
+  addWishlist: (productId) =>
+    request("/api/wishlist", { method: "POST", body: { productId } }),
+  removeWishlist: (productId) =>
+    request(`/api/wishlist/${productId}`, { method: "DELETE" }),
+  productReviews: (productId, page = 0, size = 20) =>
+    request(`/api/products/${productId}/reviews?page=${page}&size=${size}`),
+  myReview: (productId) => request(`/api/products/${productId}/reviews/me`),
+  writeReview: (productId, rating, comment) =>
+    request(`/api/products/${productId}/reviews`, {
+      method: "POST",
+      body: { rating, comment },
+    }),
+  deleteReview: (productId) =>
+    request(`/api/products/${productId}/reviews`, { method: "DELETE" }),
+  stockAlerts: (page = 0, size = 100) =>
+    request(`/api/stock-alerts?page=${page}&size=${size}`),
+  subscribeStockAlert: (productId) =>
+    request(`/api/stock-alerts/${productId}`, { method: "POST" }),
+  unsubscribeStockAlert: (productId) =>
+    request(`/api/stock-alerts/${productId}`, { method: "DELETE" }),
 };
