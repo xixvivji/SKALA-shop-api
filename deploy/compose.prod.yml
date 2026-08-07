@@ -11,6 +11,7 @@ services:
       - "8080"
     networks:
       - internal
+      - egress
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
       interval: 10s
@@ -106,6 +107,7 @@ networks:
   edge:
   internal:
     internal: true
+  egress:
 
 volumes:
   letsencrypt:
