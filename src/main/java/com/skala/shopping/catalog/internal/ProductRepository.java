@@ -22,8 +22,9 @@ interface ProductRepository extends JpaRepository<Product, UUID> {
     @Query("""
             select product from Product product
             where product.status = :status
-              and (:query is null or lower(product.name) like lower(concat('%', :query, '%'))
-                   or lower(coalesce(product.description, '')) like lower(concat('%', :query, '%')))
+              and (cast(:query as string) is null
+                   or lower(product.name) like concat('%', lower(cast(:query as string)), '%')
+                   or lower(coalesce(product.description, '')) like concat('%', lower(cast(:query as string)), '%'))
               and (:categoryId is null or product.categoryId = :categoryId)
               and (:minPrice is null or product.price >= :minPrice)
               and (:maxPrice is null or product.price <= :maxPrice)
