@@ -1,99 +1,182 @@
 # SKALA Shop Frontend
 
-Spring Boot 쇼핑몰 API의 현재 기능을 시연하는 순수 HTML/CSS/JavaScript 프론트엔드입니다. 별도 빌드 과정이나 프레임워크가 필요하지 않습니다.
+프레임워크 없이 HTML, CSS와 ES Module JavaScript로 구현한 쇼핑몰 프론트입니다.
+Spring Boot API의 고객·관리자 기능을 모두 연결하고 Vercel에 정적 사이트로
+배포합니다.
 
-## 현재 연결된 기능
+- 운영 주소: <https://skala-shop-bice.vercel.app>
+- 진입 파일: [`index.html`](index.html)
+- 상태와 화면 로직: [`js/app.js`](js/app.js)
+- API client: [`js/api.js`](js/api.js)
+- 디자인: [`styles.css`](styles.css)
 
-- 회원가입, 로그인, 아이디 저장, 비밀번호 표시, 로그아웃, 회원 탈퇴
-- 고객 ID와 가입 이름을 확인하는 데모용 비밀번호 재설정
-- HttpOnly JWT 쿠키 인증과 CSRF 토큰 처리
-- 내 정보, 포인트 잔액·거래 원장, 이름 변경과 보유 상품 조회
-- 카테고리·상품명·가격 범위 검색, 실시간 주문 가능 재고·품절 표시
-- 저장 배송지 등록·수정·삭제와 기본 배송지
-- 장바구니 추가·수량 변경·삭제·비우기와 저장 배송지를 이용한 다중 상품 주문
-- UUID 멱등성 키를 사용한 주문·부분 취소와 주문·배송 상태 조회
-- 관리자 로그인, 고객·전체 주문 조회, 배송 상태 변경·이력
-- 관리자 상품 등록·수정·삭제와 재고 초기화·증감 조정
+## 제공 화면
 
-상품 등록·수정 화면은 백엔드 계약과 동일하게 판매 가격을
-`0.01`~`30,000,000.00`로 제한합니다. 최대 주문 수량 1,000,000개를 곱한
-30조 포인트까지 브라우저 `Number`의 소수 둘째 자리 왕복을 검증합니다.
+### 고객
+
+- 상품 검색, 카테고리·가격 필터와 재고 표시
+- 회원가입·로그인·비밀번호 재설정
+- 장바구니, 저장 배송지와 다중 상품 주문
+- 주문·배송 상태와 부분 취소
+- 프로필, 보유 상품, 포인트 잔액·거래 원장
+- 회원 탈퇴와 세션 만료 재로그인
+
+### 관리자
+
+- 상품명·가격·카테고리·설명·이미지 URL 관리
+- 초기 재고와 재고 증감 조정
+- 고객과 전체 주문 조회
+- 배송 상태 변경과 이력 조회
+
+데스크톱과 모바일에서 같은 HTML을 사용하며 860px 이하에서는 하단 navigation과
+모바일 카드 레이아웃으로 전환합니다. 키보드 tab 이동, dialog focus 복원,
+`aria-live`, reduced motion과 명확한 입력 오류를 지원합니다.
+
+## 파일 구조
+
+```text
+frontend/
+├── index.html                    # 모든 view, form과 dialog
+├── styles.css                   # 반응형 storefront 디자인
+├── config.js                    # 환경에 맞는 API 주소 선택
+├── runtime-config.js            # 로컬 기본 runtime 설정
+├── js/
+│   ├── api.js                   # fetch, CSRF, 쿠키, 오류와 API 함수
+│   └── app.js                   # 상태, render와 사용자 interaction
+├── scripts/
+│   ├── build.mjs                # Vercel 배포용 dist 생성
+│   └── validate-static.mjs      # 정적 계약·접근성 회귀 검사
+├── tests/
+│   ├── shop-flow.spec.js        # mock 기반 고객·관리자 E2E
+│   └── live-production.spec.js  # opt-in 실제 운영 E2E
+├── playwright.config.js
+└── vercel.json                  # 빌드와 API rewrite
+```
 
 ## 로컬 실행
 
-먼저 백엔드를 `http://localhost:8080`에서 실행합니다. 그다음 이 디렉터리에서 정적 서버를 실행합니다.
+먼저 저장소 루트에서 PostgreSQL과 백엔드를 실행합니다.
 
 ```bash
-cd frontend
-python3 -m http.server 3000
+docker compose -f compose.local.yml up -d
+./gradlew bootRun
 ```
 
-브라우저에서 `http://localhost:3000`으로 접속합니다. 파일을 직접 여는 `file://` 방식은 ES 모듈과 CORS 문제 때문에 사용하지 않습니다.
-
-현재 백엔드의 로컬 CORS 기본값에 맞추려면 다음 조합 중 하나를 사용해야 합니다.
-
-- 프론트 `http://localhost:3000` + 백엔드 `http://localhost:8080`
-- 프론트 `http://127.0.0.1:5500` + 백엔드 `http://127.0.0.1:8080`
-
-## 브라우저 E2E 테스트
-
-Playwright는 실제 백엔드 데이터에 의존하지 않는 상태 기반 API 모킹으로 고객과
-관리자의 핵심 화면 흐름을 검증합니다.
+다른 터미널에서 정적 서버를 실행합니다.
 
 ```bash
-cd frontend
-npm ci
-npx playwright install chromium
-npm run test:e2e
+python3 -m http.server 3000 --directory frontend
 ```
 
-현재 회원가입 → 장바구니 → 배송지 저장 → 다중 상품 주문 → 포인트 조회와 관리자
-주문 조회 → 배송 상태 변경 → 변경 이력 조회를 Chromium에서 확인합니다. GitHub
-Actions의 프론트 검사와 운영 배포 검사에서도 같은 테스트를 실행합니다.
+<http://localhost:3000>으로 접속합니다. `file://`로 직접 열면 ES Module과 CORS가
+정상 동작하지 않습니다.
 
-실제 Vercel과 운영 API를 연결한 검사는 명시적으로 활성화할 때만 실행합니다.
-임시 고객과 주문 기록이 생성되므로 일반 E2E와 분리되어 있습니다. 주문은 테스트
-안에서 전량 취소하고 임시 고객은 비활성화합니다.
+## API 주소 결정
+
+`config.js`는 실행 위치에 따라 다음 순서로 API 주소를 선택합니다.
+
+1. 빌드가 생성한 `window.SKALA_CONFIG.API_BASE_URL`
+2. 로컬 개발에서만 허용하는 localStorage override
+3. localhost에서는 같은 host의 `:8080`
+4. 운영에서는 현재 Vercel Origin
+
+운영 `vercel.json`은 다음 요청을 EC2 API로 rewrite합니다.
+
+```text
+/api/*      → https://api-3-39-64-119.sslip.io/api/*
+/actuator/* → https://api-3-39-64-119.sslip.io/actuator/*
+```
+
+따라서 기본 운영 구성에는 Vercel의 `SKALA_API_BASE_URL` 환경변수가 필요하지
+않습니다. 외부 API Origin을 직접 호출하도록 변경할 때만 HTTPS 주소를 설정합니다.
+
+API 주소는 정적 파일에 노출되는 공개 설정입니다. DB 비밀번호, JWT secret,
+Docker Hub token이나 AWS 자격 증명을 프론트 환경변수에 넣으면 안 됩니다.
+
+## API client 동작
+
+`js/api.js`가 다음 공통 처리를 담당합니다.
+
+- 모든 요청에 `credentials: "include"`
+- 상태 변경 전에 CSRF token 발급과 `X-XSRF-TOKEN` 전송
+- 403 CSRF 실패 시 토큰을 한 번 새로 받아 재시도
+- JSON과 204 응답 구분
+- 공통 `ApiError` 변환과 field error 보존
+- 주문·취소·재고용 UUID 명령 키 생성
+
+`js/app.js`는 API 결과를 상태에 반영하고 DOM을 다시 그립니다. 초기 세션 복구와
+새 로그인 요청이 경합하지 않도록 generation과 session snapshot을 비교합니다.
+화면이 1분 이상 숨겨졌다가 다시 보이면 현재 인증을 재확인합니다.
+
+## 상품 데이터
+
+상품 응답은 다음 정보를 화면에 사용합니다.
+
+```text
+id, name, price, status, categoryId, description, imageUrl, stock
+```
+
+`imageUrl`은 HTTP/HTTPS만 화면에 사용하며 값이 없거나 올바르지 않으면 상품명의
+첫 글자와 CSS tone을 표시합니다. 품절·판매 중지 상품의 담기와 주문 버튼은
+비활성화하고 재고가 바뀌면 목록을 다시 읽습니다.
+
+## 인증 UX
+
+- 서버 Validation의 `fieldErrors`를 해당 input 아래에 표시합니다.
+- 로그인·가입·재설정의 성공과 실패 메시지를 dialog 안에 보여줍니다.
+- 401이 오면 고객 상태를 지우고 한 번만 재로그인 dialog를 엽니다.
+- 고객 ID 저장은 localStorage를 사용하지만 비밀번호와 JWT는 저장하지 않습니다.
+- JWT는 HttpOnly 쿠키이므로 JavaScript가 직접 읽지 않습니다.
+
+현재 비밀번호 재설정은 고객 ID와 등록 이름을 확인하는 교육용 흐름입니다. 상용
+서비스에서는 이메일·휴대전화 일회용 인증으로 교체해야 합니다.
+
+## 빌드와 정적 검사
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run check
+npm --prefix frontend run build
+```
+
+빌드는 `frontend/dist`를 새로 만들고 HTML, CSS, JavaScript와 runtime 설정을
+복사합니다. Vercel build에서 `SKALA_API_BASE_URL`을 지정했다면 HTTPS가 아닌 주소를
+거부합니다.
+
+## 브라우저 테스트
+
+로컬 mock E2E:
+
+```bash
+npx --prefix frontend playwright install chromium
+npm --prefix frontend run test:e2e
+```
+
+Desktop Chrome과 Pixel 5 viewport에서 고객·관리자 흐름을 검사합니다. API 응답을
+테스트 안에서 모킹하므로 로컬 백엔드가 없어도 실행할 수 있습니다.
+
+실제 운영 E2E:
 
 ```bash
 LIVE_E2E_ENABLED=true \
 E2E_BASE_URL=https://skala-shop-bice.vercel.app \
-npm run test:e2e:live
+npm --prefix frontend run test:e2e:live
 ```
 
-관리자 목록까지 읽기 검증하려면 `SKALA_ADMIN_ID`, `SKALA_ADMIN_PASSWORD`를
-로컬 환경변수로만 추가합니다. 비밀번호는 명령 기록이나 저장소 파일에 넣지 않습니다.
+이 검사는 실제 고객·주문 기록을 생성하므로 명시적으로 활성화할 때만 실행합니다.
+주문은 전량 취소하고 임시 고객은 비활성화합니다. 관리자 읽기 검사에는
+`SKALA_ADMIN_ID`, `SKALA_ADMIN_PASSWORD` 환경변수가 추가로 필요합니다.
 
-## API 주소 설정
+전체 테스트 범위는 [테스트 전략](../docs/testing.md)을 참고합니다.
 
-`config.js`는 실행 중인 주소를 기준으로 안전한 기본값을 선택합니다.
+## Vercel 설정
 
-- `localhost` 또는 `127.0.0.1`에서 실행하면 같은 호스트의 `8080` 포트를 API로 사용합니다.
-- Vercel 배포에서는 프론트의 HTTPS Origin을 기본값으로 사용하고, `vercel.json`이 `/api`와 `/actuator` 요청을 EC2 API로 프록시합니다. 브라우저에는 Vercel 주소만 보이고 인증 쿠키도 같은 Origin에서 동작합니다.
-- 프론트와 API를 서로 다른 Origin으로 직접 연결해야 할 때만 Vercel 환경변수 `SKALA_API_BASE_URL`에 실제 **HTTPS API 주소**를 설정합니다. 빌드는 이 값을 `runtime-config.js`에 기록하며 HTTP 주소는 거부합니다. API 주소는 비밀값이 아니며 정적 파일에서 확인할 수 있습니다.
+- GitHub repository: `xixvivji/SKALA-shop-api`
+- Root Directory: `frontend`
+- Production Branch: `main`
+- Build Command: `node scripts/build.mjs`
+- Output Directory: `dist`
 
-Vercel 프로젝트의 Root Directory는 `frontend`, Production Branch는 `main`으로
-설정합니다. 기본 프록시 구성에서는 `SKALA_API_BASE_URL` 환경변수를 등록하지
-않습니다. 외부 API 직접 연결로 변경해 환경변수를 추가했다면 새로 배포해야
-적용됩니다.
-
-정적 프론트에 주입되는 API 주소는 비밀값이 아닙니다. DB 비밀번호, JWT secret,
-Docker Hub 토큰이나 AWS 자격 증명은 Vercel 환경변수에 넣지 않습니다.
-
-로컬에서만 다른 API를 시험하려면 브라우저 콘솔에서 아래 값을 저장하고 새로고침합니다. 배포 환경에서는 이 로컬 스토리지 재정의를 무시합니다.
-
-```js
-localStorage.setItem("skala-api-base-url", "http://localhost:8080");
-```
-
-## 비밀번호 재설정 주의사항
-
-현재 재설정 기능은 학습·시연 요구사항에 맞춰 고객 ID와 현재 등록된 이름을 확인합니다. 두 값은 강한 본인 인증 수단이 아니므로 실제 서비스에서는 이메일 또는 휴대전화 일회용 인증으로 교체해야 합니다. 새 비밀번호는 백엔드에서 평문으로 저장하지 않고 BCrypt로 다시 해시합니다.
-
-## 관리자 시연
-
-백엔드의 bootstrap 관리자 환경변수를 설정하고 서버를 처음 실행한 뒤 같은 로그인 화면에서 관리자 계정으로 로그인합니다. 관리자 화면에서는 고객 목록과 상품 관리를 확인할 수 있습니다. 운영에서는 bootstrap 관리자 생성을 완료한 후 해당 기능을 비활성화하는 편이 안전합니다.
-
-## Vercel 배포 전 확인
-
-GitHub의 `SKALA-shop-api` 저장소를 Vercel로 가져온 뒤 Root Directory를 `frontend`로 지정하면 이 폴더를 정적 사이트로 배포할 수 있습니다. 운영에서는 쿠키 인증이 안정적으로 동작하도록 프론트와 API를 같은 상위 도메인 아래에 두는 구성을 권장합니다. 예: `shop.example.com`과 `api.example.com`. 또한 백엔드의 CORS 허용 Origin, HTTPS, 인증 쿠키의 `Secure`/`SameSite` 설정을 실제 도메인에 맞춰야 합니다.
+PR에는 Vercel Preview가 생성되고 `main` 병합 시 운영 주소가 갱신됩니다. 백엔드
+운영 배포와 프론트 배포는 독립적이므로, API 계약을 변경할 때는 이전 프론트와의
+호환 순서를 고려해야 합니다.
