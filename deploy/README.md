@@ -1,47 +1,89 @@
-# EC2 Deployment
+# 운영 인프라와 배포
 
-EC2 단일 인스턴스의 Docker Compose에서 Backend, Nginx, Certbot을 실행하고
-PostgreSQL은 RDS를 사용합니다. Backend 교체 중 짧은 API 중단은 허용합니다.
+이 문서는 SKALA Shop 백엔드를 AWS EC2에 배포하고 운영하는 방법을 설명합니다.
+현재 운영 환경은 이 구성으로 배포되어 있습니다.
 
-## 현재 구성 상태
+| 영역 | 현재 구성 |
+| --- | --- |
+| Frontend | Vercel, `main` production branch |
+| Backend | 단일 EC2, Docker Compose |
+| Database | 비공개 RDS PostgreSQL 17 |
+| Edge/TLS | Nginx와 Certbot 컨테이너 |
+| Image | Docker Hub digest 고정 이미지 |
+| CD | GitHub OIDC + AWS Systems Manager |
+| API | <https://api-3-39-64-119.sslip.io> |
 
-저장소에는 다음 운영 구성이 구현되어 있습니다.
+무중단 배포는 목표가 아닙니다. Backend 교체 중 짧은 API 중단을 허용하는 대신,
+배포 실패 시 이전 정상 image와 Nginx 구성을 함께 복구합니다.
 
-- production Docker Compose와 Backend healthcheck
-- Nginx HTTPS reverse proxy와 인증 요청 IP rate limit
-- Certbot 최초 발급 및 12시간 주기 갱신 컨테이너
-- Docker Hub digest 기반 불변 이미지 배포
-- candidate/current/known-good 릴리스 상태와 실패 시 자동 복구
-- 동시 배포를 막는 GitHub Actions concurrency와 호스트 `flock`
-- 로컬에서 실행하는 릴리스 전환·실패·롤백 시뮬레이션
+## 1. 배포 구조
 
-구성 파일이 준비된 것과 실제 인프라가 배포된 것은 별개입니다. EC2, RDS,
-Elastic IP, DNS, Docker Hub, Vercel 프로젝트와 GitHub Secrets/Variables는 운영자가
-실제 계정에 생성·연결해야 합니다. `PRODUCTION_DEPLOY_ENABLED`의 기본 동작은
-배포 비활성화이며 외부 리소스와 최초 TLS 설정을 확인한 뒤에만 활성화합니다.
+```mermaid
+flowchart LR
+    GH[GitHub Actions] -->|build and push| DH[Docker Hub]
+    GH -->|OIDC assume role| AWS[AWS]
+    AWS -->|SSM Run Command| EC2[EC2]
+    EC2 --> N[Nginx container]
+    N --> B[Backend container]
+    B --> R[(Private RDS PostgreSQL)]
+    C[Certbot container] -->|renew certificate| N
+    V[Vercel frontend] -->|HTTPS API| N
+```
 
-## AWS와 호스트 준비
+GitHub에 장기 AWS Access Key와 EC2 SSH key를 저장하지 않습니다. Actions는 GitHub
+OIDC로 배포 전용 IAM Role을 맡고 SSM Run Command를 전송합니다. 저장소가
+비공개이므로 EC2가 GitHub source archive를 직접 다운로드하지 않습니다. Workflow가
+`compose.prod.yml`, `nginx/`, `scripts/`만 압축해 SSM 명령 안으로 전달합니다.
 
-- EC2, Elastic IP, Docker Engine, Docker Compose plugin
-- `flock` 명령을 제공하는 util-linux 패키지
+## 2. EC2와 RDS 준비 조건
+
+### EC2
+
+- Elastic IP 연결
+- Docker Engine과 Docker Compose plugin
+- SSM Agent online
+- `flock`을 제공하는 `util-linux`
 - 암호화된 EBS
-- EC2 보안 그룹의 80과 443 허용
-- SSH 22는 관리자 IP로만 제한하고 자동 배포는 SSM Run Command 사용
-- 비공개 RDS PostgreSQL
-- RDS 보안 그룹은 EC2 보안 그룹에서 오는 5432만 허용
-- RDS 자동 백업, 저장소 자동 확장과 삭제 방지
-- `api.example.com`이 EC2 Elastic IP를 가리키도록 DNS 설정
+- IAM instance profile에 `AmazonSSMManagedInstanceCore`
+- Instance Metadata Service는 IMDSv2 token 필수
 
-EC2에는 `AmazonSSMManagedInstanceCore` 정책을 가진 IAM Role을 연결합니다. GitHub
-Actions는 GitHub OIDC로 배포 전용 IAM Role을 맡으며 AWS Access Key나 EC2 SSH 키를
-GitHub Secrets에 저장하지 않습니다.
+보안 그룹:
 
-## EC2 디렉터리 구조
+| Port | Source | 용도 |
+| --- | --- | --- |
+| 80 | `0.0.0.0/0` | Let's Encrypt challenge와 HTTPS redirect |
+| 443 | `0.0.0.0/0` | 운영 API |
+| 22 | 관리자 IP `/32`만 | 수동 관리; 자동 배포는 SSM 사용 |
 
-~~~text
+Backend 8080과 PostgreSQL 5432는 인터넷에 공개하지 않습니다.
+
+### RDS
+
+- PostgreSQL 17
+- Public access 비활성화
+- Storage encryption 활성화
+- 자동 백업 1일 이상
+- 삭제 방지 활성화
+- RDS 보안 그룹 5432 source는 EC2 보안 그룹만 허용
+
+읽기 전용 AWS audit:
+
+```bash
+AWS_REGION=ap-northeast-2 \
+EC2_INSTANCE_ID=i-xxxxxxxxxxxxxxxxx \
+RDS_INSTANCE_ID=skala-shop-postgres \
+sh deploy/tools/audit-aws.sh
+```
+
+이 도구는 EC2 IMDSv2와 RDS의 private, encryption, deletion protection, backup,
+available 상태를 검사하며 리소스를 수정하지 않습니다.
+
+## 3. EC2 디렉터리
+
+```text
 /opt/skala-shop/
 ├── deploy/
-│   ├── .env.infra            # 모든 릴리스가 공유하는 인프라 설정
+│   ├── .env.infra            # 모든 릴리스가 공유하는 공개 인프라 설정
 │   └── .env.app              # Backend 비밀 환경변수
 ├── releases/
 │   └── <release-id>/
@@ -49,225 +91,211 @@ GitHub Secrets에 저장하지 않습니다.
 │       ├── nginx/
 │       └── scripts/
 └── state/
-    ├── current.env           # 현재 이미지 digest와 구성 경로
-    ├── known-good.env        # 직전 정상 이미지 digest와 구성 경로
-    ├── candidate.env         # 진행 중 작업 및 SIGKILL 복구 표식
-    ├── deploy-*.env          # 배포의 crash-recovery journal
-    ├── rollback-*.env        # 수동 롤백의 crash-recovery journal
+    ├── current.env           # 현재 실행 릴리스
+    ├── known-good.env        # 직전 정상 릴리스
+    ├── candidate.env         # 배포 진행 중 표식
+    ├── deploy-*.env          # 중단 복구 journal
+    ├── rollback-*.env        # rollback journal
     ├── failed.env            # 최근 실패 릴리스
-    └── deploy.lock           # flock이 사용하는 일반 파일
-~~~
+    └── deploy.lock           # flock 대상
+```
 
-Workflow는 매 실행마다 고유한 `releases/<commit-run-attempt>` 디렉터리를
-만듭니다. 공용 Compose/Nginx 파일을 덮어쓰지 않으므로 실행 중인 배포와 다음
-배포의 구성이 섞이지 않습니다. `current.env`와 `known-good.env`는 Backend의
-불변 digest뿐 아니라 같은 릴리스의 Compose/Nginx 경로도 함께 기록합니다.
-`deploy/.release.example`은 자동 생성되는 상태 메타데이터의 형식 참고용이며,
-운영자가 `.release` 파일을 직접 유지하지 않습니다.
+최초 한 번 디렉터리와 공유 설정을 준비합니다.
 
-처음 한 번 다음 디렉터리와 공유 설정 파일을 준비합니다.
-
-~~~bash
+```bash
 sudo install -d -m 755 /opt/skala-shop/deploy /opt/skala-shop/releases /opt/skala-shop/state
 sudo chown -R "$USER":"$USER" /opt/skala-shop
 cp deploy/.env.infra.example /opt/skala-shop/deploy/.env.infra
 cp deploy/.env.app.example /opt/skala-shop/deploy/.env.app
 chmod 600 /opt/skala-shop/deploy/.env.infra /opt/skala-shop/deploy/.env.app
-~~~
+```
 
-`.env.infra` 예시:
+## 4. 환경변수
 
-~~~text
+### `.env.infra`
+
+```dotenv
 API_DOMAIN=api.example.com
-FRONTEND_ORIGIN=https://example.com
+FRONTEND_ORIGIN=https://example.vercel.app
 LETSENCRYPT_EMAIL=admin@example.com
 APP_ENV_FILE=/opt/skala-shop/deploy/.env.app
-~~~
+```
 
-`FRONTEND_ORIGIN`은 슬래시로 끝나지 않는 실제 Vercel origin 하나를 정확히
-입력합니다. 이 값은 Nginx가 직접 반환하는 429 응답의 CORS 허용 origin입니다.
+- `API_DOMAIN`: scheme과 path가 없는 API DNS name
+- `FRONTEND_ORIGIN`: trailing slash가 없는 정확한 Vercel HTTPS Origin 하나
+- `LETSENCRYPT_EMAIL`: 인증서 만료 알림을 받을 실제 이메일
+- `APP_ENV_FILE`: 반드시 `/opt/skala-shop/deploy/.env.app`
 
-`.env.app` 예시:
+### `.env.app`
 
-~~~text
+아래는 핵심 항목만 보여주는 예시입니다. 인증 요청 제한을 포함한 전체 목록과
+기본값은 [`.env.app.example`](.env.app.example)을 기준으로 작성합니다.
+
+```dotenv
 DB_URL=jdbc:postgresql://<rds-endpoint>:5432/skala_shop?sslmode=require
-DB_USERNAME=<application-user>
-DB_PASSWORD=<password>
-JWT_SECRET=<32-byte-or-longer-random-secret>
+DB_USERNAME=skala_app
+DB_PASSWORD=<application-user-password>
+JWT_SECRET=<at-least-32-byte-random-secret>
+JWT_ISSUER=skala-shop-api
+JWT_ACCESS_TOKEN_TTL=1h
 JWT_COOKIE_SECURE=true
-CORS_ALLOWED_ORIGINS=https://example.com,https://www.example.com
+JWT_COOKIE_SAME_SITE=Lax
+CORS_ALLOWED_ORIGINS=https://example.vercel.app
+INITIAL_MEMBER_POINTS=1000000
+API_LOGGING_ENABLED=true
+AUTH_RATE_LIMIT_ENABLED=true
 BOOTSTRAP_ADMIN_ENABLED=false
 BOOTSTRAP_ADMIN_LOGIN_ID=
 BOOTSTRAP_ADMIN_PASSWORD=
-~~~
+```
 
-최초 관리자 계정이 필요할 때만 `BOOTSTRAP_ADMIN_ENABLED=true`와 12자 이상의
-비밀번호를 설정해 한 번 기동합니다. 생성이 끝나면 다시 `false`로 바꾸고
-관리자 ID와 비밀번호 환경변수도 제거합니다. 이후 비밀번호 변경은 관리자
-비밀번호 변경 API를 사용합니다.
+실제 비밀값 파일은 Git에 올리지 않습니다. 일반 배포는 다음을 자동 검사합니다.
 
-일반 자동 배포는 `BOOTSTRAP_ADMIN_ENABLED=true`를 거부합니다. 최초 생성이 꼭
-필요한 한 번의 수동 배포에서만 프로세스 환경에
-`ALLOW_BOOTSTRAP_ADMIN_ONCE=true`를 지정할 수 있습니다. 관리자가 만들어지면
-즉시 bootstrap 세 값을 비활성화·삭제하고 다시 배포합니다.
+- PostgreSQL JDBC URL과 필수 DB 계정
+- 32자 이상 JWT secret
+- `JWT_COOKIE_SECURE=true`
+- `CORS_ALLOWED_ORIGINS`에 정확한 `FRONTEND_ORIGIN` 포함
+- `BOOTSTRAP_ADMIN_ENABLED=false`
+- 예시 placeholder가 남아 있지 않음
 
-### 운영 초기 상품
+## 5. 최초 관리자
 
-관리자 계정을 만든 뒤 예시 JSON을 복사해 실제 카테고리·상품·재고를 작성하고,
-아래 도구로 없는 항목만 등록합니다. 관리자 비밀번호는 환경변수로만 전달하며
-출력하거나 파일에 저장하지 않습니다. `--confirm-origin`은 실수로 다른 서버를
-변경하지 않도록 API origin과 정확히 같아야 합니다.
+최초 관리자 생성 때만 다음 값을 설정하고 Backend를 한 번 기동합니다.
 
-~~~bash
-SKALA_API_BASE_URL=https://api-3-39-64-119.sslip.io \
-SKALA_ADMIN_ID=<관리자-ID> \
-SKALA_ADMIN_PASSWORD=<터미널에서-주입> \
+```dotenv
+BOOTSTRAP_ADMIN_ENABLED=true
+BOOTSTRAP_ADMIN_LOGIN_ID=<admin-id>
+BOOTSTRAP_ADMIN_PASSWORD=<12-to-72-byte-password>
+```
+
+일반 자동 배포는 bootstrap 활성 상태를 거부합니다. 최초 수동 실행에서만 process
+environment에 `ALLOW_BOOTSTRAP_ADMIN_ONCE=true`를 지정할 수 있습니다.
+
+관리자가 생성되면 즉시 다음 상태로 되돌립니다.
+
+```dotenv
+BOOTSTRAP_ADMIN_ENABLED=false
+BOOTSTRAP_ADMIN_LOGIN_ID=
+BOOTSTRAP_ADMIN_PASSWORD=
+```
+
+관리자 비밀번호는 이후 `PUT /api/admin/password`로 변경합니다.
+
+## 6. 운영 초기 상품
+
+[`seed/catalog.example.json`](seed/catalog.example.json)을 복사해 카테고리·상품·
+초기 재고를 작성합니다. 도구는 이름이 이미 존재하는 항목을 건너뛰므로 반복
+실행할 수 있습니다.
+
+관리자 비밀번호는 파일이나 shell history에 평문으로 남기지 말고 안전한 방식으로
+환경변수에 주입합니다.
+
+```bash
+SKALA_API_BASE_URL=https://api.example.com \
+SKALA_ADMIN_ID=<admin-id> \
+SKALA_ADMIN_PASSWORD=<securely-injected-password> \
 node deploy/tools/bootstrap-catalog.mjs \
   --seed=deploy/seed/catalog.example.json \
-  --confirm-origin=https://api-3-39-64-119.sslip.io
-~~~
+  --confirm-origin=https://api.example.com
+```
 
-### 운영 점검
+`--confirm-origin`은 실수로 다른 서버의 데이터를 변경하지 않도록 API Origin과
+정확히 같아야 합니다. 작업 후 도구가 관리자 세션을 로그아웃합니다.
 
-공개 화면과 health, 카테고리, 상품, OpenAPI는 다음 읽기 전용 검사로 확인합니다.
+## 7. TLS와 container
 
-~~~bash
-SKALA_FRONTEND_ORIGIN=https://skala-shop-bice.vercel.app \
-SKALA_API_BASE_URL=https://api-3-39-64-119.sslip.io \
-node deploy/tools/smoke-production.mjs
-~~~
+운영 Compose에는 다음 service가 있습니다.
 
-GitHub의 `Production smoke` workflow도 같은 검사를 수동 실행합니다. 운영 데이터를
-변경하는 브라우저 검사는 `run_mutating_e2e`를 직접 선택한 경우에만 실행됩니다.
-저장소 Variables에는 `PRODUCTION_FRONTEND_ORIGIN`, `PRODUCTION_API_ORIGIN`을
-설정하고, 관리자 읽기 검사까지 필요할 때만 production environment secret에
-`PRODUCTION_ADMIN_ID`, `PRODUCTION_ADMIN_PASSWORD`를 저장합니다.
+| Service | 역할 |
+| --- | --- |
+| `backend` | Spring Boot API, 내부 8080 |
+| `nginx` | 80/443, TLS 종료, proxy와 IP rate limit |
+| `certbot-renew` | 12시간마다 인증서 갱신 확인 |
+| `nginx-bootstrap` | 최초 HTTP 인증서 발급 전용 profile |
+| `certbot` | 인증서 발급 도구 profile |
 
-AWS 구성은 자격 증명이 설정된 관리자 PC에서 읽기 전용 audit으로 확인합니다.
+Nginx는 6시간마다 인증서를 다시 읽도록 reload합니다. Certbot에 Docker socket을
+마운트하지 않습니다.
 
-~~~bash
-AWS_REGION=ap-northeast-2 \
-EC2_INSTANCE_ID=i-xxxxxxxxxxxxxxxxx \
-RDS_INSTANCE_ID=skala-shop-postgres \
-sh deploy/tools/audit-aws.sh
-~~~
+최초 TLS는 GitHub Actions의 `Deploy production`을 수동 실행하고
+`bootstrap_tls=true`를 선택하는 방식이 가장 간단합니다. 이후 배포는 기본값
+`false`를 사용합니다.
 
-비공개 Docker Hub 저장소라면 EC2에서 read-only 토큰으로 로그인합니다.
+수동으로 실행한다면 같은 릴리스 디렉터리의 script와 immutable image digest를
+사용합니다.
 
-~~~bash
-docker login
-~~~
-
-## 최초 인증서 발급
-
-`api.example.com` DNS가 EC2를 가리키고 외부에서 80 포트에 접근 가능해야
-합니다. 먼저 한 릴리스의 `compose.prod.yml`, `nginx/`, `scripts/`를 같은
-버전으로 `/opt/skala-shop/releases/<release-id>`에 복사하고 이미지의 실제
-Docker Hub digest를 확인합니다.
-
-~~~bash
+```bash
 /opt/skala-shop/releases/<release-id>/scripts/bootstrap-tls.sh \
   <release-id> \
   '<dockerhub-user>/skala-shop-api@sha256:<64-hex-digest>'
-~~~
+```
 
-HTTP 전용 Nginx로 인증서를 발급한 뒤 같은 릴리스의 정상 배포 절차를
-실행합니다. Certbot은 12시간마다 갱신을 확인하고 Nginx는 6시간마다 reload
-합니다. Certbot에는 Docker socket을 마운트하지 않습니다.
+## 8. GitHub 설정
 
-## GitHub Actions 설정
+### Secrets
 
-브랜치별 동작은 다음과 같습니다.
-
-- `feature/*` push와 모든 PR: `.github/workflows/ci.yml`에서 백엔드, 프론트와
-  릴리스 흐름을 검증합니다.
-- `develop` push: CI만 실행하고 운영에는 배포하지 않습니다.
-- `main` push: `.github/workflows/deploy-prod.yml`을 실행합니다. 단,
-  `PRODUCTION_DEPLOY_ENABLED`가 `true`일 때만 이미지 게시와 EC2 배포를 진행합니다.
-- `frontend/**`만 변경된 main push는 백엔드 production workflow를 건너뛰며
-  Vercel이 프론트 배포를 담당합니다.
-
-GitHub Actions Secrets:
-
-~~~text
+```text
 DOCKERHUB_USERNAME
 DOCKERHUB_PUSH_TOKEN
-~~~
+```
 
-EC2는 최초 준비 단계에서 Docker Hub read-only 토큰으로 한 번 로그인합니다. 해당
-자격 증명은 EC2의 `ubuntu` 사용자에만 저장되며 GitHub Actions로 전달하지 않습니다.
+Docker Hub push token에는 read/write만 부여합니다. EC2는 별도의 read-only token으로
+한 번 `docker login`하고 해당 credential을 `ubuntu` 사용자 아래에 보관합니다.
 
-GitHub Actions Variables:
+### Variables
 
-~~~text
-DOCKERHUB_IMAGE=<dockerhub-username>/skala-shop-api
+```text
+DOCKERHUB_IMAGE=<dockerhub-user>/skala-shop-api
 AWS_DEPLOY_ROLE_ARN=arn:aws:iam::<account-id>:role/SKALAShopGitHubDeployRole
 AWS_REGION=ap-northeast-2
 EC2_INSTANCE_ID=i-xxxxxxxxxxxxxxxxx
 PRODUCTION_DEPLOY_ENABLED=true
-~~~
+PRODUCTION_FRONTEND_ORIGIN=https://example.vercel.app
+PRODUCTION_API_ORIGIN=https://api.example.com
+```
 
-`PRODUCTION_DEPLOY_ENABLED=true`로 설정하기 전에는 main 브랜치에서도 테스트만
-실행하고 이미지 게시와 EC2 배포는 건너뜁니다. Docker Hub, EC2, 도메인과 최초
-인증서 설정을 마친 뒤 활성화합니다.
+`PRODUCTION_DEPLOY_ENABLED=false`이면 `main`에서도 테스트만 실행하고 image 게시와
+EC2 배포를 건너뜁니다. Docker Hub, EC2, RDS, DNS와 최초 인증서를 확인한 뒤에만
+`true`로 바꿉니다.
 
-최초 배포에서는 GitHub Actions의 `Deploy production` 워크플로를 수동 실행하고
-`bootstrap_tls=true`를 선택합니다. 이 실행은 HTTP 전용 Nginx로 Let's Encrypt
-인증서를 먼저 발급한 뒤 같은 불변 이미지와 릴리스 구성으로 정상 HTTPS 배포까지
-이어갑니다. 인증서가 발급된 이후의 main push와 수동 실행은 기본값
-`bootstrap_tls=false`로 일반 배포를 수행합니다.
+선택적인 production environment secrets:
 
-main push 배포는 다음 순서로 동작합니다.
+```text
+PRODUCTION_ADMIN_ID
+PRODUCTION_ADMIN_PASSWORD
+```
 
-1. Java 21 테스트, 프론트 검사와 릴리스 흐름 시뮬레이션을 실행합니다.
-2. `linux/amd64` 이미지를 Docker Hub에 게시하고 registry digest를 받습니다.
-3. GitHub OIDC로 단기 AWS 자격 증명을 발급받고 SSM Run Command를 전송합니다.
-4. EC2가 정확한 Git commit SHA의 공개 소스 압축 파일에서 `deploy/`만 받아 실행별
-   버전 디렉터리에 배치합니다.
-5. digest로 Candidate Backend를 기동하고 healthcheck를 확인합니다.
-6. Candidate 구성으로 일회성 컨테이너의 실제 `nginx -t`를 실행합니다.
-7. Nginx와 인증서 갱신 컨테이너를 같은 구성으로 전환하고 live `nginx -t`와
-   reload까지 성공한 뒤에만 current로 승격합니다.
+이 값은 수동 live E2E의 관리자 읽기 검사에만 사용합니다. 설정하지 않아도 고객
+live E2E와 일반 배포에는 영향이 없습니다.
 
-Workflow의 production concurrency는 `cancel-in-progress: false`이므로 main 배포가
-겹치면 취소하지 않고 순서대로 실행합니다. 호스트에서는 `flock`이 자동 배포,
-수동 배포, 롤백과 TLS bootstrap을 직렬화합니다. lock 파일이 남아 있어도 파일
-descriptor 잠금이 해제된 상태라면 다음 실행을 막지 않습니다.
+## 9. CI/CD 흐름
 
-Docker Hub push 토큰에는 read/write 권한을, EC2 pull 토큰에는 read-only
-권한만 부여합니다. Graviton EC2를 사용하면 workflow 플랫폼을
-`linux/arm64`로 변경합니다.
+```text
+feature push / PR
+→ Backend 82 tests
+→ Frontend static checks + desktop/mobile E2E
+→ Release flow simulation
+→ develop merge
+→ main PR에서 전체 재검증
+→ main merge
+→ Docker Hub immutable digest image
+→ GitHub OIDC
+→ SSM으로 릴리스 파일 전달
+→ Candidate Backend health
+→ Candidate Nginx config test
+→ live edge 전환과 nginx -t
+→ current 승격
+```
 
-## 수동 배포와 롤백
+`main` workflow는 production concurrency의 `cancel-in-progress: false`를 사용합니다.
+배포가 겹치면 취소하지 않고 순서대로 실행하며 EC2의 `flock`도 자동 배포, 수동
+배포, rollback과 TLS bootstrap을 직렬화합니다.
 
-수동 배포도 먼저 고유한 버전 디렉터리에 완전한 릴리스 파일을 준비해야 합니다.
+## 10. 배포 상태와 rollback
 
-~~~bash
-/opt/skala-shop/releases/<release-id>/scripts/deploy.sh \
-  <release-id> \
-  '<dockerhub-user>/skala-shop-api@sha256:<64-hex-digest>'
-~~~
+현재 container 확인:
 
-수동 롤백은 현재 릴리스의 스크립트에서 실행합니다.
-
-~~~bash
-CURRENT_RELEASE_DIR=$(sed -n 's/^RELEASE_DIR=//p' /opt/skala-shop/state/current.env)
-"$CURRENT_RELEASE_DIR/scripts/rollback.sh"
-~~~
-
-Candidate의 pull, Backend 기동, healthcheck, `nginx -t`, Nginx 전환 중 실패하면
-Backend digest와 Compose/Nginx 구성을 같은 이전 릴리스 쌍으로 복구합니다.
-첫 배포에는 이전 릴리스가 없으므로 자동 복구 대상도 없습니다. Flyway의 파괴적
-변경은 이미지/구성 롤백으로 되돌릴 수 없으므로 expand/contract 방식을
-사용합니다.
-
-`current.env`, `known-good.env`, `failed.env`가 가리키는 릴리스 디렉터리는
-삭제하면 안 됩니다. 그 외 오래된 버전 디렉터리는 상태 파일을 확인한 뒤 별도의
-보존 정책으로 정리할 수 있습니다.
-
-## 상태 확인
-
-~~~bash
+```bash
 CURRENT_METADATA=/opt/skala-shop/state/current.env
 CURRENT_COMPOSE=$(sed -n 's/^RELEASE_COMPOSE_FILE=//p' "$CURRENT_METADATA")
 docker compose \
@@ -275,28 +303,89 @@ docker compose \
   --env-file /opt/skala-shop/deploy/.env.infra \
   --env-file "$CURRENT_METADATA" \
   -f "$CURRENT_COMPOSE" ps
-~~~
+```
 
-로컬에서 배포 상태 전환을 빠르게 검증할 수 있습니다.
+수동 배포:
 
-~~~bash
+```bash
+/opt/skala-shop/releases/<release-id>/scripts/deploy.sh \
+  <release-id> \
+  '<dockerhub-user>/skala-shop-api@sha256:<64-hex-digest>'
+```
+
+수동 rollback:
+
+```bash
+CURRENT_RELEASE_DIR=$(sed -n 's/^RELEASE_DIR=//p' /opt/skala-shop/state/current.env)
+"$CURRENT_RELEASE_DIR/scripts/rollback.sh"
+```
+
+Candidate pull, Backend health, Nginx 검사 또는 edge 전환이 실패하면 Backend image와
+Compose/Nginx 구성을 같은 이전 릴리스로 복구합니다. 첫 배포에는 이전 릴리스가
+없어 자동 복구 대상도 없습니다.
+
+`current.env`, `known-good.env`, `failed.env`가 가리키는 릴리스 디렉터리는 삭제하지
+않습니다. Flyway 변경은 image rollback으로 되돌아가지 않으므로 DB는
+expand/contract와 forward-fix를 사용합니다.
+
+로컬에서 상태 전환을 검증합니다.
+
+```bash
 sh deploy/tests/release-flow-test.sh
-~~~
+```
 
-## 프록시, CORS와 요청 제한
+## 11. 운영 확인
 
-Vercel 프론트는 `example.com`, API는 `api.example.com`처럼 같은 등록 도메인의
-하위 도메인을 권장합니다. JWT 쿠키를 보내려면 프론트 fetch에
-`credentials: "include"`가 필요합니다. 상태 변경 전 `GET /api/auth/csrf`를
-호출하고 응답 token을 `X-XSRF-TOKEN` 헤더로 전송합니다.
+읽기 전용 public smoke:
 
-Nginx는 회원가입, 로그인과 학습용 비밀번호 초기화 경로에 IP 기준 요청 제한을
-적용합니다. CORS preflight인 `OPTIONS`는 제한 카운터에서 제외합니다. Nginx가
-429를 직접 반환할 때는 정확히 일치하는 `FRONTEND_ORIGIN`에만 credentials와
-`Retry-After` 노출 헤더를 보냅니다. Spring CORS도 `Retry-After`를 노출합니다.
+```bash
+SKALA_FRONTEND_ORIGIN=https://example.vercel.app \
+SKALA_API_BASE_URL=https://api.example.com \
+node deploy/tools/smoke-production.mjs
+```
 
-현재 구성은 인터넷 요청이 단일 Nginx에 직접 도달하는 구조를 전제로 하며,
-클라이언트가 보낸 `X-Forwarded-For`는 신뢰하지 않고 `$remote_addr`로
-덮어씁니다. 앞에 ALB/CDN을 추가하면 trusted proxy 범위와 real IP 설정을 먼저
-구성해야 합니다. 여러 EC2로 확장할 때는 애플리케이션 요청 제한 저장소도 Redis
-같은 공유 저장소로 교체합니다.
+확인 대상:
+
+- Vercel HTML
+- `/actuator/health`의 `UP`
+- 카테고리와 상품 공개 API
+- OpenAPI JSON
+
+GitHub의 `Production smoke` workflow도 동일한 검사를 수동 실행합니다.
+`run_mutating_e2e=true`를 선택할 때만 임시 고객을 만들어 가입·주문·취소·탈퇴를
+검사합니다.
+
+## 12. Proxy, CORS와 요청 제한
+
+Vercel 기본 구성은 같은 Origin `/api` proxy를 사용합니다. API를 직접 다른
+Origin에서 호출한다면 Spring의 `CORS_ALLOWED_ORIGINS`와 Nginx의
+`FRONTEND_ORIGIN`을 정확히 맞춰야 합니다.
+
+Nginx와 애플리케이션은 로그인·회원가입·교육용 비밀번호 재설정에 요청 제한을
+적용합니다. 현재 인메모리 제한은 단일 EC2에 적합합니다. ALB/CDN을 앞에 추가하면
+trusted proxy와 real IP 설정을 먼저 구성하고, 여러 Backend 인스턴스로 확장할 때는
+요청 제한 저장소를 Redis 같은 공유 저장소로 바꿉니다.
+
+## 13. 운영 체크리스트
+
+배포 전:
+
+- [ ] PR CI와 Vercel Preview 성공
+- [ ] `.env.app`에 placeholder와 bootstrap 자격 증명 없음
+- [ ] RDS backup과 deletion protection 확인
+- [ ] Flyway 변경이 backward compatible함
+- [ ] `PRODUCTION_DEPLOY_ENABLED` 의도 확인
+
+배포 후:
+
+- [ ] GitHub `Deploy production` 성공
+- [ ] Vercel production 반영
+- [ ] public smoke 성공
+- [ ] Swagger와 health 응답 확인
+- [ ] 오류율·디스크·Docker log 확인
+
+장애 시:
+
+- [ ] `failed.env`, current/known-good와 Actions SSM 출력 확인
+- [ ] 필요하면 수동 rollback
+- [ ] DB migration 문제는 image rollback이 아니라 forward-fix 판단
