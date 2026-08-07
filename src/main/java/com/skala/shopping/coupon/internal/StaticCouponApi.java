@@ -10,6 +10,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import java.time.Clock;
+import com.skala.shopping.coupon.internal.domain.CouponUsage;
 
 @Component
 class StaticCouponApi implements CouponApi {
@@ -24,6 +27,19 @@ class StaticCouponApi implements CouponApi {
             "SAVE10000", Rule.fixed("SAVE10000", new BigDecimal("10000"))
     );
 
+    private final CouponUsageRepository usageRepository;
+    private final Clock clock;
+
+    @Autowired
+    StaticCouponApi(CouponUsageRepository usageRepository) {
+        this(usageRepository, Clock.systemUTC());
+    }
+
+    StaticCouponApi(CouponUsageRepository usageRepository, Clock clock) {
+        this.usageRepository = usageRepository;
+        this.clock = clock;
+    }
+
     @Override
     public CouponDiscount preview(UUID memberId, String couponCode, BigDecimal orderAmount) {
         String normalizedCode = normalizeCode(couponCode);
@@ -33,6 +49,12 @@ class StaticCouponApi implements CouponApi {
         Rule rule = COUPONS.get(normalizedCode);
         if (rule == null) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "유효하지 않은 쿠폰 코드입니다.");
+        }
+        if (memberId == null) {
+            throw new BusinessException(ErrorCode.NOT_AUTHENTICATED);
+        }
+        if (usageRepository.existsByMemberIdAndCouponCode(memberId, normalizedCode)) {
+            throw new BusinessException(ErrorCode.DATA_DUPLICATED, "이미 사용한 쿠폰입니다.");
         }
         if (orderAmount == null || orderAmount.signum() <= 0) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "주문 금액이 유효하지 않습니다.");
@@ -58,7 +80,18 @@ class StaticCouponApi implements CouponApi {
             UUID commandId,
             CouponDiscount discount
     ) {
-        // no-op: 실제 정산형 쿠폰 사용 이력 저장이 필요한 경우 이곳에 누적 기록을 추가
+        if (discount == null || discount.getCouponId() == null) {
+            return;
+        }
+        usageRepository.save(new CouponUsage(
+                discount.getCouponId(),
+                discount.getCouponCode(),
+                memberId,
+                orderId,
+                commandId,
+                discount.getDiscountAmount(),
+                clock.instant()
+        ));
     }
 
     private static String normalizeCode(String couponCode) {

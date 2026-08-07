@@ -25,6 +25,12 @@ public class StockAlertSubscription {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "notified_at")
+    private Instant notifiedAt;
+
+    @Column(name = "available_quantity_at_notification")
+    private Integer availableQuantityAtNotification;
+
     @Version
     private long version;
 
@@ -54,7 +60,30 @@ public class StockAlertSubscription {
         return createdAt;
     }
 
+    public Instant notifiedAt() { return notifiedAt; }
+
+    public void markNotified(int availableQuantity, Instant notifiedAt) {
+        if (this.notifiedAt != null) {
+            return;
+        }
+        this.notifiedAt = notifiedAt;
+        this.availableQuantityAtNotification = availableQuantity;
+    }
+
+    public void rearm() {
+        this.notifiedAt = null;
+        this.availableQuantityAtNotification = null;
+    }
+
     public StockAlertResponse toResponse(String productName, int availableQuantity) {
-        return new StockAlertResponse(id, productId, productName, availableQuantity, createdAt);
+        return new StockAlertResponse(
+                id,
+                productId,
+                productName,
+                availableQuantity,
+                createdAt,
+                notifiedAt,
+                availableQuantityAtNotification
+        );
     }
 }

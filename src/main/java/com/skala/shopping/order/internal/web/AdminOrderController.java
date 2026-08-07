@@ -78,7 +78,8 @@ class AdminOrderController {
                 request.getStatus(),
                 request.getTrackingCarrier(),
                 request.getTrackingNumber(),
-                request.getTrackingUrl()
+                request.getTrackingUrl(),
+                request.getEstimatedDeliveryAt()
         ));
     }
 

@@ -1,6 +1,7 @@
 package com.skala.shopping.coupon;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.UUID;
 
 public final class CouponDiscount {
@@ -12,7 +13,9 @@ public final class CouponDiscount {
     public CouponDiscount(UUID couponId, String couponCode, BigDecimal discountAmount) {
         this.couponId = couponId;
         this.couponCode = couponCode;
-        this.discountAmount = discountAmount == null ? BigDecimal.ZERO : discountAmount;
+        this.discountAmount = discountAmount == null
+                ? BigDecimal.ZERO.setScale(2)
+                : discountAmount.setScale(2, RoundingMode.UNNECESSARY);
     }
 
     public static CouponDiscount none(String couponCode) {

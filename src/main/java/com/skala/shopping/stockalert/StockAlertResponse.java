@@ -10,19 +10,25 @@ public final class StockAlertResponse {
     private final String productName;
     private final int availableQuantity;
     private final Instant subscribedAt;
+    private final Instant notifiedAt;
+    private final Integer availableQuantityAtNotification;
 
     public StockAlertResponse(
             UUID id,
             UUID productId,
             String productName,
             int availableQuantity,
-            Instant subscribedAt
+            Instant subscribedAt,
+            Instant notifiedAt,
+            Integer availableQuantityAtNotification
     ) {
         this.id = id;
         this.productId = productId;
         this.productName = productName;
         this.availableQuantity = availableQuantity;
         this.subscribedAt = subscribedAt;
+        this.notifiedAt = notifiedAt;
+        this.availableQuantityAtNotification = availableQuantityAtNotification;
     }
 
     public UUID getId() {
@@ -43,5 +49,15 @@ public final class StockAlertResponse {
 
     public Instant getSubscribedAt() {
         return subscribedAt;
+    }
+
+    public Instant getNotifiedAt() { return notifiedAt; }
+
+    public Integer getAvailableQuantityAtNotification() {
+        return availableQuantityAtNotification;
+    }
+
+    public String getStatus() {
+        return notifiedAt == null ? "WAITING" : "NOTIFIED";
     }
 }

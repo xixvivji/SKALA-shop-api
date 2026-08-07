@@ -88,7 +88,6 @@ public class ProductReview {
         return new ReviewResponse(
                 id,
                 productId,
-                memberId,
                 rating,
                 comment,
                 createdAt,

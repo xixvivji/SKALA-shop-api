@@ -3,6 +3,7 @@ package com.skala.shopping.stockalert.internal;
 import com.skala.shopping.stockalert.internal.domain.StockAlertSubscription;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -12,4 +13,6 @@ interface StockAlertRepository extends JpaRepository<StockAlertSubscription, UUI
     Optional<StockAlertSubscription> findByMemberIdAndProductId(UUID memberId, UUID productId);
 
     Page<StockAlertSubscription> findByMemberIdOrderByCreatedAtDescIdDesc(UUID memberId, Pageable pageable);
+
+    List<StockAlertSubscription> findAllByProductIdAndNotifiedAtIsNull(UUID productId);
 }

@@ -43,4 +43,6 @@ public interface OrderApi {
     PageResponse<OrderView> getOrders(UUID memberId, int page, int size);
 
     List<PurchasedProductView> getPurchasedProducts(UUID memberId);
+
+    boolean hasPurchasedProduct(UUID memberId, UUID productId);
 }

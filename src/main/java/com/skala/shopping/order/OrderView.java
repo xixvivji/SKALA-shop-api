@@ -267,7 +267,7 @@ public final class OrderView {
                 source.trackingNumber,
                 source.trackingUrl,
                 source.estimatedDeliveryAt,
-                source.shippingAddress,
+                shippingAddress,
                 source.statusHistory
         );
     }

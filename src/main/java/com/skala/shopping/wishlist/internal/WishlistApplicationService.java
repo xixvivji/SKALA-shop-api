@@ -6,6 +6,7 @@ import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.wishlist.WishlistApi;
 import com.skala.shopping.wishlist.WishlistItemView;
+import com.skala.shopping.wishlist.internal.domain.WishlistItem;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;

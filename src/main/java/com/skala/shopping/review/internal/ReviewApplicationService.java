@@ -7,6 +7,7 @@ import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.review.ReviewApi;
 import com.skala.shopping.review.ReviewResponse;
 import com.skala.shopping.review.internal.domain.ProductReview;
+import com.skala.shopping.order.OrderApi;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import java.time.Clock;
@@ -19,17 +20,26 @@ public class ReviewApplicationService implements ReviewApi {
 
     private final ProductReviewRepository repository;
     private final CatalogApi catalogApi;
+    private final OrderApi orderApi;
     private final Clock clock = Clock.systemUTC();
 
-    ReviewApplicationService(ProductReviewRepository repository, CatalogApi catalogApi) {
+    ReviewApplicationService(
+            ProductReviewRepository repository,
+            CatalogApi catalogApi,
+            OrderApi orderApi
+    ) {
         this.repository = repository;
         this.catalogApi = catalogApi;
+        this.orderApi = orderApi;
     }
 
     @Override
     @Transactional
     public ReviewResponse writeReview(UUID memberId, UUID productId, int rating, String comment) {
         catalogApi.getSaleableProduct(productId);
+        if (!orderApi.hasPurchasedProduct(memberId, productId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "구매한 상품만 리뷰를 작성할 수 있습니다.");
+        }
         var existing = repository.findByMemberIdAndProductId(memberId, productId);
         if (existing.isEmpty()) {
             ProductReview created = repository.save(new ProductReview(
@@ -65,6 +75,7 @@ public class ReviewApplicationService implements ReviewApi {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<ReviewResponse> getProductReviews(UUID productId, int page, int size) {
+        catalogApi.getSaleableProduct(productId);
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
         return PageResponse.from(
                 repository.findByProductIdOrderByCreatedAtDescIdDesc(productId, pageable)

@@ -7,7 +7,6 @@ public final class ReviewResponse {
 
     private final UUID id;
     private final UUID productId;
-    private final UUID memberId;
     private final int rating;
     private final String comment;
     private final Instant createdAt;
@@ -16,7 +15,6 @@ public final class ReviewResponse {
     public ReviewResponse(
             UUID id,
             UUID productId,
-            UUID memberId,
             int rating,
             String comment,
             Instant createdAt,
@@ -24,7 +22,6 @@ public final class ReviewResponse {
     ) {
         this.id = id;
         this.productId = productId;
-        this.memberId = memberId;
         this.rating = rating;
         this.comment = comment;
         this.createdAt = createdAt;
@@ -37,10 +34,6 @@ public final class ReviewResponse {
 
     public UUID getProductId() {
         return productId;
-    }
-
-    public UUID getMemberId() {
-        return memberId;
     }
 
     public int getRating() {

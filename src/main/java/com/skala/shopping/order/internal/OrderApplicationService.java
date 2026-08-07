@@ -14,12 +14,15 @@ import com.skala.shopping.order.PurchasedProductView;
 import com.skala.shopping.order.ShippingAddressCommand;
 import com.skala.shopping.order.ShippingAddressView;
 import com.skala.shopping.order.internal.domain.OrderCancellation;
+import com.skala.shopping.order.internal.domain.FulfillmentStatus;
 import com.skala.shopping.order.internal.domain.OrderItem;
 import com.skala.shopping.order.internal.domain.OrderShippingAddress;
 import com.skala.shopping.order.internal.domain.OrderStatusHistory;
 import com.skala.shopping.order.internal.domain.ShopOrder;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
@@ -150,7 +153,7 @@ public class OrderApplicationService implements OrderApi {
         List<OrderStatusHistoryView> history = statusHistoryRepository
                 .findAllByOrderIdOrderByChangedAtAscIdAsc(orderId)
                 .stream().map(OrderStatusHistory::toView).toList();
-        return attachAddress(orderView.withStatusHistory(history), order.id());
+        return attachAddress(orderView.withStatusHistory(history));
     }
 
     @Override
@@ -200,6 +203,13 @@ public class OrderApplicationService implements OrderApi {
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasPurchasedProduct(UUID memberId, UUID productId) {
+        return memberId != null && productId != null
+                && itemRepository.hasPurchasedProduct(memberId, productId);
+    }
+
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<OrderView> getAllOrders(int page, int size) {
         var pageable = PageRequest.of(page, size,
@@ -218,7 +228,7 @@ public class OrderApplicationService implements OrderApi {
 
     @Transactional
     public OrderView changeFulfillment(UUID adminId, UUID orderId, String requestedStatus) {
-        return changeFulfillment(adminId, orderId, requestedStatus, null, null, null);
+        return changeFulfillment(adminId, orderId, requestedStatus, null, null, null, null);
     }
 
     @Transactional
@@ -228,7 +238,8 @@ public class OrderApplicationService implements OrderApi {
             String requestedStatus,
             String trackingCarrier,
             String trackingNumber,
-            String trackingUrl
+            String trackingUrl,
+            Instant estimatedDeliveryAt
     ) {
         ShopOrder order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
@@ -250,11 +261,13 @@ public class OrderApplicationService implements OrderApi {
                     order.id(), previous, next, adminId, clock.instant()));
         }
 
-        if (hasText(trackingCarrier) || hasText(trackingNumber) || hasText(trackingUrl)) {
+        if (trackingCarrier != null || trackingNumber != null || trackingUrl != null
+                || estimatedDeliveryAt != null) {
             order.applyTracking(
-                    normalizeText(trackingCarrier),
-                    normalizeText(trackingNumber),
-                    normalizeText(trackingUrl),
+                    trackingCarrier,
+                    trackingNumber,
+                    trackingUrl,
+                    estimatedDeliveryAt,
                     clock.instant()
             );
         }
@@ -293,8 +306,11 @@ public class OrderApplicationService implements OrderApi {
         CouponDiscount coupon = couponManager.applyPreview(memberId, couponCode, originalAmount);
         BigDecimal discountAmount = coupon.getDiscountAmount();
         BigDecimal finalAmount = originalAmount.subtract(discountAmount);
-        if (finalAmount.signum() < 0) {
-            finalAmount = BigDecimal.ZERO;
+        if (finalAmount.signum() <= 0) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "쿠폰 할인액은 주문 금액보다 작아야 합니다."
+            );
         }
         UUID orderId = UUID.randomUUID();
         BigDecimal remainingPoints = pointManager.debit(
@@ -303,6 +319,12 @@ public class OrderApplicationService implements OrderApi {
                 orderId,
                 commandId
         );
+        // 포인트 계정 잠금을 기다리는 사이 동일 멱등 요청이 완료됐을 수 있다.
+        // 이 시점에 재확인해야 중복 재고 차감과 주문 UNIQUE 충돌을 피할 수 있다.
+        var concurrentReplay = orderRepository.findByMemberIdAndRequestId(memberId, commandId);
+        if (concurrentReplay.isPresent()) {
+            return replayOrder(concurrentReplay.get(), fingerprint);
+        }
         for (OrderLineCommand line : lines) {
             stockManager.reserve(line.getProductId(), line.getQuantity(), orderId);
         }
@@ -322,11 +344,12 @@ public class OrderApplicationService implements OrderApi {
         ));
         statusHistoryRepository.save(new OrderStatusHistory(
                 orderId, null, FulfillmentStatus.PAID, null, now));
+        List<BigDecimal> paidAmounts = allocatePaidAmounts(lines, products, finalAmount);
         for (int index = 0; index < lines.size(); index++) {
             OrderProduct product = products.get(index);
             itemRepository.save(new OrderItem(
                     orderId, product.getId(), product.getName(), product.getPrice(),
-                    lines.get(index).getQuantity(), index));
+                    lines.get(index).getQuantity(), paidAmounts.get(index), index));
         }
         if (coupon.getCouponId() != null) {
             couponManager.applyUsage(memberId, orderId, commandId, coupon);
@@ -336,14 +359,53 @@ public class OrderApplicationService implements OrderApi {
                         .stream().map(OrderItem::toView).toList()
         );
         if (shippingAddress != null) {
-            orderShippingAddressRepositorySave(order.id(), shippingAddress);
+            ShippingAddressView savedAddress = orderShippingAddressRepositorySave(
+                    order.id(),
+                    shippingAddress
+            );
+            return view.withShippingAddress(savedAddress);
         }
-        return attachAddress(view);
+        return view;
     }
 
-    private void orderShippingAddressRepositorySave(UUID orderId, ShippingAddressCommand shippingAddress) {
+    /**
+     * 쿠폰이 주문 전체에 적용되므로 실제 결제액을 각 주문 항목에 원가 비율로 배분한다.
+     * 마지막 항목이 소수점 절사 오차를 흡수하여 항목 결제액 합계가 주문 결제액과 정확히 일치한다.
+     */
+    private List<BigDecimal> allocatePaidAmounts(
+            List<OrderLineCommand> lines,
+            List<OrderProduct> products,
+            BigDecimal finalAmount
+    ) {
+        BigDecimal originalAmount = BigDecimal.ZERO;
+        for (int index = 0; index < lines.size(); index++) {
+            originalAmount = originalAmount.add(products.get(index).getPrice()
+                    .multiply(BigDecimal.valueOf(lines.get(index).getQuantity())));
+        }
+        List<BigDecimal> allocations = new java.util.ArrayList<>(lines.size());
+        BigDecimal allocated = BigDecimal.ZERO.setScale(2);
+        for (int index = 0; index < lines.size(); index++) {
+            BigDecimal amount;
+            if (index == lines.size() - 1) {
+                amount = finalAmount.subtract(allocated);
+            } else {
+                BigDecimal lineOriginal = products.get(index).getPrice()
+                        .multiply(BigDecimal.valueOf(lines.get(index).getQuantity()));
+                amount = finalAmount.multiply(lineOriginal)
+                        .divide(originalAmount, 2, RoundingMode.DOWN);
+            }
+            allocations.add(amount);
+            allocated = allocated.add(amount);
+        }
+        return allocations;
+    }
+
+    private ShippingAddressView orderShippingAddressRepositorySave(
+            UUID orderId,
+            ShippingAddressCommand shippingAddress
+    ) {
         OrderShippingAddress saved = shippingAddressRepository.save(new OrderShippingAddress(orderId, shippingAddress));
-        saved.toView();
+        return saved.toView();
     }
 
     private CancellationView executeCancellation(
@@ -387,12 +449,9 @@ public class OrderApplicationService implements OrderApi {
             remaining -= canceled;
         }
 
-        BigDecimal remainingPoints = pointManager.credit(
-                memberId,
-                refund,
-                cancellationId,
-                commandId
-        );
+        BigDecimal remainingPoints = refund.signum() == 0
+                ? pointManager.balance(memberId)
+                : pointManager.credit(memberId, refund, cancellationId, commandId);
         var concurrentReplay = cancellationRepository
                 .findByMemberIdAndCommandId(memberId, commandId);
         if (concurrentReplay.isPresent()) {

@@ -101,6 +101,31 @@ public class ShopOrder {
             String orderNumber,
             UUID memberId,
             BigDecimal totalAmount,
+            BigDecimal balanceAfter,
+            Instant now
+    ) {
+        this(
+                id,
+                requestId,
+                requestFingerprint,
+                orderNumber,
+                memberId,
+                totalAmount,
+                totalAmount,
+                BigDecimal.ZERO,
+                null,
+                balanceAfter,
+                now
+        );
+    }
+
+    public ShopOrder(
+            UUID id,
+            UUID requestId,
+            String requestFingerprint,
+            String orderNumber,
+            UUID memberId,
+            BigDecimal totalAmount,
             BigDecimal originalAmount,
             BigDecimal discountAmount,
             String usedCouponCode,
@@ -164,10 +189,25 @@ public class ShopOrder {
         updatedAt = databaseTimestamp(now);
     }
 
-    public void applyTracking(String carrier, String number, String url, Instant now) {
-        this.trackingCarrier = normalizeTrackingField(carrier);
-        this.trackingNumber = normalizeTrackingField(number);
-        this.trackingUrl = normalizeTrackingField(url);
+    public void applyTracking(
+            String carrier,
+            String number,
+            String url,
+            Instant estimatedDeliveryAt,
+            Instant now
+    ) {
+        if (carrier != null) {
+            this.trackingCarrier = normalizeTrackingField(carrier);
+        }
+        if (number != null) {
+            this.trackingNumber = normalizeTrackingField(number);
+        }
+        if (url != null) {
+            this.trackingUrl = normalizeTrackingField(url);
+        }
+        if (estimatedDeliveryAt != null) {
+            this.estimatedDeliveryAt = databaseTimestamp(estimatedDeliveryAt);
+        }
         this.updatedAt = databaseTimestamp(now);
     }
 
@@ -192,7 +232,7 @@ public class ShopOrder {
                 items
         )
                 .withTracking(trackingCarrier, trackingNumber, trackingUrl, estimatedDeliveryAt)
-                .withDiscount(usedCouponCode, originalAmount, discountAmount);
+                .withCoupon(usedCouponCode, originalAmount, discountAmount);
     }
 
     public OrderView toCreationView(List<OrderItemView> items) {
@@ -208,7 +248,7 @@ public class ShopOrder {
                 items
         )
                 .withTracking(trackingCarrier, trackingNumber, trackingUrl, estimatedDeliveryAt)
-                .withDiscount(usedCouponCode, originalAmount, discountAmount);
+                .withCoupon(usedCouponCode, originalAmount, discountAmount);
     }
 
     private static String normalizeTrackingField(String value) {

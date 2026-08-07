@@ -9,6 +9,7 @@ import com.skala.shopping.inventory.InventoryApi;
 import com.skala.shopping.stockalert.StockAlertApi;
 import com.skala.shopping.stockalert.StockAlertResponse;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -41,8 +42,18 @@ public class StockAlertApplicationService implements StockAlertApi {
     @Transactional
     public StockAlertResponse subscribe(UUID memberId, UUID productId) {
         catalogApi.getSaleableProduct(productId);
+        int availableQuantity = inventoryApi.getStock(productId).getAvailableQuantity();
+        if (availableQuantity > 0) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "현재 구매 가능한 상품은 재입고 알림을 신청할 수 없습니다."
+            );
+        }
         var existing = repository.findByMemberIdAndProductId(memberId, productId);
         if (existing.isPresent()) {
+            if (existing.get().notifiedAt() != null) {
+                existing.get().rearm();
+            }
             return toResponse(existing.get());
         }
         return toResponse(repository.save(new com.skala.shopping.stockalert.internal.domain.StockAlertSubscription(
@@ -101,6 +112,15 @@ public class StockAlertApplicationService implements StockAlertApi {
         );
     }
 
+    @Transactional
+    public void notifySubscribers(UUID productId, int availableQuantity, Instant occurredAt) {
+        if (availableQuantity <= 0) {
+            return;
+        }
+        repository.findAllByProductIdAndNotifiedAtIsNull(productId)
+                .forEach(subscription -> subscription.markNotified(availableQuantity, occurredAt));
+    }
+
     private StockAlertResponse toResponse(com.skala.shopping.stockalert.internal.domain.StockAlertSubscription subscription) {
         ProductSnapshot product;
         try {
@@ -115,8 +135,11 @@ public class StockAlertApplicationService implements StockAlertApi {
     private int availableNow(UUID productId) {
         try {
             return inventoryApi.getStock(productId).getAvailableQuantity();
-        } catch (RuntimeException exception) {
-            return 0;
+        } catch (BusinessException exception) {
+            if (exception.errorCode() == ErrorCode.DATA_NOT_FOUND) {
+                return 0;
+            }
+            throw exception;
         }
     }
 }
