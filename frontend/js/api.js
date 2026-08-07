@@ -188,8 +188,15 @@ export function createCommandId() {
 
 export const shopApi = {
   health: () => request("/actuator/health"),
-  products: (page = 0, size = 100) =>
-    request(`/api/products?page=${page}&size=${size}`),
+  products: ({ page = 0, size = 100, query, categoryId, minPrice, maxPrice } = {}) => {
+    const parameters = new URLSearchParams({ page, size });
+    if (query) parameters.set("query", query);
+    if (categoryId) parameters.set("categoryId", categoryId);
+    if (minPrice !== undefined && minPrice !== "") parameters.set("minPrice", minPrice);
+    if (maxPrice !== undefined && maxPrice !== "") parameters.set("maxPrice", maxPrice);
+    return request(`/api/products?${parameters.toString()}`);
+  },
+  categories: () => request("/api/categories"),
   register: (payload) => request("/api/customers", { method: "POST", body: payload }),
   resetPassword: (payload) =>
     request("/api/customers/password/reset", { method: "POST", body: payload }),
@@ -200,12 +207,36 @@ export const shopApi = {
   updateMe: (name) =>
     request("/api/customers/me", { method: "PUT", body: { name } }),
   deactivateMe: () => request("/api/customers/me", { method: "DELETE" }),
+  addresses: () => request("/api/customers/me/addresses"),
+  createAddress: (payload) =>
+    request("/api/customers/me/addresses", { method: "POST", body: payload }),
+  updateAddress: (addressId, payload) =>
+    request(`/api/customers/me/addresses/${addressId}`, { method: "PUT", body: payload }),
+  deleteAddress: (addressId) =>
+    request(`/api/customers/me/addresses/${addressId}`, { method: "DELETE" }),
+  cart: () => request("/api/cart"),
+  addCartItem: (productId, quantity = 1) =>
+    request("/api/cart/items", { method: "POST", body: { productId, quantity } }),
+  updateCartItem: (productId, quantity) =>
+    request(`/api/cart/items/${productId}`, { method: "PUT", body: { quantity } }),
+  removeCartItem: (productId) =>
+    request(`/api/cart/items/${productId}`, { method: "DELETE" }),
+  clearCart: () => request("/api/cart", { method: "DELETE" }),
   orders: (page = 0, size = 10) =>
     request(`/api/orders/me?page=${page}&size=${size}`),
+  wallet: () => request("/api/wallet/me"),
+  walletTransactions: (page = 0, size = 20) =>
+    request(`/api/wallet/me/transactions?page=${page}&size=${size}`),
   order: (productId, quantity, idempotencyKey = createCommandId()) =>
     request("/api/orders", {
       method: "POST",
       body: { productId, quantity },
+      idempotencyKey,
+    }),
+  createOrder: (items, shippingAddress, idempotencyKey = createCommandId()) =>
+    request("/api/orders", {
+      method: "POST",
+      body: { items, shippingAddress },
       idempotencyKey,
     }),
   cancel: (productId, quantity, idempotencyKey = createCommandId()) =>
@@ -216,6 +247,14 @@ export const shopApi = {
     }),
   members: (page = 0, size = 50) =>
     request(`/api/customers/list?page=${page}&size=${size}`),
+  adminOrders: (page = 0, size = 20) =>
+    request(`/api/admin/orders?page=${page}&size=${size}`),
+  updateFulfillment: (orderId, status) =>
+    request(`/api/admin/orders/${orderId}/fulfillment`, {
+      method: "PUT",
+      body: { status },
+    }),
+  orderHistory: (orderId) => request(`/api/admin/orders/${orderId}/history`),
   stocks: (productIds) => {
     const query = new URLSearchParams();
     productIds.forEach((productId) => query.append("productIds", productId));
