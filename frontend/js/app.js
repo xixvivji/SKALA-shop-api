@@ -117,6 +117,7 @@ const elements = {
   toastRegion: $("#toast-region"),
   loadingOverlay: $("#loading-overlay"),
   loadingMessage: $("#loading-message"),
+  connectionBanner: $("#connection-banner"),
   stockFormFeedback: $("#stock-form-feedback"),
 };
 
@@ -330,6 +331,7 @@ function hasValidBcryptByteLength(password, input) {
 function showToast(title, detail = "", type = "success") {
   const toast = document.createElement("article");
   toast.className = `toast${type === "error" ? " is-error" : ""}`;
+  toast.setAttribute("role", type === "error" ? "alert" : "status");
   toast.innerHTML = `
     <span class="toast-icon" aria-hidden="true">${type === "error" ? "!" : "✓"}</span>
     <span class="toast-copy">
@@ -345,24 +347,42 @@ function showToast(title, detail = "", type = "success") {
 
 function showApiError(error, fallback = "요청을 처리하지 못했습니다.") {
   if (error?.status === 401) {
+    invalidatePendingSessionRestore();
     clearSession();
+    $$('dialog[open]:not(#auth-dialog)').forEach(closeDialog);
+    switchView("shop");
     showToast("로그인이 만료되었습니다", "다시 로그인해 주세요.", "error");
+    queueMicrotask(() => openAuth("login"));
     return;
   }
 
   const detail = fieldErrorDetail(error);
-  showToast(error?.message || fallback, detail || error?.code || "", "error");
+  const statusMessage = {
+    403: "요청 권한이 없습니다.",
+    404: "요청한 정보를 찾을 수 없습니다.",
+    409: "현재 상태와 충돌해 처리하지 못했습니다.",
+    429: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+  }[error?.status];
+  showToast(error?.message || statusMessage || fallback, detail || error?.code || "", "error");
 }
 
 async function withLoading(message, task) {
+  const activeButton = document.activeElement instanceof HTMLButtonElement
+    ? document.activeElement
+    : null;
+  const buttonWasDisabled = activeButton?.disabled;
+  if (activeButton) activeButton.disabled = true;
   loadingDepth += 1;
+  document.body.setAttribute("aria-busy", "true");
   elements.loadingMessage.textContent = message;
   elements.loadingOverlay.classList.remove("is-hidden");
   try {
     return await task();
   } finally {
+    if (activeButton?.isConnected) activeButton.disabled = Boolean(buttonWasDisabled);
     loadingDepth -= 1;
     if (loadingDepth === 0) {
+      document.body.removeAttribute("aria-busy");
       elements.loadingOverlay.classList.add("is-hidden");
     }
   }
@@ -564,6 +584,7 @@ function renderLoadMore(button, { loading, page, totalPages, loaded, total, labe
 }
 
 function renderProducts() {
+  elements.productGrid.setAttribute("aria-busy", String(state.productsLoading));
   renderLoadMore(elements.productLoadMore, {
     loading: state.productsLoading,
     page: state.productPage,
@@ -676,6 +697,7 @@ function nextFulfillmentStatus(status) {
 }
 
 function renderOrders() {
+  elements.orderList.setAttribute("aria-busy", String(state.ordersLoading));
   elements.orderCount.textContent = String(state.orderTotal);
   renderLoadMore(elements.orderLoadMore, {
     loading: state.ordersLoading,
@@ -765,6 +787,7 @@ function renderOrders() {
 }
 
 function renderMembers() {
+  elements.memberTableBody.setAttribute("aria-busy", String(state.membersLoading));
   elements.adminMemberCount.textContent = String(state.memberTotal);
   renderLoadMore(elements.memberLoadMore, {
     loading: state.membersLoading,
@@ -820,6 +843,7 @@ function renderCategories() {
 }
 
 function renderCart() {
+  elements.cartList.setAttribute("aria-busy", String(state.cartLoading));
   const cart = state.cart || { items: [] };
   const items = cart.items || [];
   elements.cartCount.textContent = String(cart.totalQuantity || 0);
@@ -869,6 +893,7 @@ function addressSummary(address) {
 }
 
 function renderAddresses() {
+  elements.addressList.setAttribute("aria-busy", String(state.addressesLoading));
   if (!isCustomer()) {
     elements.addressList.innerHTML = "";
     return;
@@ -935,6 +960,7 @@ function transactionType(type) {
 }
 
 function renderTransactions() {
+  elements.transactionList.setAttribute("aria-busy", String(state.transactionsLoading));
   renderLoadMore(elements.transactionLoadMore, {
     loading: state.transactionsLoading,
     page: state.transactionPage,
@@ -974,6 +1000,7 @@ function renderTransactions() {
 }
 
 function renderAdminOrders() {
+  elements.adminOrderList.setAttribute("aria-busy", String(state.adminOrdersLoading));
   elements.adminOrderCount.textContent = String(state.adminOrderTotal);
   renderLoadMore(elements.adminOrderLoadMore, {
     loading: state.adminOrdersLoading,
@@ -1410,11 +1437,20 @@ async function restoreSession() {
 }
 
 function openDialog(dialog) {
-  if (!dialog.open) dialog.showModal();
+  if (!dialog.open) {
+    dialog.returnFocusTo = document.activeElement;
+    dialog.showModal();
+  }
 }
 
 function closeDialog(dialog) {
-  if (dialog?.open) dialog.close();
+  if (dialog?.open) {
+    const returnFocusTo = dialog.returnFocusTo;
+    dialog.close();
+    if (returnFocusTo instanceof HTMLElement && returnFocusTo.isConnected) {
+      queueMicrotask(() => returnFocusTo.focus());
+    }
+  }
 }
 
 function selectAuthTab(tab) {
@@ -1633,6 +1669,10 @@ function bindDialogs() {
   $$('dialog').forEach((dialog) => {
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) closeDialog(dialog);
+    });
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDialog(dialog);
     });
   });
 
@@ -2310,6 +2350,21 @@ function bindShoppingActions() {
   });
 }
 
+function bindConnectionStatus() {
+  let wasOffline = !navigator.onLine;
+  const update = () => {
+    const offline = !navigator.onLine;
+    elements.connectionBanner.classList.toggle("is-hidden", !offline);
+    if (!offline && wasOffline) {
+      showToast("인터넷 연결이 복구되었습니다", "진행 중이던 요청을 다시 시도해 주세요.");
+    }
+    wasOffline = offline;
+  };
+  window.addEventListener("online", update);
+  window.addEventListener("offline", update);
+  update();
+}
+
 async function initialize() {
   bindNavigation();
   bindDialogs();
@@ -2317,6 +2372,7 @@ async function initialize() {
   bindForms();
   bindAccountActions();
   bindShoppingActions();
+  bindConnectionStatus();
   restoreRememberedCustomerId();
   renderSession();
   renderOrders();

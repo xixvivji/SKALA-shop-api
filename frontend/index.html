@@ -16,6 +16,9 @@
   </head>
   <body>
     <a class="skip-link" href="#main-content">본문으로 바로가기</a>
+    <div class="connection-banner is-hidden" id="connection-banner" role="status" aria-live="polite">
+      인터넷 연결이 끊겼습니다. 연결이 복구되면 다시 시도해 주세요.
+    </div>
 
     <header class="site-header">
       <a class="brand" href="#shop" aria-label="SKALA Market 홈">
@@ -51,7 +54,7 @@
       </div>
     </header>
 
-    <main id="main-content">
+    <main id="main-content" tabindex="-1">
       <section class="view is-active" id="shop-view" data-view-panel="shop">
         <div class="hero-shell">
           <div class="hero-copy">
@@ -539,7 +542,7 @@
     </dialog>
 
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <div class="loading-overlay is-hidden" id="loading-overlay" aria-live="polite">
+    <div class="loading-overlay is-hidden" id="loading-overlay" role="status" aria-live="polite" aria-atomic="true">
       <span class="loader" aria-hidden="true"></span>
       <p id="loading-message">처리 중입니다</p>
     </div>
