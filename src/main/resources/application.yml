@@ -45,14 +45,23 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
         enabled: true
       show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 
 shopping:
+  observability:
+    correlation-header: X-Correlation-ID
+
   logging:
     api:
       # 본문·헤더·쿠키를 제외한 메서드, 경로 패턴, 상태 코드와 처리 시간만 기록합니다.

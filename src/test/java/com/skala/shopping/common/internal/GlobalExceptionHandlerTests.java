@@ -13,7 +13,9 @@ import org.springframework.validation.ObjectError;
 
 class GlobalExceptionHandlerTests {
 
-    private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
+    private final GlobalExceptionHandler handler = new GlobalExceptionHandler(
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+    );
 
     @Test
     void mapsUniqueConstraintViolationsToConflict() {

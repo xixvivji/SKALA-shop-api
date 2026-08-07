@@ -15,8 +15,19 @@ map $http_origin $cors_allow_credentials {
 
 map $http_origin $cors_expose_headers {
     default "";
-    "${FRONTEND_ORIGIN}" "Retry-After";
+    "${FRONTEND_ORIGIN}" "Retry-After, X-Correlation-ID";
 }
+
+log_format structured escape=json '{'
+    '"timestamp":"$time_iso8601",'
+    '"correlationId":"$request_id",'
+    '"remoteAddress":"$remote_addr",'
+    '"method":"$request_method",'
+    '"path":"$uri",'
+    '"status":$status,'
+    '"requestTime":$request_time,'
+    '"upstreamTime":"$upstream_response_time"'
+    '}';
 
 limit_req_zone $auth_limit_key zone=auth_per_ip:10m rate=10r/m;
 limit_req_status 429;
@@ -26,6 +37,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${API_DOMAIN};
+    access_log /var/log/nginx/access.log structured;
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -41,6 +53,7 @@ server {
     listen [::]:443 ssl;
     http2 on;
     server_name ${API_DOMAIN};
+    access_log /var/log/nginx/access.log structured;
 
     ssl_certificate /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
@@ -66,6 +79,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Correlation-ID $request_id;
         proxy_connect_timeout 5s;
         proxy_read_timeout 60s;
     }
@@ -94,6 +108,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Correlation-ID $request_id;
         proxy_connect_timeout 5s;
         proxy_read_timeout 60s;
     }

@@ -176,9 +176,13 @@ class SecurityConfiguration {
         configuration.setAllowedHeaders(java.util.List.of(
                 "Content-Type",
                 "X-Idempotency-Key",
+                "X-Correlation-ID",
                 "X-XSRF-TOKEN"
         ));
-        configuration.setExposedHeaders(java.util.List.of(HttpHeaders.RETRY_AFTER));
+        configuration.setExposedHeaders(java.util.List.of(
+                HttpHeaders.RETRY_AFTER,
+                "X-Correlation-ID"
+        ));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
