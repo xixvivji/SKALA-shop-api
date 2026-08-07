@@ -1,3 +1,27 @@
+map $request_method $auth_limit_key {
+    OPTIONS "";
+    default $binary_remote_addr;
+}
+
+map $http_origin $cors_allowed_origin {
+    default "";
+    "${FRONTEND_ORIGIN}" "${FRONTEND_ORIGIN}";
+}
+
+map $http_origin $cors_allow_credentials {
+    default "";
+    "${FRONTEND_ORIGIN}" "true";
+}
+
+map $http_origin $cors_expose_headers {
+    default "";
+    "${FRONTEND_ORIGIN}" "Retry-After";
+}
+
+limit_req_zone $auth_limit_key zone=auth_per_ip:10m rate=10r/m;
+limit_req_status 429;
+limit_req_log_level warn;
+
 server {
     listen 80;
     listen [::]:80;
@@ -30,6 +54,36 @@ server {
 
     client_max_body_size 10m;
 
+    location ~ ^/api/customers(?:$|/login$|/password/reset$) {
+        limit_req zone=auth_per_ip burst=5 nodelay;
+
+        resolver 127.0.0.11 valid=30s ipv6=off;
+        set $backend backend:8080;
+
+        proxy_pass http://$backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+
+    error_page 429 = @rate_limited;
+    location @rate_limited {
+        default_type application/json;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
+        add_header Access-Control-Allow-Origin $cors_allowed_origin always;
+        add_header Access-Control-Allow-Credentials $cors_allow_credentials always;
+        add_header Access-Control-Expose-Headers $cors_expose_headers always;
+        add_header Vary Origin always;
+        add_header Retry-After 60 always;
+        return 429 '{"code":"TOO_MANY_REQUESTS","message":"요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."}';
+    }
+
     location / {
         resolver 127.0.0.11 valid=30s ipv6=off;
         set $backend backend:8080;
@@ -38,7 +92,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_connect_timeout 5s;
         proxy_read_timeout 60s;

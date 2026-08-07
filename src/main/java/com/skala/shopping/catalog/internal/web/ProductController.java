@@ -17,6 +17,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.net.URI;
 import java.util.UUID;
+import java.math.BigDecimal;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,9 +44,14 @@ class ProductController {
     @Operation(summary = "상품 목록 조회")
     PageResponse<ProductResponse> getProducts(
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice
     ) {
-        return ProductResponse.pageFrom(service.getProducts(page, size));
+        return ProductResponse.pageFrom(service.searchProducts(
+                query, categoryId, minPrice, maxPrice, page, size));
     }
 
     @GetMapping("/{productId}")
@@ -91,7 +97,9 @@ class ProductController {
     ) {
         ProductResponse product = ProductResponse.from(service.createProduct(
                 request.getProductName(),
-                request.getProductPrice()
+                request.getProductPrice(),
+                request.getInitialQuantity(), request.getCategoryId(),
+                request.getDescription(), request.getImageUrl()
         ));
         return ResponseEntity.created(URI.create("/api/products/" + product.getId())).body(product);
     }
@@ -140,7 +148,8 @@ class ProductController {
         return ProductResponse.from(service.updateProduct(
                 productId,
                 request.getProductName(),
-                request.getProductPrice()
+                request.getProductPrice(), request.getCategoryId(),
+                request.getDescription(), request.getImageUrl()
         ));
     }
 

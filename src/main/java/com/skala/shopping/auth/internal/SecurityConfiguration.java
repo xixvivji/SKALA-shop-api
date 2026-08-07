@@ -9,6 +9,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -105,14 +106,21 @@ class SecurityConfiguration {
                                 HttpMethod.POST,
                                 "/api/customers",
                                 "/api/customers/login",
-                                "/api/customers/logout"
+                                "/api/customers/logout",
+                                "/api/customers/password/reset"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.PUT, "/api/admin/password").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/customers/list").hasRole("ADMIN")
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/products/*/stock/movements").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/categories/**").permitAll()
+                        .requestMatchers("/api/categories/**").hasRole("ADMIN")
                         .requestMatchers("/api/orders/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/cart/**", "/api/wallet/**").hasRole("CUSTOMER")
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/customers/order",
@@ -161,6 +169,7 @@ class SecurityConfiguration {
                 "X-Idempotency-Key",
                 "X-XSRF-TOKEN"
         ));
+        configuration.setExposedHeaders(java.util.List.of(HttpHeaders.RETRY_AFTER));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -186,6 +195,7 @@ class SecurityConfiguration {
                         "/api/customers".equals(path)
                                 || "/api/customers/login".equals(path)
                                 || "/api/customers/logout".equals(path)
+                                || "/api/customers/password/reset".equals(path)
                 ));
     }
 }

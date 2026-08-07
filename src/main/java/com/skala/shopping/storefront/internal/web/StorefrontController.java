@@ -1,6 +1,7 @@
 package com.skala.shopping.storefront.internal.web;
 
 import com.skala.shopping.auth.AuthenticationCookieApi;
+import com.skala.shopping.auth.AuthenticationRateLimitApi;
 import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
@@ -8,6 +9,7 @@ import com.skala.shopping.storefront.internal.StorefrontApplicationService;
 import com.skala.shopping.storefront.internal.web.dto.request.CancelStorefrontOrderRequest;
 import com.skala.shopping.storefront.internal.web.dto.request.PlaceStorefrontOrderRequest;
 import com.skala.shopping.storefront.internal.web.dto.request.RegisterCustomerRequest;
+import com.skala.shopping.storefront.internal.web.dto.request.ResetPasswordRequest;
 import com.skala.shopping.storefront.internal.web.dto.response.CancellationResponse;
 import com.skala.shopping.storefront.internal.web.dto.response.CustomerResponse;
 import com.skala.shopping.storefront.internal.web.dto.response.OrderCompatibilityResponse;
@@ -20,6 +22,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
@@ -42,13 +45,16 @@ class StorefrontController {
 
     private final StorefrontApplicationService service;
     private final AuthenticationCookieApi authenticationCookieApi;
+    private final AuthenticationRateLimitApi rateLimitApi;
 
     StorefrontController(
             StorefrontApplicationService service,
-            AuthenticationCookieApi authenticationCookieApi
+            AuthenticationCookieApi authenticationCookieApi,
+            AuthenticationRateLimitApi rateLimitApi
     ) {
         this.service = service;
         this.authenticationCookieApi = authenticationCookieApi;
+        this.rateLimitApi = rateLimitApi;
     }
 
     @PostMapping
@@ -74,12 +80,19 @@ class StorefrontController {
                             responseCode = "409",
                             description = "고객 ID 중복",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "429",
+                            description = "회원가입 요청 제한 초과",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
                     )
             }
     )
     ResponseEntity<RegistrationResponse> register(
-            @Valid @RequestBody RegisterCustomerRequest request
+            @Valid @RequestBody RegisterCustomerRequest request,
+            HttpServletRequest servletRequest
     ) {
+        rateLimitApi.checkRegistration(servletRequest.getRemoteAddr(), request.getCustomerId());
         RegistrationResponse registered = RegistrationResponse.from(service.register(
                 request.getCustomerId(),
                 request.getCustomerPassword(),
@@ -88,6 +101,46 @@ class StorefrontController {
         return ResponseEntity.created(
                 URI.create("/api/customers/" + registered.getCustomerId())
         ).body(registered);
+    }
+
+    @PostMapping("/password/reset")
+    @Operation(
+            summary = "비밀번호 재설정",
+            description = "고객 ID와 현재 등록된 이름을 확인해 새 비밀번호로 변경하는 데모용 API입니다. "
+                    + "운영 환경에서는 이메일 또는 휴대전화 소유 확인과 일회용 토큰 방식으로 교체해야 합니다.",
+            responses = {
+                    @ApiResponse(responseCode = "204", description = "비밀번호 재설정 완료"),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "입력값 오류 또는 회원 정보 불일치",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "CSRF 토큰 필요",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "429",
+                            description = "비밀번호 초기화 요청 제한 초과",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
+                    )
+            }
+    )
+    ResponseEntity<Void> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        rateLimitApi.checkPasswordReset(
+                servletRequest.getRemoteAddr(),
+                request.getCustomerId()
+        );
+        service.resetPassword(
+                request.getCustomerId(),
+                request.getCustomerName(),
+                request.getNewPassword()
+        );
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/me")

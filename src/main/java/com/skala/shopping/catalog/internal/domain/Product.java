@@ -25,6 +25,10 @@ public class Product {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal price;
 
+    @Column(name="category_id") private UUID categoryId;
+    @Column(length=2000) private String description;
+    @Column(name="image_url", length=1000) private String imageUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ProductStatus status;
@@ -56,6 +60,10 @@ public class Product {
         this.updatedAt = now;
     }
 
+    public void updateDetails(UUID categoryId, String description, String imageUrl, Instant now) {
+        this.categoryId=categoryId; this.description=description; this.imageUrl=imageUrl; this.updatedAt=now;
+    }
+
     public void delete(Instant now) {
         this.status = ProductStatus.DELETED;
         this.updatedAt = now;
@@ -66,6 +74,6 @@ public class Product {
     }
 
     public ProductSnapshot toSnapshot() {
-        return new ProductSnapshot(id, name, price, status.name());
+        return new ProductSnapshot(id, name, price, status.name(), categoryId, description, imageUrl);
     }
 }

@@ -1,5 +1,6 @@
 package com.skala.shopping.storefront.internal.web.dto.request;
 
+import com.skala.shopping.auth.BcryptCompatible;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -17,9 +18,11 @@ public final class RegisterCustomerRequest {
     @Schema(description = "비밀번호", example = "pw1234")
     @NotBlank
     @Size(min = 6, max = 72)
+    @BcryptCompatible
     private String customerPassword;
 
     @Schema(description = "고객 이름", example = "김스칼라")
+    @NotBlank
     @Size(max = 100)
     private String customerName;
 

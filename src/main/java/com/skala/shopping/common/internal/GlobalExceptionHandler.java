@@ -3,6 +3,7 @@ package com.skala.shopping.common.internal;
 import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
+import com.skala.shopping.common.RateLimitExceededException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -10,6 +11,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -25,6 +27,14 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ApiError> handleRateLimitExceeded(RateLimitExceededException exception) {
+        ErrorCode errorCode = exception.errorCode();
+        return ResponseEntity.status(errorCode.status())
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(ApiError.from(errorCode, exception.getMessage(), Map.of()));
+    }
 
     @ExceptionHandler(BusinessException.class)
     ResponseEntity<ApiError> handleBusinessException(BusinessException exception) {

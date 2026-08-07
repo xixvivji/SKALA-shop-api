@@ -1,7 +1,8 @@
 package com.skala.shopping.auth.internal.web;
 
-import com.skala.shopping.auth.internal.AuthApplicationService;
 import com.skala.shopping.auth.AuthenticationCookieApi;
+import com.skala.shopping.auth.AuthenticationRateLimitApi;
+import com.skala.shopping.auth.internal.AuthApplicationService;
 import com.skala.shopping.common.ApiError;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -9,6 +10,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,13 +25,16 @@ class AuthController {
 
     private final AuthApplicationService service;
     private final AuthenticationCookieApi authenticationCookieApi;
+    private final AuthenticationRateLimitApi rateLimitApi;
 
     AuthController(
             AuthApplicationService service,
-            AuthenticationCookieApi authenticationCookieApi
+            AuthenticationCookieApi authenticationCookieApi,
+            AuthenticationRateLimitApi rateLimitApi
     ) {
         this.service = service;
         this.authenticationCookieApi = authenticationCookieApi;
+        this.rateLimitApi = rateLimitApi;
     }
 
     @PostMapping("/login")
@@ -56,10 +61,19 @@ class AuthController {
                             responseCode = "403",
                             description = "CSRF 토큰 필요",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "429",
+                            description = "로그인 요청 제한 초과",
+                            content = @Content(schema = @Schema(implementation = ApiError.class))
                     )
             }
     )
-    ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+    ResponseEntity<LoginResponse> login(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        rateLimitApi.checkLogin(servletRequest.getRemoteAddr(), request.getCustomerId());
         var result = service.login(request.getCustomerId(), request.getCustomerPassword());
         var cookie = authenticationCookieApi.issueAccessTokenCookie(result.getAccessToken());
         return ResponseEntity.ok()

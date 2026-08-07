@@ -33,6 +33,9 @@ public class OrderItem {
     @Column(name = "canceled_quantity", nullable = false)
     private int canceledQuantity;
 
+    @Column(name = "line_number", nullable = false)
+    private int lineNumber;
+
     protected OrderItem() {
     }
 
@@ -43,6 +46,17 @@ public class OrderItem {
             BigDecimal unitPrice,
             int orderedQuantity
     ) {
+        this(orderId, productId, productName, unitPrice, orderedQuantity, 0);
+    }
+
+    public OrderItem(
+            UUID orderId,
+            UUID productId,
+            String productName,
+            BigDecimal unitPrice,
+            int orderedQuantity,
+            int lineNumber
+    ) {
         this.id = UUID.randomUUID();
         this.orderId = orderId;
         this.productId = productId;
@@ -50,6 +64,7 @@ public class OrderItem {
         this.unitPrice = unitPrice;
         this.orderedQuantity = orderedQuantity;
         this.canceledQuantity = 0;
+        this.lineNumber = lineNumber;
     }
 
     public UUID orderId() {
@@ -88,6 +103,17 @@ public class OrderItem {
                 unitPrice,
                 orderedQuantity,
                 canceledQuantity
+        );
+    }
+
+    public OrderItemView toCreationView() {
+        return new OrderItemView(
+                id,
+                productId,
+                productName,
+                unitPrice,
+                orderedQuantity,
+                0
         );
     }
 }

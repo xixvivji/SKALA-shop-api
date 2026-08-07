@@ -20,12 +20,20 @@ public final class ProductResponse {
 
     @Schema(description = "상품 상태", example = "ACTIVE")
     private final String status;
+    private final UUID categoryId;
+    private final String description;
+    private final String imageUrl;
 
     public ProductResponse(UUID id, String name, BigDecimal price, String status) {
+        this(id, name, price, status, null, null, null);
+    }
+    public ProductResponse(UUID id, String name, BigDecimal price, String status,
+                           UUID categoryId, String description, String imageUrl) {
         this.id = id;
         this.name = name;
         this.price = price;
         this.status = status;
+        this.categoryId=categoryId; this.description=description; this.imageUrl=imageUrl;
     }
 
     public UUID getId() {
@@ -43,13 +51,16 @@ public final class ProductResponse {
     public String getStatus() {
         return status;
     }
+    public UUID getCategoryId() { return categoryId; }
+    public String getDescription() { return description; }
+    public String getImageUrl() { return imageUrl; }
 
     public static ProductResponse from(ProductSnapshot product) {
         return new ProductResponse(
                 product.getId(),
                 product.getName(),
                 product.getPrice(),
-                product.getStatus()
+                product.getStatus(), product.getCategoryId(), product.getDescription(), product.getImageUrl()
         );
     }
 

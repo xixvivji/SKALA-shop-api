@@ -1,5 +1,6 @@
 package com.skala.shopping.order;
 
+import com.skala.shopping.common.PageResponse;
 import java.util.List;
 import java.util.UUID;
 
@@ -11,6 +12,9 @@ public interface OrderApi {
      */
     OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId);
 
+    OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
+                         ShippingAddressCommand shippingAddress, UUID commandId);
+
     /**
      * Cancels the requested quantity of a product from the member's newest cancelable purchases
      * first. The command id is scoped to the member and can only be replayed with the same product
@@ -18,7 +22,7 @@ public interface OrderApi {
      */
     CancellationView cancelProduct(UUID memberId, UUID productId, int quantity, UUID commandId);
 
-    List<OrderView> getOrders(UUID memberId);
+    PageResponse<OrderView> getOrders(UUID memberId, int page, int size);
 
     List<PurchasedProductView> getPurchasedProducts(UUID memberId);
 }

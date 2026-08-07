@@ -33,6 +33,7 @@ class JwtTokenService {
                 .subject(account.id().toString())
                 .claim("loginId", account.loginId())
                 .claim("role", account.role().name())
+                .claim("credentialVersion", account.credentialVersion())
                 .build();
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         String value = jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
