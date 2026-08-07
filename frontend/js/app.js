@@ -987,7 +987,12 @@ function renderTransactions() {
   }
   elements.transactionList.innerHTML = state.transactions
     .map((transaction) => {
-      const amount = Number(transaction.amount || 0);
+      const storedAmount = Number(transaction.amount || 0);
+      const amount = transaction.type === "DEBIT"
+        ? -Math.abs(storedAmount)
+        : transaction.type === "ADJUSTMENT"
+          ? storedAmount
+          : Math.abs(storedAmount);
       return `
         <article class="transaction-item">
           <span class="transaction-symbol ${amount >= 0 ? "credit" : "debit"}">${amount >= 0 ? "+" : "−"}</span>
