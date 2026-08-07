@@ -53,6 +53,10 @@ management:
       show-details: never
 
 shopping:
+  logging:
+    api:
+      # 본문·헤더·쿠키를 제외한 메서드, 경로 패턴, 상태 코드와 처리 시간만 기록합니다.
+      enabled: ${API_LOGGING_ENABLED:true}
   member:
     # 브라우저에서도 센트 단위 정밀도를 유지하도록 0 이상 30조 이하로 제한합니다.
     initial-points: ${INITIAL_MEMBER_POINTS:1000000}

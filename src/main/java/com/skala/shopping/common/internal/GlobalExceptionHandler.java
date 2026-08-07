@@ -129,6 +129,7 @@ class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<ApiError> handleDataIntegrityViolation(DataIntegrityViolationException exception) {
+        // PostgreSQL 표준 SQLSTATE만 사용해 DB 상세 메시지나 제약조건 이름이 외부에 노출되지 않게 합니다.
         String sqlState = findSqlState(exception);
         if ("23505".equals(sqlState)) {
             log.warn("Database unique constraint violation (SQL state: {})", sqlState);
