@@ -30,6 +30,10 @@ const state = {
   addresses: [],
   addressesLoading: false,
   addressesError: null,
+  wishlist: [],
+  stockAlerts: [],
+  reviews: [],
+  myReview: null,
   orders: [],
   orderTotal: 0,
   orderPage: -1,
@@ -88,6 +92,11 @@ const elements = {
   checkoutForm: $("#checkout-form"),
   addressDialog: $("#address-dialog"),
   addressList: $("#address-list"),
+  wishlistList: $("#wishlist-list"),
+  stockAlertList: $("#stock-alert-list"),
+  reviewDialog: $("#review-dialog"),
+  reviewList: $("#review-list"),
+  reviewForm: $("#review-form"),
   orderDialog: $("#order-dialog"),
   cancelDialog: $("#cancel-dialog"),
   productDialog: $("#product-dialog"),
@@ -450,12 +459,18 @@ function clearSession() {
   state.cartError = null;
   state.addresses = [];
   state.addressesError = null;
+  state.wishlist = [];
+  state.stockAlerts = [];
+  state.reviews = [];
+  state.myReview = null;
   window.localStorage.removeItem("skala-session-hint");
   renderSession();
   renderOrders();
   renderMembers();
   renderCart();
   renderAddresses();
+  renderWishlist();
+  renderStockAlerts();
   renderTransactions();
   renderAdminOrders();
 }
@@ -668,6 +683,9 @@ function renderProducts() {
         `
         : `
           <div class="shop-card-actions">
+            <button class="mini-button" type="button" data-product-reviews="${escapeHtml(product.id)}">리뷰</button>
+            ${isCustomer() ? `<button class="mini-button" type="button" data-product-wishlist="${escapeHtml(product.id)}">♡</button>` : ""}
+            ${isCustomer() && stock?.stockStatus === "OUT_OF_STOCK" ? `<button class="mini-button" type="button" data-product-alert="${escapeHtml(product.id)}">재입고</button>` : ""}
             <button class="mini-button" type="button" data-product-cart="${escapeHtml(product.id)}" ${orderable ? "" : "disabled"}>담기</button>
             <button class="buy-button" type="button" data-product-buy="${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} ${orderable ? "바로 주문" : stockLabel}" ${orderable ? "" : "disabled"}>${orderable ? "→" : "×"}</button>
           </div>
@@ -772,7 +790,7 @@ function renderOrders() {
                 <span>${money(item.unitPrice)} P · 주문 ${item.orderedQuantity}개 · 취소 ${item.canceledQuantity}개</span>
               </span>
               <span class="order-item-actions">
-                <strong>${money(Number(item.unitPrice) * Number(item.orderedQuantity))} P</strong>
+                <strong>${money(item.paidAmount ?? (Number(item.unitPrice) * Number(item.orderedQuantity)))} P</strong>
                 ${
                   available > 0
                     ? `<button class="mini-button" type="button" data-product-cancel="${escapeHtml(item.productId)}" data-product-name="${escapeHtml(item.productName)}" data-max-quantity="${available}">부분 취소</button>`
@@ -795,6 +813,8 @@ function renderOrders() {
               ? `<div class="order-shipping"><strong>배송지</strong><span>${escapeHtml(order.shippingAddress.recipientName)} · ${escapeHtml(order.shippingAddress.phoneNumber)}</span><small>[${escapeHtml(order.shippingAddress.postalCode)}] ${escapeHtml(order.shippingAddress.addressLine1)} ${escapeHtml(order.shippingAddress.addressLine2 || "")}</small></div>`
               : ""
           }
+          ${order.usedCouponCode ? `<div class="order-shipping"><strong>쿠폰</strong><span>${escapeHtml(order.usedCouponCode)} · ${points(order.discountAmount)} 할인</span></div>` : ""}
+          ${(order.trackingCarrier || order.trackingNumber || order.estimatedDeliveryAt) ? `<div class="order-shipping"><strong>배송 추적</strong><span>${escapeHtml(order.trackingCarrier || "택배사 미정")} · ${escapeHtml(order.trackingNumber || "운송장 미등록")}</span>${order.trackingUrl ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener noreferrer">배송 조회</a>` : ""}${order.estimatedDeliveryAt ? `<small>예상 배송 ${dateTime(order.estimatedDeliveryAt)}</small>` : ""}</div>` : ""}
           <footer class="order-summary">
             <div><small>ORDER TOTAL</small><strong>${points(order.totalAmount)}</strong></div>
             <div><small>CANCELED</small><strong>${points(order.canceledAmount)}</strong></div>
@@ -959,6 +979,32 @@ function renderAddresses() {
     .join("");
 }
 
+function renderWishlist() {
+  if (!isCustomer() || !state.wishlist.length) {
+    elements.wishlistList.innerHTML = '<div class="empty-inline">관심 상품이 없습니다.</div>';
+    return;
+  }
+  elements.wishlistList.innerHTML = state.wishlist.map((item) => `
+    <article class="address-card">
+      <div><strong>${escapeHtml(item.productName)}</strong><small>${points(item.productPrice)} · ${dateTime(item.addedAt)}</small></div>
+      <div class="address-actions"><button class="mini-button danger" type="button" data-wishlist-remove="${escapeHtml(item.productId)}">삭제</button></div>
+    </article>
+  `).join("");
+}
+
+function renderStockAlerts() {
+  if (!isCustomer() || !state.stockAlerts.length) {
+    elements.stockAlertList.innerHTML = '<div class="empty-inline">신청한 재입고 알림이 없습니다.</div>';
+    return;
+  }
+  elements.stockAlertList.innerHTML = state.stockAlerts.map((alert) => `
+    <article class="address-card">
+      <div><strong>${escapeHtml(alert.productName)}</strong><span class="status-chip">${alert.status === "NOTIFIED" ? "재입고 완료" : "알림 대기"}</span><small>현재 재고 ${Number(alert.availableQuantity)}개</small></div>
+      <div class="address-actions"><button class="mini-button danger" type="button" data-stock-alert-remove="${escapeHtml(alert.productId)}">해지</button></div>
+    </article>
+  `).join("");
+}
+
 function renderCheckoutAddresses() {
   const select = elements.checkoutForm.elements.addressId;
   const preferred = state.addresses.find((address) => address.defaultAddress) || state.addresses[0];
@@ -1075,6 +1121,7 @@ function renderAdminOrders() {
           </header>
           <p>${itemSummary || "주문 상품 없음"}</p>
           ${order.shippingAddress ? `<small>${escapeHtml(order.shippingAddress.recipientName)} · ${escapeHtml(addressSummary(order.shippingAddress))}</small>` : '<small>배송지 정보 없음</small>'}
+          ${(order.trackingCarrier || order.trackingNumber) ? `<small>${escapeHtml(order.trackingCarrier || "택배사 미정")} · ${escapeHtml(order.trackingNumber || "운송장 미등록")}</small>` : ""}
           <footer>
             <strong>${points(Number(order.totalAmount) - Number(order.canceledAmount))}</strong>
             <button class="mini-button" type="button" data-order-history="${escapeHtml(order.id)}">이력</button>
@@ -1234,6 +1281,57 @@ async function loadAddresses({ quiet = false } = {}) {
   } finally {
     state.addressesLoading = false;
     renderAddresses();
+  }
+}
+
+async function loadWishlist({ quiet = false } = {}) {
+  if (!isCustomer()) return;
+  try {
+    state.wishlist = await shopApi.wishlist();
+  } catch (error) {
+    if (!quiet) showApiError(error, "관심 상품을 불러오지 못했습니다.");
+  } finally {
+    renderWishlist();
+  }
+}
+
+async function loadStockAlerts({ quiet = false } = {}) {
+  if (!isCustomer()) return;
+  try {
+    const page = await shopApi.stockAlerts();
+    state.stockAlerts = page.content || [];
+  } catch (error) {
+    if (!quiet) showApiError(error, "재입고 알림을 불러오지 못했습니다.");
+  } finally {
+    renderStockAlerts();
+  }
+}
+
+async function openReviews(product) {
+  if (!product) return;
+  elements.reviewDialog.dataset.productId = product.id;
+  $("#review-product-name").textContent = product.name;
+  elements.reviewList.innerHTML = '<div class="empty-inline">리뷰를 불러오는 중입니다.</div>';
+  elements.reviewForm.classList.toggle("is-hidden", !isCustomer());
+  state.myReview = null;
+  openDialog(elements.reviewDialog);
+  try {
+    const requests = [shopApi.productReviews(product.id)];
+    if (isCustomer()) requests.push(shopApi.myReview(product.id).catch((error) => {
+      if (error?.status === 404) return null;
+      throw error;
+    }));
+    const [page, mine] = await Promise.all(requests);
+    state.reviews = page.content || [];
+    state.myReview = mine || null;
+    elements.reviewForm.elements.rating.value = String(mine?.rating || 5);
+    elements.reviewForm.elements.comment.value = mine?.comment || "";
+    $("#delete-review-button").classList.toggle("is-hidden", !mine);
+    elements.reviewList.innerHTML = state.reviews.length
+      ? state.reviews.map((review) => `<article class="address-card"><div><strong>${"★".repeat(Number(review.rating))}${"☆".repeat(5 - Number(review.rating))}</strong><span>${escapeHtml(review.comment || "내용 없는 리뷰")}</span><small>${dateTime(review.updatedAt)}</small></div></article>`).join("")
+      : '<div class="empty-inline">아직 등록된 리뷰가 없습니다.</div>';
+  } catch (error) {
+    elements.reviewList.innerHTML = `<div class="error-state compact"><p>${escapeHtml(error.message)}</p></div>`;
   }
 }
 
@@ -1441,7 +1539,7 @@ async function restoreSession() {
       },
       customer,
     );
-    await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true })]);
+    await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true }), loadWishlist({ quiet: true }), loadStockAlerts({ quiet: true })]);
     return;
   } catch (error) {
     if (restoreGeneration !== authGeneration) return;
@@ -1547,6 +1645,7 @@ function openOrder(product) {
   const maxOrderQuantity = Math.max(1, Number(product.stock.maxOrderQuantity || 1));
   form.elements.productId.value = product.id;
   form.elements.quantity.value = 1;
+  form.elements.couponCode.value = "";
   form.elements.quantity.max = maxOrderQuantity;
   $("#order-quantity-label").textContent = `주문 수량 · 최대 ${maxOrderQuantity}개`;
   form.dataset.unitPrice = product.price;
@@ -1810,10 +1909,34 @@ function bindProducts() {
     const buy = event.target.closest("[data-product-buy]");
     const cart = event.target.closest("[data-product-cart]");
     const stock = event.target.closest("[data-product-stock]");
+    const reviews = event.target.closest("[data-product-reviews]");
+    const wishlist = event.target.closest("[data-product-wishlist]");
+    const stockAlert = event.target.closest("[data-product-alert]");
     const edit = event.target.closest("[data-product-edit]");
     const remove = event.target.closest("[data-product-delete]");
 
     if (buy) openOrder(productById(buy.dataset.productBuy));
+    if (reviews) await openReviews(productById(reviews.dataset.productReviews));
+    if (wishlist) {
+      try {
+        await withLoading("관심 상품에 추가하고 있습니다", () =>
+          shopApi.addWishlist(wishlist.dataset.productWishlist));
+        await loadWishlist({ quiet: true });
+        showToast("관심 상품에 추가했습니다");
+      } catch (error) {
+        showApiError(error, "관심 상품을 추가하지 못했습니다.");
+      }
+    }
+    if (stockAlert) {
+      try {
+        await withLoading("재입고 알림을 신청하고 있습니다", () =>
+          shopApi.subscribeStockAlert(stockAlert.dataset.productAlert));
+        await loadStockAlerts({ quiet: true });
+        showToast("재입고 알림을 신청했습니다");
+      } catch (error) {
+        showApiError(error, "재입고 알림을 신청하지 못했습니다.");
+      }
+    }
     if (cart) {
       if (!isCustomer()) {
         openAuth("login");
@@ -1879,7 +2002,7 @@ function bindForms() {
       setSession({ ...login, name: login.customerId });
       if (login.role === "CUSTOMER") {
         await loadCustomer({ quiet: false });
-        await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true })]);
+        await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true }), loadWishlist({ quiet: true }), loadStockAlerts({ quiet: true })]);
         switchView("shop");
       } else {
         switchView("admin");
@@ -1950,7 +2073,7 @@ function bindForms() {
       );
       setSession({ ...login, name: registered.name });
       await loadCustomer({ quiet: false });
-      await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true })]);
+      await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true }), loadWishlist({ quiet: true }), loadStockAlerts({ quiet: true })]);
       closeDialog(elements.authDialog);
       formElement.reset();
       switchView("shop");
@@ -2054,10 +2177,11 @@ function bindForms() {
     event.preventDefault();
     const productId = orderForm.elements.productId.value;
     const quantity = Number(orderForm.elements.quantity.value);
+    const couponCode = orderForm.elements.couponCode.value.trim();
     const commandKey = elements.orderDialog.dataset.commandKey;
     try {
       const order = await withLoading("포인트를 확인하고 주문을 처리하고 있습니다", () =>
-        shopApi.order(productId, quantity, commandKey),
+        shopApi.order(productId, quantity, couponCode, commandKey),
       );
       closeDialog(elements.orderDialog);
       await Promise.all([loadCustomer({ quiet: false }), loadProducts()]);
@@ -2219,7 +2343,12 @@ function bindForms() {
     const commandKey = elements.checkoutDialog.dataset.commandKey;
     try {
       const order = await withLoading("장바구니 상품을 주문하고 있습니다", () =>
-        shopApi.createOrder(items, shippingAddress, commandKey),
+        shopApi.createOrder(
+          items,
+          shippingAddress,
+          elements.checkoutForm.elements.couponCode.value.trim(),
+          commandKey,
+        ),
       );
       try {
         state.cart = await shopApi.clearCart();
@@ -2236,6 +2365,33 @@ function bindForms() {
     } catch (error) {
       showApiError(error, "장바구니 주문에 실패했습니다.");
       if (error?.status === 409) await Promise.all([loadCart({ quiet: true }), loadProducts()]);
+    }
+  });
+
+  elements.reviewForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const productId = elements.reviewDialog.dataset.productId;
+    try {
+      await withLoading("리뷰를 저장하고 있습니다", () => shopApi.writeReview(
+        productId,
+        Number(elements.reviewForm.elements.rating.value),
+        elements.reviewForm.elements.comment.value.trim(),
+      ));
+      await openReviews(productById(productId));
+      showToast("리뷰를 저장했습니다");
+    } catch (error) {
+      showApiError(error, error?.status === 403 ? "구매한 상품만 리뷰를 작성할 수 있습니다." : "리뷰를 저장하지 못했습니다.");
+    }
+  });
+  $("#delete-review-button").addEventListener("click", async () => {
+    const productId = elements.reviewDialog.dataset.productId;
+    if (!window.confirm("작성한 리뷰를 삭제할까요?")) return;
+    try {
+      await shopApi.deleteReview(productId);
+      await openReviews(productById(productId));
+      showToast("리뷰를 삭제했습니다");
+    } catch (error) {
+      showApiError(error, "리뷰를 삭제하지 못했습니다.");
     }
   });
 
@@ -2297,6 +2453,30 @@ function bindAccountActions() {
     loadMembers({ append: true }),
   );
   $("#refresh-wallet-button").addEventListener("click", () => loadTransactions());
+  $("#refresh-wishlist-button").addEventListener("click", () => loadWishlist());
+  $("#refresh-stock-alerts-button").addEventListener("click", () => loadStockAlerts());
+  elements.wishlistList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-wishlist-remove]");
+    if (!button) return;
+    try {
+      await shopApi.removeWishlist(button.dataset.wishlistRemove);
+      await loadWishlist({ quiet: true });
+      showToast("관심 상품에서 삭제했습니다");
+    } catch (error) {
+      showApiError(error, "관심 상품을 삭제하지 못했습니다.");
+    }
+  });
+  elements.stockAlertList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-stock-alert-remove]");
+    if (!button) return;
+    try {
+      await shopApi.unsubscribeStockAlert(button.dataset.stockAlertRemove);
+      await loadStockAlerts({ quiet: true });
+      showToast("재입고 알림을 해지했습니다");
+    } catch (error) {
+      showApiError(error, "재입고 알림을 해지하지 못했습니다.");
+    }
+  });
   elements.transactionLoadMore.addEventListener("click", () =>
     loadTransactions({ append: true }),
   );
@@ -2310,9 +2490,16 @@ function bindAccountActions() {
     if (fulfillmentButton) {
       const nextStatus = fulfillmentButton.dataset.fulfillmentStatus;
       if (!window.confirm(`배송 상태를 '${fulfillmentStatus(nextStatus)}'(으)로 변경할까요?`)) return;
+      const fulfillment = { status: nextStatus };
+      if (nextStatus === "SHIPPED") {
+        fulfillment.trackingCarrier = window.prompt("택배사를 입력해 주세요.", "")?.trim() || "";
+        fulfillment.trackingNumber = window.prompt("운송장 번호를 입력해 주세요.", "")?.trim() || "";
+        const trackingUrl = window.prompt("HTTPS 배송 조회 URL을 입력해 주세요. (선택)", "")?.trim();
+        if (trackingUrl) fulfillment.trackingUrl = trackingUrl;
+      }
       try {
         await withLoading("배송 상태를 변경하고 있습니다", () =>
-          shopApi.updateFulfillment(fulfillmentButton.dataset.fulfillmentOrder, nextStatus),
+          shopApi.updateFulfillment(fulfillmentButton.dataset.fulfillmentOrder, fulfillment),
         );
         await loadAdminOrders();
         showToast("배송 상태를 변경했습니다", fulfillmentStatus(nextStatus));
@@ -2450,6 +2637,8 @@ async function initialize() {
   renderMembers();
   renderCart();
   renderAddresses();
+  renderWishlist();
+  renderStockAlerts();
   renderTransactions();
   renderAdminOrders();
 
