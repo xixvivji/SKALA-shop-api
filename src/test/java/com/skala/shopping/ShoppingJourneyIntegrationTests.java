@@ -190,6 +190,12 @@ class ShoppingJourneyIntegrationTests {
         JsonNode productJson = objectMapper.readTree(createdProduct.getResponse().getContentAsString());
         UUID productId = UUID.fromString(productJson.get("id").asText());
 
+        mockMvc.perform(get("/api/products")
+                        .param("page", "0")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(productId.toString()));
+
         String orderBody = """
                 {
                   "productId": "%s",

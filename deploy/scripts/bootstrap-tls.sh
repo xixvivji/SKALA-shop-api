@@ -51,6 +51,8 @@ compose_for "$bootstrap_metadata" --profile tools run --rm certbot certonly \
     --email "$LETSENCRYPT_EMAIL_VALUE" \
     --agree-tos \
     --no-eff-email \
+    --non-interactive \
+    --keep-until-expiring \
     --domain "$INFRA_API_DOMAIN"
 
 compose_for "$bootstrap_metadata" --profile bootstrap stop nginx-bootstrap
