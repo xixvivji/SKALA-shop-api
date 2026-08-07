@@ -7,12 +7,6 @@ const outputDirectory = resolve(frontendRoot, "dist");
 const configuredApiUrl = process.env.SKALA_API_BASE_URL?.trim();
 const isVercelBuild = process.env.VERCEL === "1";
 
-if (isVercelBuild && !configuredApiUrl) {
-  throw new Error(
-    "Vercel 환경변수 SKALA_API_BASE_URL에 실제 HTTPS API 주소를 설정해야 합니다.",
-  );
-}
-
 let normalizedApiUrl = "";
 if (configuredApiUrl) {
   const parsedUrl = new URL(configuredApiUrl);
