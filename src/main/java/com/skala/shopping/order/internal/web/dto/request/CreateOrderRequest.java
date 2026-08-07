@@ -28,6 +28,8 @@ public final class CreateOrderRequest {
     @Valid
     private ShippingAddressRequest shippingAddress;
 
+    private String couponCode;
+
     public CreateOrderRequest() {
     }
 
@@ -51,6 +53,14 @@ public final class CreateOrderRequest {
     public void setItems(List<OrderLineRequest> items) { this.items = items; }
     public ShippingAddressRequest getShippingAddress() { return shippingAddress; }
     public void setShippingAddress(ShippingAddressRequest shippingAddress) { this.shippingAddress = shippingAddress; }
+
+    public String getCouponCode() {
+        return couponCode;
+    }
+
+    public void setCouponCode(String couponCode) {
+        this.couponCode = couponCode;
+    }
 
     @AssertTrue(message = "productId/quantity 또는 items를 입력해야 합니다.")
     public boolean isOrderShapeValid() {

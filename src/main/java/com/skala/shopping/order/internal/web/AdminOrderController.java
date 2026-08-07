@@ -72,7 +72,14 @@ class AdminOrderController {
             @PathVariable UUID orderId,
             @Valid @RequestBody UpdateFulfillmentRequest request
     ) {
-        return OrderResponse.from(service.changeFulfillment(adminId(jwt), orderId, request.getStatus()));
+        return OrderResponse.from(service.changeFulfillment(
+                adminId(jwt),
+                orderId,
+                request.getStatus(),
+                request.getTrackingCarrier(),
+                request.getTrackingNumber(),
+                request.getTrackingUrl()
+        ));
     }
 
     @GetMapping("/{orderId}/history")

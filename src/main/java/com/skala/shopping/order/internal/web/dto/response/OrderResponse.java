@@ -1,6 +1,7 @@
 package com.skala.shopping.order.internal.web.dto.response;
 
 import com.skala.shopping.common.PageResponse;
+import com.skala.shopping.order.OrderStatusHistoryView;
 import com.skala.shopping.order.OrderView;
 import com.skala.shopping.order.ShippingAddressView;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -19,8 +20,16 @@ public final class OrderResponse {
     private final BigDecimal totalAmount;
     private final BigDecimal canceledAmount;
     private final BigDecimal remainingPoints;
+    private final BigDecimal originalAmount;
+    private final BigDecimal discountAmount;
+    private final String usedCouponCode;
+    private final String trackingCarrier;
+    private final String trackingNumber;
+    private final String trackingUrl;
+    private final Instant estimatedDeliveryAt;
     private final Instant orderedAt;
     private final List<OrderItemResponse> items;
+    private final List<OrderStatusHistoryView> statusHistory;
     private final ShippingAddressView shippingAddress;
 
     public OrderResponse(
@@ -31,8 +40,57 @@ public final class OrderResponse {
             BigDecimal totalAmount,
             BigDecimal canceledAmount,
             BigDecimal remainingPoints,
+            BigDecimal originalAmount,
+            BigDecimal discountAmount,
+            String usedCouponCode,
+            String trackingCarrier,
+            String trackingNumber,
+            String trackingUrl,
+            Instant estimatedDeliveryAt,
             Instant orderedAt,
             List<OrderItemResponse> items
+    ) {
+        this(
+                id,
+                orderNumber,
+                status,
+                fulfillmentStatus,
+                totalAmount,
+                canceledAmount,
+                remainingPoints,
+                originalAmount,
+                discountAmount,
+                usedCouponCode,
+                trackingCarrier,
+                trackingNumber,
+                trackingUrl,
+                estimatedDeliveryAt,
+                orderedAt,
+                items,
+                List.of(),
+                null
+        );
+    }
+
+    private OrderResponse(
+            UUID id,
+            String orderNumber,
+            String status,
+            String fulfillmentStatus,
+            BigDecimal totalAmount,
+            BigDecimal canceledAmount,
+            BigDecimal remainingPoints,
+            BigDecimal originalAmount,
+            BigDecimal discountAmount,
+            String usedCouponCode,
+            String trackingCarrier,
+            String trackingNumber,
+            String trackingUrl,
+            Instant estimatedDeliveryAt,
+            Instant orderedAt,
+            List<OrderItemResponse> items,
+            List<OrderStatusHistoryView> statusHistory,
+            ShippingAddressView shippingAddress
     ) {
         this.id = id;
         this.orderNumber = orderNumber;
@@ -41,13 +99,21 @@ public final class OrderResponse {
         this.totalAmount = totalAmount;
         this.canceledAmount = canceledAmount;
         this.remainingPoints = remainingPoints;
+        this.originalAmount = originalAmount == null ? totalAmount : originalAmount;
+        this.discountAmount = discountAmount == null ? BigDecimal.ZERO : discountAmount;
+        this.usedCouponCode = usedCouponCode;
+        this.trackingCarrier = trackingCarrier;
+        this.trackingNumber = trackingNumber;
+        this.trackingUrl = trackingUrl;
+        this.estimatedDeliveryAt = estimatedDeliveryAt;
         this.orderedAt = orderedAt;
         this.items = items;
-        this.shippingAddress = null;
+        this.statusHistory = statusHistory == null ? List.of() : statusHistory;
+        this.shippingAddress = shippingAddress;
     }
 
     public static OrderResponse from(OrderView order) {
-        OrderResponse response = new OrderResponse(
+        return new OrderResponse(
                 order.getId(),
                 order.getOrderNumber(),
                 order.getStatus(),
@@ -55,10 +121,18 @@ public final class OrderResponse {
                 order.getTotalAmount(),
                 order.getCanceledAmount(),
                 order.getRemainingPoints(),
+                order.getOriginalAmount(),
+                order.getDiscountAmount(),
+                order.getUsedCouponCode(),
+                order.getTrackingCarrier(),
+                order.getTrackingNumber(),
+                order.getTrackingUrl(),
+                order.getEstimatedDeliveryAt(),
                 order.getOrderedAt(),
-                order.getItems().stream().map(OrderItemResponse::from).toList()
+                order.getItems().stream().map(OrderItemResponse::from).toList(),
+                order.getStatusHistory(),
+                order.getShippingAddress()
         );
-        return new OrderResponse(response, order.getShippingAddress());
     }
 
     public static PageResponse<OrderResponse> pageFrom(PageResponse<OrderView> orders) {
@@ -82,7 +156,10 @@ public final class OrderResponse {
     public String getStatus() {
         return status;
     }
-    public String getFulfillmentStatus() { return fulfillmentStatus; }
+
+    public String getFulfillmentStatus() {
+        return fulfillmentStatus;
+    }
 
     public BigDecimal getTotalAmount() {
         return totalAmount;
@@ -96,6 +173,34 @@ public final class OrderResponse {
         return remainingPoints;
     }
 
+    public BigDecimal getOriginalAmount() {
+        return originalAmount;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public String getUsedCouponCode() {
+        return usedCouponCode;
+    }
+
+    public String getTrackingCarrier() {
+        return trackingCarrier;
+    }
+
+    public String getTrackingNumber() {
+        return trackingNumber;
+    }
+
+    public String getTrackingUrl() {
+        return trackingUrl;
+    }
+
+    public Instant getEstimatedDeliveryAt() {
+        return estimatedDeliveryAt;
+    }
+
     public Instant getOrderedAt() {
         return orderedAt;
     }
@@ -103,9 +208,12 @@ public final class OrderResponse {
     public List<OrderItemResponse> getItems() {
         return items;
     }
-    private OrderResponse(OrderResponse source,ShippingAddressView shippingAddress){this.id=source.id;
-        this.orderNumber=source.orderNumber;this.status=source.status;this.fulfillmentStatus=source.fulfillmentStatus;
-        this.totalAmount=source.totalAmount;this.canceledAmount=source.canceledAmount;this.remainingPoints=source.remainingPoints;
-        this.orderedAt=source.orderedAt;this.items=source.items;this.shippingAddress=shippingAddress;}
-    public ShippingAddressView getShippingAddress(){return shippingAddress;}
+
+    public List<OrderStatusHistoryView> getStatusHistory() {
+        return statusHistory;
+    }
+
+    public ShippingAddressView getShippingAddress() {
+        return shippingAddress;
+    }
 }

@@ -122,6 +122,13 @@ class SecurityConfiguration {
                         .requestMatchers("/api/categories/**").hasRole("ADMIN")
                         .requestMatchers("/api/orders/**").hasRole("CUSTOMER")
                         .requestMatchers("/api/cart/**", "/api/wallet/**").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.GET, "/api/products/*/reviews").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/products/*/reviews").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/products/*/reviews").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.GET, "/api/stock-alerts/**").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.POST, "/api/stock-alerts/**").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/stock-alerts/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/reviews/**", "/api/wishlist/**").hasRole("CUSTOMER")
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/customers/order",

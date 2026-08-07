@@ -12,8 +12,24 @@ public interface OrderApi {
      */
     OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId);
 
+    OrderView placeOrder(
+            UUID memberId,
+            UUID productId,
+            int quantity,
+            UUID commandId,
+            String couponCode
+    );
+
     OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
                          ShippingAddressCommand shippingAddress, UUID commandId);
+
+    OrderView placeOrder(
+            UUID memberId,
+            List<OrderLineCommand> items,
+            ShippingAddressCommand shippingAddress,
+            UUID commandId,
+            String couponCode
+    );
 
     /**
      * Cancels the requested quantity of a product from the member's newest cancelable purchases
