@@ -124,12 +124,16 @@ jobs:
           RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           BACKEND_IMAGE_REF: ${{ vars.DOCKERHUB_IMAGE }}@${{ needs.publish.outputs.image_digest }}
           BOOTSTRAP_TLS: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_tls || false }}
-          SOURCE_REPOSITORY: ${{ github.repository }}
           SOURCE_REVISION: ${{ github.sha }}
         run: |
           [[ "$EC2_INSTANCE_ID" =~ ^i-[0-9a-f]+$ ]]
           [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
           [[ "$BACKEND_IMAGE_REF" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]
+
+          DEPLOY_ARCHIVE_BASE64=$(
+            tar -czf - deploy/compose.prod.yml deploy/nginx deploy/scripts | base64 -w 0
+          )
+          [[ "${#DEPLOY_ARCHIVE_BASE64}" -le 15000 ]]
 
           REMOTE_RELEASE_DIR="/opt/skala-shop/releases/$RELEASE_ID"
           if [[ "$BOOTSTRAP_TLS" == "true" ]]; then
@@ -141,17 +145,16 @@ jobs:
           REMOTE_SCRIPT=$(cat <<EOF
           set -euo pipefail
           RELEASE_ID='$RELEASE_ID'
-          SOURCE_REPOSITORY='$SOURCE_REPOSITORY'
           SOURCE_REVISION='$SOURCE_REVISION'
           BACKEND_IMAGE_REF='$BACKEND_IMAGE_REF'
           DEPLOY_SCRIPT='$DEPLOY_SCRIPT'
           REMOTE_RELEASE_DIR='$REMOTE_RELEASE_DIR'
-          ARCHIVE_ROOT='${SOURCE_REPOSITORY#*/}-$SOURCE_REVISION'
+          DEPLOY_ARCHIVE_BASE64='$DEPLOY_ARCHIVE_BASE64'
           ARCHIVE_FILE="/tmp/skala-shop-$RELEASE_ID.tar.gz"
           trap 'rm -f "\$ARCHIVE_FILE"' EXIT
           install -d -m 755 -o ubuntu -g ubuntu "\$REMOTE_RELEASE_DIR"
-          curl -fsSL "https://codeload.github.com/\$SOURCE_REPOSITORY/tar.gz/\$SOURCE_REVISION" -o "\$ARCHIVE_FILE"
-          tar -xzf "\$ARCHIVE_FILE" -C "\$REMOTE_RELEASE_DIR" --strip-components=2 "\$ARCHIVE_ROOT/deploy"
+          printf '%s' "\$DEPLOY_ARCHIVE_BASE64" | base64 -d > "\$ARCHIVE_FILE"
+          tar -xzf "\$ARCHIVE_FILE" -C "\$REMOTE_RELEASE_DIR" --strip-components=1
           chown -R ubuntu:ubuntu "\$REMOTE_RELEASE_DIR"
           chmod 700 "\$REMOTE_RELEASE_DIR"/scripts/*.sh
           runuser -u ubuntu -- env HOME=/home/ubuntu "\$REMOTE_RELEASE_DIR/scripts/\$DEPLOY_SCRIPT" "\$RELEASE_ID" "\$BACKEND_IMAGE_REF"
@@ -159,6 +162,7 @@ jobs:
           )
           REMOTE_SCRIPT_BASE64=$(printf '%s' "$REMOTE_SCRIPT" | base64 -w 0)
           REMOTE_COMMAND="printf '%s' '$REMOTE_SCRIPT_BASE64' | base64 -d | bash"
+          [[ "${#REMOTE_COMMAND}" -le 23000 ]]
 
           PARAMETERS=$(jq -n --arg command "$REMOTE_COMMAND" '{commands: [$command]}')
           COMMAND_ID=$(aws ssm send-command \
