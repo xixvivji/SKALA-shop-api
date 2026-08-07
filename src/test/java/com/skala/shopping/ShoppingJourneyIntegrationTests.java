@@ -1395,6 +1395,107 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void completesMixedPointAndFakeCardPaymentAndHandlesDeclineCompensation() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID productId = createProduct(admin, unique("fake-payment"), "15000", 3);
+        CustomerSession customer = registerAndLogin("fake-payment");
+
+        MvcResult pending = mockMvc.perform(post("/api/orders").with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"productId":"%s","quantity":1,"pointAmount":5000}
+                                """.formatted(productId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PAYMENT_PENDING"))
+                .andExpect(jsonPath("$.pointUsedAmount").value(5000))
+                .andExpect(jsonPath("$.paymentAmount").value(10000))
+                .andReturn();
+        UUID orderId = UUID.fromString(objectMapper.readTree(
+                pending.getResponse().getContentAsString()).get("id").asText());
+
+        MvcResult prepared = mockMvc.perform(post("/api/payments").with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orderId\":\"%s\",\"method\":\"CARD\"}".formatted(orderId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.requestedAmount").value(10000))
+                .andReturn();
+        UUID paymentId = UUID.fromString(objectMapper.readTree(
+                prepared.getResponse().getContentAsString()).get("id").asText());
+
+        UUID approvalId = UUID.randomUUID();
+        mockMvc.perform(post("/api/payments/{paymentId}/approve", paymentId).with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", approvalId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"testCardNumber\":\"4242-4242-4242-4242\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.maskedNumber").value("4242-****-****-4242"));
+        mockMvc.perform(get("/api/orders/{orderId}", orderId).cookie(copy(customer.authCookie)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"));
+
+        UUID refundCommand = UUID.randomUUID();
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post("/api/admin/payments/{paymentId}/refunds", paymentId).with(csrf())
+                            .cookie(copy(admin))
+                            .header("X-Idempotency-Key", refundCommand)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"amount\":4000}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("PARTIALLY_REFUNDED"))
+                    .andExpect(jsonPath("$.refundedAmount").value(4000));
+        }
+        UUID webhookEventId = UUID.randomUUID();
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post("/api/admin/payments/fake-webhooks").with(csrf())
+                            .cookie(copy(admin))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"eventId":"%s","paymentId":"%s","eventType":"PAYMENT_STATUS_CHANGED"}
+                                    """.formatted(webhookEventId, paymentId)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(paymentId.toString()));
+        }
+
+        MvcResult declinedOrder = mockMvc.perform(post("/api/orders").with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"productId":"%s","quantity":1,"pointAmount":5000}
+                                """.formatted(productId)))
+                .andExpect(status().isCreated()).andReturn();
+        UUID declinedOrderId = UUID.fromString(objectMapper.readTree(
+                declinedOrder.getResponse().getContentAsString()).get("id").asText());
+        MvcResult declinedPrepared = mockMvc.perform(post("/api/payments").with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orderId\":\"%s\"}".formatted(declinedOrderId)))
+                .andExpect(status().isCreated()).andReturn();
+        UUID declinedPaymentId = UUID.fromString(objectMapper.readTree(
+                declinedPrepared.getResponse().getContentAsString()).get("id").asText());
+        mockMvc.perform(post("/api/payments/{paymentId}/approve", declinedPaymentId).with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"testCardNumber\":\"4000-0000-0000-9995\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAYMENT_FAILED"))
+                .andExpect(jsonPath("$.failureCode").value("CARD_DECLINED"));
+        mockMvc.perform(get("/api/orders/{orderId}", declinedOrderId).cookie(copy(customer.authCookie)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAYMENT_FAILED"));
+        assertEquals(995_000, currentPoint(customer.authCookie));
+    }
+
     private CustomerSession registerAndLogin(String prefix) throws Exception {
         String customerId = unique(prefix);
         String password = "pw123456";
