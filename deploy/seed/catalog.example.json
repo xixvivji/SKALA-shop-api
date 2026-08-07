@@ -1,0 +1,30 @@
+{
+  "categories": [
+    {
+      "name": "디지털",
+      "description": "일상과 업무를 가볍게 만드는 디지털 제품"
+    },
+    {
+      "name": "라이프",
+      "description": "매일 사용하기 좋은 생활 제품"
+    }
+  ],
+  "products": [
+    {
+      "productName": "SKALA 무선 키보드",
+      "productPrice": "89000.00",
+      "initialQuantity": 50,
+      "categoryName": "디지털",
+      "description": "차분한 타건감과 간결한 배열을 갖춘 무선 키보드",
+      "imageUrl": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=1200&q=80"
+    },
+    {
+      "productName": "데일리 텀블러",
+      "productPrice": "32000.00",
+      "initialQuantity": 80,
+      "categoryName": "라이프",
+      "description": "오래도록 온도를 유지하는 500ml 스테인리스 텀블러",
+      "imageUrl": "https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=1200&q=80"
+    }
+  ]
+}

@@ -123,6 +123,8 @@ const elements = {
 
 let loadingDepth = 0;
 let authGeneration = 0;
+let reauthenticationPrompted = false;
+let lastSessionCheckAt = 0;
 let productsReloadQueued = false;
 let ordersReloadQueued = false;
 let membersReloadQueued = false;
@@ -163,6 +165,16 @@ function dateTime(value) {
 function initials(value) {
   const text = String(value || "S").trim();
   return [...text][0]?.toUpperCase() || "S";
+}
+
+function safeImageUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    return ["https:", "http:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
 function toneFor(value) {
@@ -351,8 +363,11 @@ function showApiError(error, fallback = "요청을 처리하지 못했습니다.
     clearSession();
     $$('dialog[open]:not(#auth-dialog)').forEach(closeDialog);
     switchView("shop");
-    showToast("로그인이 만료되었습니다", "다시 로그인해 주세요.", "error");
-    queueMicrotask(() => openAuth("login"));
+    if (!reauthenticationPrompted) {
+      reauthenticationPrompted = true;
+      showToast("로그인이 만료되었습니다", "계속 이용하려면 다시 로그인해 주세요.", "error");
+      queueMicrotask(() => openAuth("login"));
+    }
     return;
   }
 
@@ -446,6 +461,8 @@ function clearSession() {
 }
 
 function setSession(session, customer = null) {
+  reauthenticationPrompted = false;
+  lastSessionCheckAt = Date.now();
   state.session = session;
   state.customer = customer;
   rememberSession(session);
@@ -636,6 +653,7 @@ function renderProducts() {
   elements.productGrid.innerHTML = products
     .map((product, index) => {
       const tone = toneFor(product.id);
+      const imageUrl = safeImageUrl(product.imageUrl);
       const stock = product.stock;
       const orderable = stock?.orderable === true;
       const stockLabel = state.stocksError ? "재고 확인 오류" : stockStatusLabel(stock);
@@ -655,13 +673,14 @@ function renderProducts() {
         `;
       return `
         <article class="product-card">
-          <div class="product-visual tone-${tone}">
-            <span>${escapeHtml(initials(product.name))}</span>
+          <div class="product-visual tone-${tone}${imageUrl ? " has-image" : ""}">
+            ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(initials(product.name))}</span>`}
             <small class="product-badge stock-${state.stocksError ? "unavailable" : stockStatusClass(stock)}">${escapeHtml(stockLabel)}</small>
           </div>
           <div class="product-body">
-            <small>SKALA SELECT · ${String(index + 1).padStart(2, "0")}</small>
+            <small>${escapeHtml(state.categories.find((category) => category.id === product.categoryId)?.name || "SKALA SELECT")} · ${String(index + 1).padStart(2, "0")}</small>
             <h3 title="${escapeHtml(product.name)}">${escapeHtml(product.name)}</h3>
+            ${product.description ? `<p class="product-description">${escapeHtml(product.description)}</p>` : ""}
             <div class="product-card-foot">
               <div class="product-price">${money(product.price)} <small>P</small></div>
               ${controls}
@@ -840,6 +859,16 @@ function renderCategories() {
     ),
   ].join("");
   elements.categoryFilter.value = selected;
+  const productCategory = $("#product-form [name=categoryId]");
+  const productSelected = productCategory.value;
+  productCategory.innerHTML = [
+    '<option value="">카테고리 없음</option>',
+    ...state.categories.map(
+      (category) =>
+        `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}</option>`,
+    ),
+  ].join("");
+  productCategory.value = productSelected;
 }
 
 function renderCart() {
@@ -1522,8 +1551,11 @@ function openOrder(product) {
   form.dataset.unitPrice = product.price;
   $("#order-product-name").textContent = product.name;
   $("#order-product-price").textContent = points(product.price);
-  $("#order-product-visual span").textContent = initials(product.name);
-  $("#order-product-visual").className = `modal-product-visual tone-${toneFor(product.id)}`;
+  const imageUrl = safeImageUrl(product.imageUrl);
+  $("#order-product-visual").innerHTML = imageUrl
+    ? `<img src="${escapeHtml(imageUrl)}" alt="" />`
+    : `<span>${escapeHtml(initials(product.name))}</span>`;
+  $("#order-product-visual").className = `modal-product-visual tone-${toneFor(product.id)}${imageUrl ? " has-image" : ""}`;
   refreshOrderCommand();
   updateOrderTotal();
   openDialog(elements.orderDialog);
@@ -1560,6 +1592,9 @@ function openProductEditor(product = null) {
   form.elements.productId.value = product?.id || "";
   form.elements.productName.value = product?.name || "";
   form.elements.productPrice.value = product?.price || "";
+  form.elements.categoryId.value = product?.categoryId || "";
+  form.elements.description.value = product?.description || "";
+  form.elements.imageUrl.value = product?.imageUrl || "";
   form.elements.initialQuantity.value = 100;
   form.elements.initialQuantity.disabled = Boolean(product);
   $("#initial-stock-field").classList.toggle("is-hidden", Boolean(product));
@@ -2055,11 +2090,19 @@ function bindForms() {
     const productName = form.elements.productName.value.trim();
     const productPrice = form.elements.productPrice.value.trim();
     const initialQuantity = Number(form.elements.initialQuantity.value);
+    const productPayload = {
+      productName,
+      productPrice,
+      initialQuantity,
+      categoryId: form.elements.categoryId.value,
+      description: form.elements.description.value.trim() || null,
+      imageUrl: form.elements.imageUrl.value.trim() || null,
+    };
     try {
       await withLoading(productId ? "상품 정보를 변경하고 있습니다" : "새 상품을 등록하고 있습니다", () =>
         productId
-          ? shopApi.updateProduct(productId, productName, productPrice)
-          : shopApi.createProduct(productName, productPrice, initialQuantity),
+          ? shopApi.updateProduct(productId, productPayload)
+          : shopApi.createProduct(productPayload),
       );
       closeDialog(elements.productDialog);
       await loadProducts();
@@ -2370,6 +2413,19 @@ function bindConnectionStatus() {
   update();
 }
 
+function bindSessionLifecycle() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !state.session) return;
+    if (Date.now() - lastSessionCheckAt < 60_000) return;
+    lastSessionCheckAt = Date.now();
+    if (isCustomer()) {
+      loadCustomer({ quiet: false });
+    } else if (isAdmin()) {
+      loadMembers();
+    }
+  });
+}
+
 async function initialize() {
   bindNavigation();
   bindDialogs();
@@ -2378,6 +2434,7 @@ async function initialize() {
   bindAccountActions();
   bindShoppingActions();
   bindConnectionStatus();
+  bindSessionLifecycle();
   restoreRememberedCustomerId();
   renderSession();
   renderOrders();

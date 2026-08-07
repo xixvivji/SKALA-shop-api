@@ -7,7 +7,7 @@
       name="description"
       content="SKALA Shop 백엔드의 회원, 상품, 주문, 포인트 기능을 시연하는 프론트엔드"
     />
-    <meta name="theme-color" content="#111827" />
+    <meta name="theme-color" content="#15172b" />
     <title>SKALA Market</title>
     <link rel="stylesheet" href="./styles.css" />
     <script src="./runtime-config.js"></script>
@@ -58,20 +58,33 @@
       <section class="view is-active" id="shop-view" data-view-panel="shop">
         <div class="hero-shell">
           <div class="hero-copy">
-            <p class="eyebrow">Use points. Find favorites.</p>
+            <p class="eyebrow">The point-first lifestyle store</p>
             <h1>
-              포인트로 바로 사는<br />
-              <span>작고 선명한 마켓.</span>
+              취향은 선명하게,<br />
+              <span>결제는 포인트로.</span>
             </h1>
             <p class="hero-description">
-              가입과 함께 받은 포인트로 원하는 상품을 골라보세요.<br />
-              주문부터 부분 취소와 포인트 환급까지 간편하게 이용할 수 있어요.
+              오늘 필요한 물건을 가볍게 담고 포인트로 바로 만나보세요.<br />
+              주문과 배송, 취소와 환급까지 한곳에서 자연스럽게 이어집니다.
             </p>
             <div class="hero-actions">
               <button class="button button-accent" type="button" id="hero-start-button">
-                마켓 시작하기
+                상품 둘러보기
               </button>
+              <button class="button button-ghost" type="button" data-view="orders">내 주문 확인</button>
             </div>
+          </div>
+          <div class="hero-showcase" aria-hidden="true">
+            <div class="showcase-orbit orbit-one"></div>
+            <div class="showcase-orbit orbit-two"></div>
+            <article class="showcase-card">
+              <div class="showcase-card-head"><span>SKALA POINT</span><span>MEMBER 01</span></div>
+              <strong>1,000,000 <small>P</small></strong>
+              <p>가입 즉시 시작되는 나만의 포인트 쇼핑</p>
+              <div class="showcase-meter"><i></i></div>
+            </article>
+            <div class="showcase-chip chip-delivery"><b>01</b><span>빠른 주문<br /><small>한 번에 결제</small></span></div>
+            <div class="showcase-chip chip-refund"><b>↗</b><span>간편한 취소<br /><small>포인트 즉시 환급</small></span></div>
           </div>
         </div>
 
@@ -462,6 +475,9 @@
         <input type="hidden" name="productId" />
         <label><span>상품명</span><input name="productName" maxlength="200" required placeholder="무선 마우스" /></label>
         <label><span>판매 가격</span><div class="suffix-input"><input name="productPrice" type="number" min="0.01" max="30000000.00" step="0.01" required placeholder="15000" /><span>P</span></div></label>
+        <label><span>카테고리</span><select name="categoryId"><option value="">카테고리 없음</option></select></label>
+        <label><span>상품 설명</span><textarea name="description" maxlength="2000" rows="3" placeholder="상품의 특징을 간단히 소개해 주세요."></textarea></label>
+        <label><span>상품 이미지 URL</span><input name="imageUrl" type="url" maxlength="1000" inputmode="url" placeholder="https://..." /></label>
         <label id="initial-stock-field"><span>초기 주문 가능 재고</span><input name="initialQuantity" type="number" min="0" max="1000000" value="100" required /></label>
         <button class="button button-accent button-block" type="submit" id="product-submit-button">상품 등록</button>
       </form>

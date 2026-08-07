@@ -45,6 +45,10 @@ jobs:
           node --check frontend/js/api.js
           node --check frontend/js/app.js
           node --check frontend/scripts/build.mjs
+          node --check frontend/tests/live-production.spec.js
+          node --check deploy/tools/http-client.mjs
+          node --check deploy/tools/bootstrap-catalog.mjs
+          node --check deploy/tools/smoke-production.mjs
       - name: Validate static files
         run: node frontend/scripts/validate-static.mjs
       - name: Build deployable static files
