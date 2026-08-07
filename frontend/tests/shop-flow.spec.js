@@ -94,7 +94,12 @@ async function mockShopApi(page) {
     }
     if (path === "/api/wallet/me") return json(route, { memberId, balance: state.balance });
     if (path === "/api/wallet/me/transactions") {
-      const content = [{ id: "55555555-5555-4555-8555-555555555555", type: "SIGN_UP", amount: 1000000, balanceAfter: 1000000, createdAt: new Date().toISOString() }];
+      const content = state.orders.length
+        ? [
+            { id: "88888888-8888-4888-8888-888888888888", type: "DEBIT", amount: 25000, balanceAfter: state.balance, createdAt: new Date().toISOString() },
+            { id: "55555555-5555-4555-8555-555555555555", type: "SIGN_UP", amount: 1000000, balanceAfter: 1000000, createdAt: new Date().toISOString() },
+          ]
+        : [{ id: "55555555-5555-4555-8555-555555555555", type: "SIGN_UP", amount: 1000000, balanceAfter: 1000000, createdAt: new Date().toISOString() }];
       return json(route, { content, page: 0, size: 10, totalElements: 1, totalPages: 1 });
     }
     if (path === "/api/admin/orders") {
@@ -177,6 +182,7 @@ test("회원가입부터 장바구니 배송지 주문과 포인트 조회까지
 
   await page.getByRole("button", { name: "My" }).first().click();
   await expect(page.locator("#transaction-list")).toContainText("가입 포인트");
+  await expect(page.locator("#transaction-list")).toContainText("-25,000 P");
 });
 
 test("관리자가 주문 배송 상태와 변경 이력을 관리한다", async ({ page }) => {
