@@ -3,7 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:e2e": "playwright test"
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/validate-static.mjs",
+    "test:e2e": "playwright test --grep-invert @live",
+    "test:e2e:live": "playwright test --grep @live --project=desktop-chromium",
+    "smoke:production": "node ../deploy/tools/smoke-production.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1"

@@ -1,0 +1,60 @@
+name: Production smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_mutating_e2e:
+        description: "임시 고객을 만들어 주문·취소·탈퇴까지 실제 운영 API에서 확인합니다"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: false
+
+jobs:
+  public-smoke:
+    name: Public endpoints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: Check frontend and API
+        env:
+          SKALA_FRONTEND_ORIGIN: ${{ vars.PRODUCTION_FRONTEND_ORIGIN }}
+          SKALA_API_BASE_URL: ${{ vars.PRODUCTION_API_ORIGIN }}
+        run: node deploy/tools/smoke-production.mjs
+
+  live-e2e:
+    if: ${{ inputs.run_mutating_e2e }}
+    needs: public-smoke
+    name: Live customer journey
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install browser test dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run live journey
+        working-directory: frontend
+        env:
+          LIVE_E2E_ENABLED: "true"
+          E2E_BASE_URL: ${{ vars.PRODUCTION_FRONTEND_ORIGIN }}
+          SKALA_ADMIN_ID: ${{ secrets.PRODUCTION_ADMIN_ID }}
+          SKALA_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_ADMIN_PASSWORD }}
+        run: npm run test:e2e:live

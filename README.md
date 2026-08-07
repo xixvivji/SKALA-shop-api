@@ -121,7 +121,8 @@ python3 -m http.server 3000 --directory frontend
 
 GitHub Actions는 82개 Gradle 테스트에 더해 프론트 JavaScript 문법·정적 파일·
 배포 빌드 검사, Chromium 고객·관리자 E2E와 배포 릴리스 흐름 시뮬레이션을
-실행합니다.
+실행합니다. 실제 Vercel·운영 API 검사는 운영 데이터를 변경하지 않는 public
+smoke와 명시적으로 활성화하는 live E2E로 분리했습니다.
 
 ## 주요 API
 
