@@ -20,6 +20,14 @@ const state = {
   productsLoading: false,
   productsError: null,
   stocksError: null,
+  categories: [],
+  productFilters: { query: "", categoryId: "", minPrice: "", maxPrice: "" },
+  cart: { items: [], itemCount: 0, totalQuantity: 0, totalAmount: 0 },
+  cartLoading: false,
+  cartError: null,
+  addresses: [],
+  addressesLoading: false,
+  addressesError: null,
   orders: [],
   orderTotal: 0,
   orderPage: -1,
@@ -53,6 +61,18 @@ const elements = {
   productCount: $("#product-count"),
   productSearch: $("#product-search"),
   productLoadMore: $("#product-load-more"),
+  categoryFilter: $("#category-filter"),
+  catalogFilterForm: $("#catalog-filter-form"),
+  cartButton: $("#cart-button"),
+  cartCount: $("#cart-count"),
+  cartDialog: $("#cart-dialog"),
+  cartList: $("#cart-list"),
+  cartTotalQuantity: $("#cart-total-quantity"),
+  cartTotalAmount: $("#cart-total-amount"),
+  checkoutDialog: $("#checkout-dialog"),
+  checkoutForm: $("#checkout-form"),
+  addressDialog: $("#address-dialog"),
+  addressList: $("#address-list"),
   orderDialog: $("#order-dialog"),
   cancelDialog: $("#cancel-dialog"),
   productDialog: $("#product-dialog"),
@@ -358,10 +378,16 @@ function clearSession() {
   state.memberPage = -1;
   state.memberTotalPages = 0;
   state.membersError = null;
+  state.cart = { items: [], itemCount: 0, totalQuantity: 0, totalAmount: 0 };
+  state.cartError = null;
+  state.addresses = [];
+  state.addressesError = null;
   window.localStorage.removeItem("skala-session-hint");
   renderSession();
   renderOrders();
   renderMembers();
+  renderCart();
+  renderAddresses();
 }
 
 function setSession(session, customer = null) {
@@ -383,6 +409,7 @@ function renderSession() {
   elements.adminNav.classList.toggle("is-hidden", !admin);
   elements.mobileAdminNav.classList.toggle("is-hidden", !admin);
   elements.addProductButton.classList.toggle("is-hidden", !admin);
+  elements.cartButton.classList.toggle("is-hidden", !customer);
 
   $$('[data-view="orders"], [data-view="account"]').forEach((button) => {
     if (button.closest("nav")) {
@@ -528,10 +555,8 @@ function renderProducts() {
     return;
   }
 
-  const query = elements.productSearch.value.trim().toLocaleLowerCase("ko-KR");
-  const products = state.products.filter((product) =>
-    product.name.toLocaleLowerCase("ko-KR").includes(query),
-  );
+  const query = state.productFilters.query;
+  const products = state.products;
   elements.productCount.textContent = String(state.productTotal);
   elements.adminProductCount.textContent = String(state.productTotal);
 
@@ -567,7 +592,10 @@ function renderProducts() {
           </div>
         `
         : `
-          <button class="buy-button" type="button" data-product-buy="${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} ${orderable ? "주문하기" : stockLabel}" ${orderable ? "" : "disabled"}>${orderable ? "→" : "×"}</button>
+          <div class="shop-card-actions">
+            <button class="mini-button" type="button" data-product-cart="${escapeHtml(product.id)}" ${orderable ? "" : "disabled"}>담기</button>
+            <button class="buy-button" type="button" data-product-buy="${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} ${orderable ? "바로 주문" : stockLabel}" ${orderable ? "" : "disabled"}>${orderable ? "→" : "×"}</button>
+          </div>
         `;
       return `
         <article class="product-card">
@@ -725,6 +753,124 @@ function renderMembers() {
     .join("");
 }
 
+function renderCategories() {
+  const selected = state.productFilters.categoryId;
+  elements.categoryFilter.innerHTML = [
+    '<option value="">전체 카테고리</option>',
+    ...state.categories.map(
+      (category) =>
+        `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}</option>`,
+    ),
+  ].join("");
+  elements.categoryFilter.value = selected;
+}
+
+function renderCart() {
+  const cart = state.cart || { items: [] };
+  const items = cart.items || [];
+  elements.cartCount.textContent = String(cart.totalQuantity || 0);
+  elements.cartTotalQuantity.textContent = String(cart.totalQuantity || 0);
+  elements.cartTotalAmount.textContent = points(cart.totalAmount);
+  $("#checkout-total").textContent = points(cart.totalAmount);
+  $("#clear-cart-button").disabled = !items.length || state.cartLoading;
+  $("#checkout-button").disabled = !items.length || state.cartLoading;
+
+  if (state.cartLoading && !items.length) {
+    elements.cartList.innerHTML = productSkeletons();
+    return;
+  }
+  if (state.cartError) {
+    elements.cartList.innerHTML = `<div class="error-state"><span>!</span><h3>장바구니를 불러오지 못했어요</h3><p>${escapeHtml(state.cartError.message)}</p></div>`;
+    return;
+  }
+  if (!items.length) {
+    elements.cartList.innerHTML = '<div class="empty-state"><span>Bag</span><h3>장바구니가 비어 있어요</h3><p>상품 카드의 담기 버튼으로 원하는 상품을 모아보세요.</p></div>';
+    return;
+  }
+
+  elements.cartList.innerHTML = items
+    .map(
+      (item) => `
+        <article class="cart-item${item.orderable ? "" : " is-unavailable"}">
+          <span class="cart-item-thumb tone-${toneFor(item.productId)}">${escapeHtml(initials(item.productName))}</span>
+          <div class="cart-item-copy">
+            <strong>${escapeHtml(item.productName)}</strong>
+            <small>${points(item.unitPrice)} · 재고 ${Number(item.availableQuantity)}개</small>
+            ${item.orderable ? "" : '<span class="field-error">현재 주문할 수 없습니다.</span>'}
+          </div>
+          <label class="cart-quantity">
+            <span class="visually-hidden">${escapeHtml(item.productName)} 수량</span>
+            <input type="number" min="1" max="${Math.max(1, Number(item.availableQuantity))}" value="${Number(item.quantity)}" data-cart-quantity="${escapeHtml(item.productId)}" />
+          </label>
+          <strong>${points(item.lineAmount)}</strong>
+          <button class="text-button text-danger" type="button" data-cart-remove="${escapeHtml(item.productId)}">삭제</button>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function addressSummary(address) {
+  return `[${address.postalCode}] ${address.addressLine1}${address.addressLine2 ? ` ${address.addressLine2}` : ""}`;
+}
+
+function renderAddresses() {
+  if (!isCustomer()) {
+    elements.addressList.innerHTML = "";
+    return;
+  }
+  if (state.addressesLoading) {
+    elements.addressList.innerHTML = '<div class="empty-inline">배송지를 불러오는 중입니다.</div>';
+    return;
+  }
+  if (state.addressesError) {
+    elements.addressList.innerHTML = `<div class="error-state compact"><p>${escapeHtml(state.addressesError.message)}</p></div>`;
+    return;
+  }
+  if (!state.addresses.length) {
+    elements.addressList.innerHTML = '<div class="empty-inline">저장된 배송지가 없습니다. 첫 배송지를 추가해 주세요.</div>';
+    return;
+  }
+  elements.addressList.innerHTML = state.addresses
+    .map(
+      (address) => `
+        <article class="address-card">
+          <div>
+            <strong>${escapeHtml(address.addressName)}${address.defaultAddress ? ' <span class="status-chip">기본</span>' : ""}</strong>
+            <span>${escapeHtml(address.recipientName)} · ${escapeHtml(address.phoneNumber)}</span>
+            <small>${escapeHtml(addressSummary(address))}</small>
+          </div>
+          <div class="address-actions">
+            <button class="mini-button" type="button" data-address-edit="${escapeHtml(address.id)}">수정</button>
+            <button class="mini-button danger" type="button" data-address-delete="${escapeHtml(address.id)}">삭제</button>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderCheckoutAddresses() {
+  const select = elements.checkoutForm.elements.addressId;
+  const preferred = state.addresses.find((address) => address.defaultAddress) || state.addresses[0];
+  select.innerHTML = state.addresses
+    .map(
+      (address) => `<option value="${escapeHtml(address.id)}">${escapeHtml(address.addressName)} · ${escapeHtml(address.recipientName)}</option>`,
+    )
+    .join("");
+  if (preferred) select.value = preferred.id;
+  updateCheckoutAddressPreview();
+}
+
+function updateCheckoutAddressPreview() {
+  const address = state.addresses.find(
+    (candidate) => candidate.id === elements.checkoutForm.elements.addressId.value,
+  );
+  $("#checkout-address-preview").innerHTML = address
+    ? `<strong>${escapeHtml(address.recipientName)} · ${escapeHtml(address.phoneNumber)}</strong><span>${escapeHtml(addressSummary(address))}</span>`
+    : '<span>배송지를 먼저 추가해 주세요.</span>';
+}
+
 function switchView(view, updateHash = true) {
   if (view === "admin" && !isAdmin()) {
     showToast("관리자 전용 화면입니다", "ADMIN 역할로 로그인해 주세요.", "error");
@@ -750,7 +896,10 @@ function switchView(view, updateHash = true) {
   });
 
   if (view === "orders" && isCustomer()) loadOrders();
-  if (view === "account" && isCustomer()) loadCustomer();
+  if (view === "account" && isCustomer()) {
+    loadCustomer();
+    loadAddresses();
+  }
   if (view === "admin" && isAdmin()) loadMembers();
 
   if (updateHash) {
@@ -767,6 +916,17 @@ async function loadProductStocks(products) {
     stocks.forEach((stock) => stocksByProductId.set(stock.productId, stock));
   }
   return stocksByProductId;
+}
+
+async function loadCategories() {
+  try {
+    state.categories = (await shopApi.categories()).filter(
+      (category) => category.status === "ACTIVE",
+    );
+    renderCategories();
+  } catch (error) {
+    showApiError(error, "카테고리를 불러오지 못했습니다.");
+  }
 }
 
 async function loadProducts({ append = false } = {}) {
@@ -788,7 +948,11 @@ async function loadProducts({ append = false } = {}) {
   state.productsLoading = true;
   renderProducts();
   try {
-    const page = await shopApi.products(targetPage, PRODUCT_PAGE_SIZE);
+    const page = await shopApi.products({
+      page: targetPage,
+      size: PRODUCT_PAGE_SIZE,
+      ...state.productFilters,
+    });
     const products = page.content || [];
     let stocksByProductId = new Map();
     try {
@@ -818,6 +982,38 @@ async function loadProducts({ append = false } = {}) {
       productsReloadQueued = false;
       loadProducts();
     }
+  }
+}
+
+async function loadCart({ quiet = false } = {}) {
+  if (!isCustomer() || state.cartLoading) return;
+  state.cartLoading = true;
+  state.cartError = null;
+  renderCart();
+  try {
+    state.cart = await shopApi.cart();
+  } catch (error) {
+    state.cartError = error;
+    if (!quiet || error?.status === 401) showApiError(error, "장바구니를 불러오지 못했습니다.");
+  } finally {
+    state.cartLoading = false;
+    renderCart();
+  }
+}
+
+async function loadAddresses({ quiet = false } = {}) {
+  if (!isCustomer() || state.addressesLoading) return;
+  state.addressesLoading = true;
+  state.addressesError = null;
+  renderAddresses();
+  try {
+    state.addresses = await shopApi.addresses();
+  } catch (error) {
+    state.addressesError = error;
+    if (!quiet || error?.status === 401) showApiError(error, "배송지를 불러오지 못했습니다.");
+  } finally {
+    state.addressesLoading = false;
+    renderAddresses();
   }
 }
 
@@ -944,6 +1140,7 @@ async function restoreSession() {
       },
       customer,
     );
+    await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true })]);
     return;
   } catch (error) {
     if (restoreGeneration !== authGeneration) return;
@@ -1132,6 +1329,39 @@ function openStockEditor(product) {
   openDialog(elements.stockDialog);
 }
 
+function openAddressEditor(address = null) {
+  const form = $("#address-form");
+  form.reset();
+  form.elements.addressId.value = address?.id || "";
+  ["addressName", "recipientName", "phoneNumber", "postalCode", "addressLine1", "addressLine2"]
+    .forEach((name) => {
+      form.elements[name].value = address?.[name] || "";
+    });
+  form.elements.defaultAddress.checked = Boolean(address?.defaultAddress);
+  $("#address-dialog-title").textContent = address ? "배송지 수정" : "배송지 저장";
+  $("#address-submit-button").textContent = address ? "수정 내용 저장" : "배송지 저장";
+  openDialog(elements.addressDialog);
+}
+
+async function openCheckout() {
+  if (!state.cart.items?.length) return;
+  if (state.cart.items.some((item) => !item.orderable)) {
+    showToast("주문할 수 없는 상품이 있습니다", "재고가 부족한 상품을 수정하거나 삭제해 주세요.", "error");
+    return;
+  }
+  await loadAddresses();
+  if (!state.addresses.length) {
+    closeDialog(elements.cartDialog);
+    showToast("배송지를 먼저 등록해 주세요", "내 정보에서 주문에 사용할 배송지를 저장합니다.", "error");
+    switchView("account");
+    openAddressEditor();
+    return;
+  }
+  renderCheckoutAddresses();
+  elements.checkoutDialog.dataset.commandKey = createCommandId();
+  openDialog(elements.checkoutDialog);
+}
+
 function bindNavigation() {
   $(".brand").addEventListener("click", (event) => {
     event.preventDefault();
@@ -1209,7 +1439,38 @@ function bindDialogs() {
 }
 
 function bindProducts() {
-  elements.productSearch.addEventListener("input", renderProducts);
+  let searchTimer;
+  elements.productSearch.addEventListener("input", () => {
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => {
+      state.productFilters.query = elements.productSearch.value.trim();
+      loadProducts();
+    }, 300);
+  });
+  elements.catalogFilterForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const minPrice = String(values.get("minPrice") || "").trim();
+    const maxPrice = String(values.get("maxPrice") || "").trim();
+    if (minPrice && maxPrice && Number(minPrice) > Number(maxPrice)) {
+      showToast("가격 범위를 확인해 주세요", "최소 가격은 최대 가격보다 클 수 없습니다.", "error");
+      return;
+    }
+    state.productFilters = {
+      ...state.productFilters,
+      categoryId: String(values.get("categoryId") || ""),
+      minPrice,
+      maxPrice,
+    };
+    loadProducts();
+  });
+  elements.catalogFilterForm.addEventListener("reset", () => {
+    queueMicrotask(() => {
+      state.productFilters = { query: "", categoryId: "", minPrice: "", maxPrice: "" };
+      elements.productSearch.value = "";
+      loadProducts();
+    });
+  });
   $("#refresh-products-button").addEventListener("click", () => loadProducts());
   elements.productLoadMore.addEventListener("click", () =>
     loadProducts({ append: true }),
@@ -1219,11 +1480,28 @@ function bindProducts() {
 
   elements.productGrid.addEventListener("click", async (event) => {
     const buy = event.target.closest("[data-product-buy]");
+    const cart = event.target.closest("[data-product-cart]");
     const stock = event.target.closest("[data-product-stock]");
     const edit = event.target.closest("[data-product-edit]");
     const remove = event.target.closest("[data-product-delete]");
 
     if (buy) openOrder(productById(buy.dataset.productBuy));
+    if (cart) {
+      if (!isCustomer()) {
+        openAuth("login");
+        return;
+      }
+      const product = productById(cart.dataset.productCart);
+      try {
+        state.cart = await withLoading("장바구니에 담고 있습니다", () =>
+          shopApi.addCartItem(product.id, 1),
+        );
+        renderCart();
+        showToast("장바구니에 담았습니다", product.name);
+      } catch (error) {
+        showApiError(error, "장바구니에 담지 못했습니다.");
+      }
+    }
     if (stock) openStockEditor(productById(stock.dataset.productStock));
     if (edit) openProductEditor(productById(edit.dataset.productEdit));
     if (remove) {
@@ -1273,6 +1551,7 @@ function bindForms() {
       setSession({ ...login, name: login.customerId });
       if (login.role === "CUSTOMER") {
         await loadCustomer({ quiet: false });
+        await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true })]);
         switchView("shop");
       } else {
         switchView("admin");
@@ -1343,6 +1622,7 @@ function bindForms() {
       );
       setSession({ ...login, name: registered.name });
       await loadCustomer({ quiet: false });
+      await Promise.all([loadCart({ quiet: true }), loadAddresses({ quiet: true })]);
       closeDialog(elements.authDialog);
       formElement.reset();
       switchView("shop");
@@ -1558,6 +1838,71 @@ function bindForms() {
     }
   });
 
+  $("#address-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(form).entries());
+    const addressId = values.addressId;
+    delete values.addressId;
+    values.defaultAddress = form.elements.defaultAddress.checked;
+    Object.keys(values).forEach((key) => {
+      if (typeof values[key] === "string") values[key] = values[key].trim();
+    });
+    try {
+      await withLoading(addressId ? "배송지를 수정하고 있습니다" : "배송지를 저장하고 있습니다", () =>
+        addressId ? shopApi.updateAddress(addressId, values) : shopApi.createAddress(values),
+      );
+      closeDialog(elements.addressDialog);
+      await loadAddresses();
+      showToast(addressId ? "배송지를 수정했습니다" : "배송지를 저장했습니다", values.addressName);
+    } catch (error) {
+      showApiError(error, "배송지를 저장하지 못했습니다.");
+    }
+  });
+
+  elements.checkoutForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const address = state.addresses.find(
+      (candidate) => candidate.id === elements.checkoutForm.elements.addressId.value,
+    );
+    if (!address) {
+      showToast("배송지를 선택해 주세요", "저장 배송지가 필요합니다.", "error");
+      return;
+    }
+    const items = state.cart.items.map((item) => ({
+      productId: item.productId,
+      quantity: Number(item.quantity),
+    }));
+    const shippingAddress = {
+      recipientName: address.recipientName,
+      phoneNumber: address.phoneNumber,
+      postalCode: address.postalCode,
+      addressLine1: address.addressLine1,
+      addressLine2: address.addressLine2 || "",
+    };
+    const commandKey = elements.checkoutDialog.dataset.commandKey;
+    try {
+      const order = await withLoading("장바구니 상품을 주문하고 있습니다", () =>
+        shopApi.createOrder(items, shippingAddress, commandKey),
+      );
+      try {
+        state.cart = await shopApi.clearCart();
+      } catch {
+        await loadCart({ quiet: true });
+      }
+      closeDialog(elements.checkoutDialog);
+      closeDialog(elements.cartDialog);
+      renderCart();
+      await Promise.all([loadCustomer({ quiet: false }), loadOrders(), loadProducts()]);
+      switchView("orders");
+      showToast("장바구니 주문을 완료했습니다", `${order.orderNumber} · 잔액 ${points(order.remainingPoints)}`);
+      elements.checkoutDialog.dataset.commandKey = createCommandId();
+    } catch (error) {
+      showApiError(error, "장바구니 주문에 실패했습니다.");
+      if (error?.status === 409) await Promise.all([loadCart({ quiet: true }), loadProducts()]);
+    }
+  });
+
 }
 
 function restoreRememberedCustomerId() {
@@ -1617,19 +1962,88 @@ function bindAccountActions() {
   );
 }
 
+function bindShoppingActions() {
+  elements.cartButton.addEventListener("click", async () => {
+    await loadCart();
+    openDialog(elements.cartDialog);
+  });
+  $("#clear-cart-button").addEventListener("click", async () => {
+    if (!state.cart.items?.length || !window.confirm("장바구니 상품을 모두 삭제할까요?")) return;
+    try {
+      state.cart = await withLoading("장바구니를 비우고 있습니다", () => shopApi.clearCart());
+      renderCart();
+      showToast("장바구니를 비웠습니다");
+    } catch (error) {
+      showApiError(error, "장바구니를 비우지 못했습니다.");
+    }
+  });
+  $("#checkout-button").addEventListener("click", openCheckout);
+  elements.checkoutForm.elements.addressId.addEventListener("change", updateCheckoutAddressPreview);
+
+  elements.cartList.addEventListener("change", async (event) => {
+    const input = event.target.closest("[data-cart-quantity]");
+    if (!input) return;
+    const quantity = Number(input.value);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > Number(input.max)) {
+      showToast("수량을 확인해 주세요", `1~${input.max}개 사이로 입력해 주세요.`, "error");
+      renderCart();
+      return;
+    }
+    try {
+      state.cart = await shopApi.updateCartItem(input.dataset.cartQuantity, quantity);
+      renderCart();
+    } catch (error) {
+      showApiError(error, "장바구니 수량을 변경하지 못했습니다.");
+      await loadCart({ quiet: true });
+    }
+  });
+  elements.cartList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-cart-remove]");
+    if (!button) return;
+    try {
+      state.cart = await shopApi.removeCartItem(button.dataset.cartRemove);
+      renderCart();
+    } catch (error) {
+      showApiError(error, "장바구니 상품을 삭제하지 못했습니다.");
+    }
+  });
+
+  $("#add-address-button").addEventListener("click", () => openAddressEditor());
+  elements.addressList.addEventListener("click", async (event) => {
+    const edit = event.target.closest("[data-address-edit]");
+    const remove = event.target.closest("[data-address-delete]");
+    if (edit) openAddressEditor(state.addresses.find((address) => address.id === edit.dataset.addressEdit));
+    if (remove) {
+      const address = state.addresses.find((candidate) => candidate.id === remove.dataset.addressDelete);
+      if (!address || !window.confirm(`'${address.addressName}' 배송지를 삭제할까요?`)) return;
+      try {
+        await shopApi.deleteAddress(address.id);
+        await loadAddresses();
+        showToast("배송지를 삭제했습니다", address.addressName);
+      } catch (error) {
+        showApiError(error, "배송지를 삭제하지 못했습니다.");
+      }
+    }
+  });
+}
+
 async function initialize() {
   bindNavigation();
   bindDialogs();
   bindProducts();
   bindForms();
   bindAccountActions();
+  bindShoppingActions();
   restoreRememberedCustomerId();
   renderSession();
   renderOrders();
   renderMembers();
+  renderCart();
+  renderAddresses();
 
   await Promise.allSettled([
     issueCsrfToken(),
+    loadCategories(),
     loadProducts(),
     restoreSession(),
   ]);

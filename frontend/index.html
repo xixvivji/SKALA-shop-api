@@ -36,6 +36,10 @@
       </nav>
 
       <div class="header-actions">
+        <button class="cart-button is-hidden" type="button" id="cart-button" aria-label="장바구니 열기">
+          <span aria-hidden="true">Bag</span>
+          <strong id="cart-count">0</strong>
+        </button>
         <button class="button button-dark" type="button" id="auth-button">로그인</button>
         <button class="profile-button is-hidden" type="button" id="profile-button">
           <span class="avatar" id="profile-avatar">S</span>
@@ -90,6 +94,25 @@
             <p><strong id="product-count">0</strong>개의 판매 상품</p>
             <button class="text-button" type="button" id="refresh-products-button">새로고침 ↻</button>
           </div>
+
+          <form class="catalog-filters" id="catalog-filter-form" aria-label="상품 필터">
+            <label>
+              <span>카테고리</span>
+              <select name="categoryId" id="category-filter">
+                <option value="">전체 카테고리</option>
+              </select>
+            </label>
+            <label>
+              <span>최소 가격</span>
+              <input name="minPrice" type="number" min="0.01" step="0.01" placeholder="0" />
+            </label>
+            <label>
+              <span>최대 가격</span>
+              <input name="maxPrice" type="number" min="0.01" step="0.01" placeholder="30,000,000" />
+            </label>
+            <button class="button button-dark" type="submit">필터 적용</button>
+            <button class="text-button" type="reset" id="catalog-filter-reset">초기화</button>
+          </form>
 
           <div class="product-grid" id="product-grid" aria-live="polite"></div>
           <div class="list-pagination">
@@ -197,6 +220,14 @@
                 <span class="panel-number">02</span>
               </div>
               <div class="purchased-list" id="purchased-list"></div>
+            </article>
+
+            <article class="panel address-panel">
+              <div class="panel-heading">
+                <div><small>DELIVERY</small><h2>저장 배송지</h2></div>
+                <button class="mini-button" type="button" id="add-address-button">+ 배송지</button>
+              </div>
+              <div class="address-list" id="address-list"></div>
             </article>
 
             <article class="panel danger-panel">
@@ -433,6 +464,57 @@
         </label>
         <div class="modal-feedback is-hidden" id="stock-form-feedback" role="alert" aria-live="assertive"></div>
         <button class="button button-accent button-block" type="submit" id="stock-submit-button">재고 반영</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal cart-modal" id="cart-dialog" aria-labelledby="cart-dialog-title">
+      <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
+      <div class="cart-modal-heading">
+        <div><p class="eyebrow">Your point bag</p><h2 id="cart-dialog-title">장바구니</h2></div>
+        <button class="text-button text-danger" type="button" id="clear-cart-button">전체 비우기</button>
+      </div>
+      <div class="cart-list" id="cart-list" aria-live="polite"></div>
+      <footer class="cart-summary">
+        <span>총 <strong id="cart-total-quantity">0</strong>개</span>
+        <strong id="cart-total-amount">0 P</strong>
+        <button class="button button-accent" type="button" id="checkout-button">주문하기</button>
+      </footer>
+    </dialog>
+
+    <dialog class="modal compact-modal" id="checkout-dialog" aria-labelledby="checkout-dialog-title">
+      <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
+      <div class="product-modal-heading">
+        <p class="eyebrow">Cart checkout</p>
+        <h2 id="checkout-dialog-title">배송지를 확인해 주세요</h2>
+        <p class="modal-note">장바구니 상품을 한 번에 주문합니다.</p>
+      </div>
+      <form id="checkout-form" class="stack-form compact-modal-body">
+        <label>
+          <span>저장 배송지</span>
+          <select name="addressId" required></select>
+        </label>
+        <div class="checkout-address-preview" id="checkout-address-preview"></div>
+        <div class="checkout-total"><span>결제 예정 포인트</span><strong id="checkout-total">0 P</strong></div>
+        <button class="button button-accent button-block" type="submit">전체 주문하기</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal compact-modal" id="address-dialog" aria-labelledby="address-dialog-title">
+      <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
+      <div class="product-modal-heading">
+        <p class="eyebrow">Saved delivery</p>
+        <h2 id="address-dialog-title">배송지 저장</h2>
+      </div>
+      <form id="address-form" class="stack-form compact-modal-body">
+        <input type="hidden" name="addressId" />
+        <label><span>배송지 이름</span><input name="addressName" maxlength="50" required placeholder="집" /></label>
+        <label><span>받는 사람</span><input name="recipientName" maxlength="100" required /></label>
+        <label><span>연락처</span><input name="phoneNumber" maxlength="30" pattern="[0-9+() -]{7,30}" required placeholder="010-1234-5678" /></label>
+        <label><span>우편번호</span><input name="postalCode" maxlength="20" required /></label>
+        <label><span>기본 주소</span><input name="addressLine1" maxlength="300" required /></label>
+        <label><span>상세 주소</span><input name="addressLine2" maxlength="300" /></label>
+        <label class="checkbox-row"><input name="defaultAddress" type="checkbox" /><span>기본 배송지로 설정</span></label>
+        <button class="button button-dark button-block" type="submit" id="address-submit-button">배송지 저장</button>
       </form>
     </dialog>
 
