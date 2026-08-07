@@ -162,6 +162,12 @@ PRODUCTION_DEPLOY_ENABLED=true
 실행하고 이미지 게시와 EC2 배포는 건너뜁니다. Docker Hub, EC2, 도메인과 최초
 인증서 설정을 마친 뒤 활성화합니다.
 
+최초 배포에서는 GitHub Actions의 `Deploy production` 워크플로를 수동 실행하고
+`bootstrap_tls=true`를 선택합니다. 이 실행은 HTTP 전용 Nginx로 Let's Encrypt
+인증서를 먼저 발급한 뒤 같은 불변 이미지와 릴리스 구성으로 정상 HTTPS 배포까지
+이어갑니다. 인증서가 발급된 이후의 main push와 수동 실행은 기본값
+`bootstrap_tls=false`로 일반 배포를 수행합니다.
+
 main push 배포는 다음 순서로 동작합니다.
 
 1. Java 21 테스트, 프론트 검사와 릴리스 흐름 시뮬레이션을 실행합니다.
