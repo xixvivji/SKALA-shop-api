@@ -113,6 +113,7 @@ Validation, 인증·인가와 비즈니스 오류는 같은 JSON 형식을 사�
 | 403 | `ACCESS_DENIED` | 역할 또는 CSRF 권한 부족 |
 | 404 | `DATA_NOT_FOUND` | 대상 리소스 없음 |
 | 409 | `DATA_DUPLICATED` | 고유 데이터 중복 |
+| 409 | `CONCURRENT_MODIFICATION` | 다른 요청이 먼저 같은 데이터를 변경함 |
 | 409 | `IDEMPOTENCY_CONFLICT` | 같은 키를 다른 명령에 재사용 |
 | 409 | `INSUFFICIENT_FUNDS` | 포인트 부족 |
 | 409 | `INSUFFICIENT_STOCK` | 재고 부족 |
@@ -132,7 +133,6 @@ Validation, 인증·인가와 비즈니스 오류는 같은 JSON 형식을 사�
 - `POST /api/orders/cancellations`
 - `POST /api/payments`
 - `POST /api/payments/{paymentId}/approve`
-- `POST /api/admin/payments/{paymentId}/refunds`
 - `POST /api/returns`
 - `PUT /api/admin/returns/{returnId}/status`
 - `POST /api/products/{productId}/stock`
@@ -148,7 +148,7 @@ await fetch("/api/orders", {
     "X-Idempotency-Key": crypto.randomUUID(),
   },
   body: JSON.stringify({
-    items: [{ productId, quantity: 2 }],
+    items: [{ productId, variantId, quantity: 2 }],
     shippingAddress,
   }),
 });
@@ -156,6 +156,24 @@ await fetch("/api/orders", {
 
 네트워크 오류로 같은 명령을 재시도할 때는 새 UUID를 만들지 않고 기존 키와 동일한
 본문을 사용합니다. 같은 키에 다른 본문을 보내면 `409 IDEMPOTENCY_CONFLICT`입니다.
+배송 전 부분 취소는 주문 조회 응답의 항목 ID를 사용합니다.
+
+```javascript
+await fetch("/api/orders/cancellations", {
+  method: "POST",
+  credentials: "include",
+  headers: {
+    "Content-Type": "application/json",
+    "X-XSRF-TOKEN": csrf.token,
+    "X-Idempotency-Key": crypto.randomUUID(),
+  },
+  body: JSON.stringify({ orderItemId, quantity: 1 }),
+});
+```
+
+결제 승인과 반품 상태 변경도 같은 키·같은 요청에는 최초 응답을 재생합니다. 이미
+환불되거나 다음 상태로 전이된 뒤 재시도해도 현재 상태를 섞어 반환하거나 정산을
+반복하지 않습니다.
 
 ## 7. Pagination과 검색
 
@@ -236,4 +254,6 @@ Fake PG가 필요한 주문은 `PAYMENT_PENDING`으로 생성한 뒤 결제를 �
 
 배송 전 취소는 기존 주문 취소 API를 사용합니다. 배송 완료 후에는 주문 항목별로
 반품을 신청하고 관리자가 회수·검수·승인 또는 거절 상태를 변경합니다. 최종
-`REFUNDED`에서 결제 수단별 환불과 재고 복원이 완료됩니다.
+`REFUNDED`에서 결제 수단별 환불과 재고 복원이 완료됩니다. 배송 전 취소 역시 주문
+항목에 배분된 실제 결제액을 기준으로 포인트와 Fake PG를 나누어 환급합니다. 결제
+원장만 바꾸는 관리자 직접 환불 API는 제공하지 않습니다.

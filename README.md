@@ -31,13 +31,13 @@
 - 상품 설명, 이미지 URL과 초기 재고 관리
 - 재고 증감 조정과 변경 이력 조회
 - 고객·전체 주문 조회
-- 결제 이력·재처리·환불과 반품 회수·검수·승인 관리
+- 결제 이력·재처리와 반품 회수·검수·승인·환불 관리
 - Elasticsearch 전체 상품 재색인
 - `PAID → PREPARING → SHIPPED → DELIVERED` 배송 상태와 운송장·예상 배송일 관리
 
 ### 안정성
 
-- 주문·취소·재고 명령의 UUID 멱등성
+- 주문·취소·결제·반품·재고 명령의 UUID 멱등성과 최초 결과 재생
 - 포인트 차감, 재고 예약과 주문 저장의 단일 트랜잭션
 - 결제 원장, PG 거래 ID, 승인·환불 멱등성과 Fake PG 중복 웹훅 처리
 - Transactional Outbox, Kafka 발행 재시도와 DEAD 상태 보존
@@ -88,7 +88,7 @@ Kafka와 Elasticsearch는 별도 EC2에서 실행하고 애플리케이션 보�
 ```text
 .
 ├── src/main/java/com/skala/shopping/   # 도메인 모듈과 Spring Boot 코드
-├── src/main/resources/                 # profile 설정과 Flyway V1~V24
+├── src/main/resources/                 # profile 설정과 Flyway V1~V26
 ├── src/test/                           # 단위·통합·모듈 경계 테스트
 ├── frontend/                           # Vercel 정적 프론트와 Playwright E2E
 ├── deploy/                             # EC2 Compose, Nginx, Certbot, 배포·롤백
@@ -105,6 +105,9 @@ Kafka와 Elasticsearch는 별도 EC2에서 실행하고 애플리케이션 보�
 3. [프론트엔드 구조와 실행](frontend/README.md)
 4. [테스트 전략](docs/testing.md)
 5. [EC2 운영과 배포](deploy/README.md)
+
+DB 구조는 [도메인 ERD](docs/erd/skala-shopping-erd-overview.svg)와
+[전체 테이블 ERD](docs/erd/skala-shopping-erd-full.svg)에서 바로 확인할 수 있습니다.
 
 ## 백엔드 모듈
 
@@ -194,7 +197,7 @@ Repository는 해당 모듈의 DB 접근을 담당합니다. JPA Entity를 HTTP 
 
 - 정확한 HTTP operation 수와 계약은 실행 중인 `/v3/api-docs`를 기준으로 합니다.
 - 상태 변경 요청은 CSRF 토큰과 `credentials: "include"`가 필요합니다.
-- 주문·취소와 재고 초기화·조정은 `X-Idempotency-Key` UUID가 필수입니다.
+- 주문·취소·결제·반품과 재고 초기화·조정은 `X-Idempotency-Key` UUID가 필수입니다.
 - 목록의 `page`는 0부터 시작하며 `size`는 1~100입니다.
 - 모든 API 오류는 `code`, `message`, `status`, `timestamp`, `fieldErrors` 형식입니다.
 - 관리자 API는 `ADMIN`, 고객 주문·장바구니·포인트 API는 `CUSTOMER` 역할이 필요합니다.
@@ -218,11 +221,11 @@ npm --prefix frontend ci
 npm --prefix frontend run test:e2e
 ```
 
-현재 백엔드 103개 테스트와 데스크톱·모바일 브라우저 E2E가 모듈 경계, 인증,
-Validation, PostgreSQL 트랜잭션, 동시 주문, 멱등 재시도, 프론트 고객·관리자 흐름을
-검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를 변경하므로
-명시적으로 활성화할 때만 실행합니다. 자세한 구분은 [테스트 전략](docs/testing.md)에
-정리했습니다.
+현재 백엔드 125개 테스트와 데스크톱·모바일 브라우저 E2E 10개가 모듈 경계, 인증,
+Validation, PostgreSQL 트랜잭션, 동시 주문·반품, 멱등 재시도와 프론트 고객·관리자
+흐름을 검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를
+변경하므로 명시적으로 활성화할 때만 실행합니다. 자세한 구분은
+[테스트 전략](docs/testing.md)에 정리했습니다.
 
 ## GitFlow와 배포
 

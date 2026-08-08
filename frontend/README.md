@@ -1,8 +1,8 @@
 # SKALA Shop Frontend
 
 프레임워크 없이 HTML, CSS와 ES Module JavaScript로 구현한 쇼핑몰 프론트입니다.
-Spring Boot API의 고객·관리자 기능을 모두 연결하고 Vercel에 정적 사이트로
-배포합니다.
+Spring Boot API의 주요 고객 흐름과 운영 관리 화면을 연결하고 Vercel에 정적
+사이트로 배포합니다.
 
 - 운영 주소: <https://skala-shop-bice.vercel.app>
 - 진입 파일: [`index.html`](index.html)
@@ -14,7 +14,7 @@ Spring Boot API의 고객·관리자 기능을 모두 연결하고 Vercel에 정
 
 ### 고객
 
-- 상품 검색, 카테고리·가격 필터와 재고 표시
+- 상품 검색, 카테고리·가격 필터, SKU 옵션 선택과 옵션별 재고 표시
 - 회원가입·로그인·비밀번호 재설정
 - 장바구니, 저장 배송지와 다중 상품 주문
 - 단일·장바구니 주문 쿠폰 적용과 할인 결제액 표시
@@ -29,6 +29,7 @@ Spring Boot API의 고객·관리자 기능을 모두 연결하고 Vercel에 정
 - 초기 재고와 재고 증감 조정
 - 고객과 전체 주문 조회
 - 배송 상태, 택배사·운송장과 변경 이력 조회
+- 반품 회수·검수·승인·거절·환불 상태 관리
 
 데스크톱과 모바일에서 같은 HTML을 사용하며 860px 이하에서는 하단 navigation과
 모바일 카드 레이아웃으로 전환합니다. 키보드 tab 이동, dialog focus 복원,
@@ -90,7 +91,9 @@ python3 -m http.server 3000 --directory frontend
 ```
 
 따라서 기본 운영 구성에는 Vercel의 `SKALA_API_BASE_URL` 환경변수가 필요하지
-않습니다. 외부 API Origin을 직접 호출하도록 변경할 때만 HTTPS 주소를 설정합니다.
+않습니다. 운영 인증은 Vercel의 같은 Origin rewrite를 기준으로 하며, API Origin을
+브라우저에서 직접 호출하려면 쿠키의 Domain·SameSite와 CORS 구성을 함께 바꿔야
+합니다.
 
 API 주소는 정적 파일에 노출되는 공개 설정입니다. DB 비밀번호, JWT secret,
 Docker Hub token이나 AWS 자격 증명을 프론트 환경변수에 넣으면 안 됩니다.
@@ -101,26 +104,30 @@ Docker Hub token이나 AWS 자격 증명을 프론트 환경변수에 넣으면 
 
 - 모든 요청에 `credentials: "include"`
 - 상태 변경 전에 CSRF token 발급과 `X-XSRF-TOKEN` 전송
+- 401 응답 시 Refresh Cookie로 한 번 갱신한 뒤 원래 요청 재시도
 - 403 CSRF 실패 시 토큰을 한 번 새로 받아 재시도
 - JSON과 204 응답 구분
 - 공통 `ApiError` 변환과 field error 보존
 - 주문·취소·재고용 UUID 명령 키 생성
 
-`js/app.js`는 API 결과를 상태에 반영하고 DOM을 다시 그립니다. 초기 세션 복구와
-새 로그인 요청이 경합하지 않도록 generation과 session snapshot을 비교합니다.
-화면이 1분 이상 숨겨졌다가 다시 보이면 현재 인증을 재확인합니다.
+`js/app.js`는 API 결과를 상태에 반영하고 DOM을 다시 그립니다. 초기 세션 복구,
+장바구니·배송지·주문·포인트·관리자·반품 요청이 계정 전환과 경합하지 않도록
+generation과 session snapshot을 비교합니다. 이전 계정의 늦은 401과 이전 상품의
+리뷰 응답도 현재 화면을 덮지 않습니다. 화면이 1분 이상 숨겨졌다가 다시 보이면
+현재 인증을 재확인합니다.
 
 ## 상품 데이터
 
 상품 응답은 다음 정보를 화면에 사용합니다.
 
 ```text
-id, name, price, status, categoryId, description, imageUrl, stock
+id, name, price, status, categoryId, description, imageUrl, variants, variant stock
 ```
 
 `imageUrl`은 HTTP/HTTPS만 화면에 사용하며 값이 없거나 올바르지 않으면 상품명의
-첫 글자와 CSS tone을 표시합니다. 품절·판매 중지 상품의 담기와 주문 버튼은
-비활성화하고 재고가 바뀌면 목록을 다시 읽습니다.
+첫 글자와 CSS tone을 표시합니다. 옵션 상품은 주문 가능한 SKU를 명시적으로 선택한
+뒤 담거나 주문할 수 있습니다. 품절·판매 중지 SKU는 선택과 주문을 막고 재고가
+바뀌면 목록을 다시 읽습니다.
 
 ## 인증 UX
 
@@ -151,8 +158,9 @@ npx --prefix frontend playwright install chromium
 npm --prefix frontend run test:e2e
 ```
 
-Desktop Chrome과 Pixel 5 viewport에서 고객·관리자 흐름을 검사합니다. API 응답을
-테스트 안에서 모킹하므로 로컬 백엔드가 없어도 실행할 수 있습니다.
+Desktop Chrome과 Pixel 5 viewport에서 고객·관리자 흐름 10개를 검사합니다. 옵션
+선택·품절 차단, Fake PG 승인, 계정 전환 중 늦은 401, 리뷰 요청 경합도 포함합니다.
+API 응답을 테스트 안에서 모킹하므로 로컬 백엔드가 없어도 실행할 수 있습니다.
 
 실제 운영 E2E:
 
