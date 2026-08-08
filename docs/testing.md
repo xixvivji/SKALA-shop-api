@@ -24,7 +24,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 ./gradlew test
 ```
 
-현재 125개 테스트가 다음을 포함합니다.
+현재 126개 테스트가 다음을 포함합니다.
 
 - Spring Modulith 모듈 경계
 - Flyway V1~V26 적용과 JPA schema validation

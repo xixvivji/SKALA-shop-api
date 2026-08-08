@@ -221,7 +221,7 @@ npm --prefix frontend ci
 npm --prefix frontend run test:e2e
 ```
 
-현재 백엔드 125개 테스트와 데스크톱·모바일 브라우저 E2E 10개가 모듈 경계, 인증,
+현재 백엔드 126개 테스트와 데스크톱·모바일 브라우저 E2E 10개가 모듈 경계, 인증,
 Validation, PostgreSQL 트랜잭션, 동시 주문·반품, 멱등 재시도와 프론트 고객·관리자
 흐름을 검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를
 변경하므로 명시적으로 활성화할 때만 실행합니다. 자세한 구분은
