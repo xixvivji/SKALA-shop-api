@@ -21,6 +21,11 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
     List<OrderItem> findAllByOrderIdInOrderByOrderIdAscLineNumberAsc(Collection<UUID> orderIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select item from OrderItem item where item.id = :itemId and item.orderId = :orderId")
+    java.util.Optional<OrderItem> findByIdAndOrderIdForUpdate(
+            @Param("itemId") UUID itemId, @Param("orderId") UUID orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select item
             from OrderItem item

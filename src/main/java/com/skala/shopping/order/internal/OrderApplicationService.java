@@ -12,6 +12,8 @@ import com.skala.shopping.order.OrderStatusHistoryView;
 import com.skala.shopping.order.OrderView;
 import com.skala.shopping.order.PurchasedProductView;
 import com.skala.shopping.order.PaymentOrderView;
+import com.skala.shopping.order.ReturnableOrderItemView;
+import com.skala.shopping.order.ReturnSettlementView;
 import com.skala.shopping.order.ShippingAddressCommand;
 import com.skala.shopping.order.ShippingAddressView;
 import com.skala.shopping.order.internal.domain.OrderCancellation;
@@ -173,6 +175,51 @@ public class OrderApplicationService implements OrderApi {
         }
         order.failPayment(restoredBalance, clock.instant());
         return toCreationView(order);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ReturnableOrderItemView getReturnableItem(UUID memberId, UUID orderId, UUID orderItemId) {
+        ShopOrder order = orderRepository.findByIdAndMemberId(orderId, memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
+        if (order.fulfillmentStatus() != FulfillmentStatus.DELIVERED) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송 완료 주문만 반품할 수 있습니다.");
+        }
+        OrderItem item = itemRepository.findById(orderItemId)
+                .filter(candidate -> candidate.orderId().equals(orderId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문 항목을 찾을 수 없습니다."));
+        BigDecimal pointRatio = order.totalAmount().signum() == 0 ? BigDecimal.ZERO
+                : order.pointUsedAmount().divide(order.totalAmount(), 8, RoundingMode.DOWN);
+        return new ReturnableOrderItemView(orderId, item.id(), memberId, item.productId(),
+                item.productName(), item.availableQuantity(),
+                item.refundableAmount(item.availableQuantity()), pointRatio);
+    }
+
+    @Override
+    @Transactional
+    public ReturnSettlementView settleReturn(UUID memberId, UUID orderId, UUID orderItemId,
+                                             int quantity, BigDecimal refundAmount,
+                                             BigDecimal pointRefundAmount, UUID commandId) {
+        requirePositiveQuantity(quantity);
+        ShopOrder order = lockedMemberOrder(memberId, orderId);
+        if (order.fulfillmentStatus() != FulfillmentStatus.DELIVERED) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송 완료 주문만 반품 정산할 수 있습니다.");
+        }
+        OrderItem item = itemRepository.findByIdAndOrderIdForUpdate(orderItemId, orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문 항목을 찾을 수 없습니다."));
+        if (refundAmount == null || pointRefundAmount == null || refundAmount.signum() < 0
+                || pointRefundAmount.signum() < 0 || pointRefundAmount.compareTo(refundAmount) > 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "반품 정산 금액이 올바르지 않습니다.");
+        }
+        item.returnQuantity(quantity, refundAmount);
+        BigDecimal balance = pointRefundAmount.signum() == 0
+                ? pointManager.balance(memberId)
+                : pointManager.credit(memberId, pointRefundAmount, orderId, commandId);
+        stockManager.release(item.productId(), quantity, commandId);
+        boolean fullyReturned = itemRepository.findAllByOrderIdOrderByLineNumberAsc(orderId)
+                .stream().allMatch(candidate -> candidate.availableQuantity() == 0);
+        order.applyCancellation(refundAmount, fullyReturned, clock.instant());
+        return new ReturnSettlementView(refundAmount, pointRefundAmount, balance);
     }
 
     @Override
