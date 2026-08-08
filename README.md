@@ -116,8 +116,8 @@ HTTPS API로 전달하므로 브라우저에서 별도 API 주소나 mixed-conte
 않습니다. 애플리케이션 EC2에는 Backend, Redis, Nginx와 Certbot이 실행됩니다.
 Kafka와 Elasticsearch는 별도 EC2에서 실행하고 애플리케이션 보안 그룹에서 들어오는
 사설망 트래픽만 허용하며, DB는 외부에 공개하지 않은 RDS를 사용합니다.
-모니터링 배포가 반영되면 Prometheus와 Grafana는 애플리케이션 EC2의 같은 내부
-네트워크에서 실행합니다. Prometheus는 외부 포트를 열지 않고 Backend의 9090
+Prometheus와 Grafana는 애플리케이션 EC2의 같은 내부 네트워크에서 실행합니다.
+Prometheus는 외부 포트를 열지 않고 Backend의 9090
 management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자체 로그인을
 통해 접근합니다.
 
