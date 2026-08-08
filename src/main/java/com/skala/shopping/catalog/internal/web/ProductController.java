@@ -3,7 +3,9 @@ package com.skala.shopping.catalog.internal.web;
 import com.skala.shopping.catalog.internal.ProductApplicationService;
 import com.skala.shopping.catalog.internal.web.dto.request.CreateProductRequest;
 import com.skala.shopping.catalog.internal.web.dto.request.UpdateProductRequest;
+import com.skala.shopping.catalog.internal.web.dto.request.CreateProductVariantRequest;
 import com.skala.shopping.catalog.internal.web.dto.response.ProductResponse;
+import com.skala.shopping.catalog.internal.web.dto.response.ProductVariantResponse;
 import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,6 +20,7 @@ import jakarta.validation.constraints.Min;
 import java.net.URI;
 import java.util.UUID;
 import java.math.BigDecimal;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -58,6 +61,32 @@ class ProductController {
     @Operation(summary = "상품 단건 조회")
     ProductResponse getProduct(@PathVariable UUID productId) {
         return ProductResponse.from(service.getProduct(productId));
+    }
+
+    @GetMapping("/{productId}/variants")
+    @Operation(summary = "상품 옵션 목록 조회")
+    List<ProductVariantResponse> getVariants(@PathVariable UUID productId) {
+        return service.getVariants(productId).stream().map(ProductVariantResponse::new).toList();
+    }
+
+    @PostMapping("/{productId}/variants")
+    @Operation(summary = "상품 옵션 등록", security = {@SecurityRequirement(name = "cookieAuth")})
+    ResponseEntity<ProductVariantResponse> createVariant(
+            @PathVariable UUID productId,
+            @Valid @RequestBody CreateProductVariantRequest request
+    ) {
+        ProductVariantResponse response = new ProductVariantResponse(service.createVariant(
+                productId, request.getSku(), request.getOptionName(), request.getOptionValue(),
+                request.getAdditionalPrice(), request.getInitialQuantity()));
+        return ResponseEntity.created(URI.create("/api/products/" + productId + "/variants/" + response.getId()))
+                .body(response);
+    }
+
+    @DeleteMapping("/{productId}/variants/{variantId}")
+    @Operation(summary = "상품 옵션 삭제", security = {@SecurityRequirement(name = "cookieAuth")})
+    ResponseEntity<Void> deleteVariant(@PathVariable UUID productId, @PathVariable UUID variantId) {
+        service.deleteVariant(productId, variantId);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping

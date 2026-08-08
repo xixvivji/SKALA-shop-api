@@ -60,10 +60,10 @@ class CartController {
                     content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     CartView add(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CartItemRequest request) {
-        return service.addItem(memberId(jwt), request.getProductId(), request.getQuantity());
+        return service.addItem(memberId(jwt), request.getProductId(), request.getVariantId(), request.getQuantity());
     }
 
-    @PutMapping("/items/{productId}")
+    @PutMapping("/items/{variantId}")
     @Operation(summary = "장바구니 상품 수량 변경")
     @ApiResponses({
             @ApiResponse(responseCode = "400", description = "상품 ID 또는 수량 오류",
@@ -75,13 +75,13 @@ class CartController {
     })
     CartView update(
             @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID productId,
+            @PathVariable UUID variantId,
             @Valid @RequestBody UpdateCartItemRequest request
     ) {
-        return service.updateItem(memberId(jwt), productId, request.getQuantity());
+        return service.updateItem(memberId(jwt), variantId, request.getQuantity());
     }
 
-    @DeleteMapping("/items/{productId}")
+    @DeleteMapping("/items/{variantId}")
     @Operation(summary = "장바구니 상품 삭제")
     @ApiResponses({
             @ApiResponse(responseCode = "400", description = "상품 ID 오류",
@@ -89,8 +89,8 @@ class CartController {
             @ApiResponse(responseCode = "404", description = "장바구니 상품을 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    CartView remove(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID productId) {
-        return service.removeItem(memberId(jwt), productId);
+    CartView remove(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID variantId) {
+        return service.removeItem(memberId(jwt), variantId);
     }
 
     @DeleteMapping

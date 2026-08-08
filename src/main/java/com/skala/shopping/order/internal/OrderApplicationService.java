@@ -171,7 +171,7 @@ public class OrderApplicationService implements OrderApi {
                 ? pointManager.balance(memberId)
                 : pointManager.credit(memberId, order.pointUsedAmount(), orderId, paymentId);
         for (OrderItem item : itemRepository.findAllByOrderIdOrderByLineNumberAsc(orderId)) {
-            stockManager.release(item.productId(), item.availableQuantity(), paymentId);
+            stockManager.release(item.variantId(), item.availableQuantity(), paymentId);
         }
         order.failPayment(restoredBalance, clock.instant());
         return toCreationView(order);
@@ -215,7 +215,7 @@ public class OrderApplicationService implements OrderApi {
         BigDecimal balance = pointRefundAmount.signum() == 0
                 ? pointManager.balance(memberId)
                 : pointManager.credit(memberId, pointRefundAmount, orderId, commandId);
-        stockManager.release(item.productId(), quantity, commandId);
+        stockManager.release(item.variantId(), quantity, commandId);
         boolean fullyReturned = itemRepository.findAllByOrderIdOrderByLineNumberAsc(orderId)
                 .stream().allMatch(candidate -> candidate.availableQuantity() == 0);
         order.applyCancellation(refundAmount, fullyReturned, clock.instant());
@@ -395,7 +395,7 @@ public class OrderApplicationService implements OrderApi {
             BigDecimal requestedPointAmount
     ) {
         List<OrderProduct> products = lines.stream()
-                .map(line -> productReader.getSaleableProduct(line.getProductId()))
+                .map(line -> productReader.getSaleableProduct(line.getProductId(), line.getVariantId()))
                 .toList();
         BigDecimal originalAmount = BigDecimal.ZERO;
         for (int index = 0; index < lines.size(); index++) {
@@ -427,7 +427,7 @@ public class OrderApplicationService implements OrderApi {
             return replayOrder(concurrentReplay.get(), fingerprint);
         }
         for (OrderLineCommand line : lines) {
-            stockManager.reserve(line.getProductId(), line.getQuantity(), orderId);
+            stockManager.reserve(line.getVariantId(), line.getQuantity(), orderId);
         }
         var now = clock.instant();
         ShopOrder order = orderRepository.save(new ShopOrder(
@@ -453,7 +453,8 @@ public class OrderApplicationService implements OrderApi {
         for (int index = 0; index < lines.size(); index++) {
             OrderProduct product = products.get(index);
             itemRepository.save(new OrderItem(
-                    orderId, product.getId(), product.getName(), product.getPrice(),
+                    orderId, product.getId(), product.getVariantId(), product.getSku(),
+                    product.getOptionName(), product.getOptionValue(), product.getName(), product.getPrice(),
                     lines.get(index).getQuantity(), paidAmounts.get(index), index));
         }
         if (paymentAmount.signum() == 0 && coupon.getCouponId() != null) {
@@ -533,6 +534,7 @@ public class OrderApplicationService implements OrderApi {
         UUID cancellationId = UUID.randomUUID();
         int remaining = quantity;
         BigDecimal refund = BigDecimal.ZERO;
+        Map<UUID, Integer> releasedByVariant = new LinkedHashMap<>();
         var now = clock.instant();
         for (OrderItem item : items) {
             if (remaining == 0) {
@@ -551,6 +553,7 @@ public class OrderApplicationService implements OrderApi {
                     .allMatch(orderItem -> orderItem.availableQuantity() == 0);
             order.applyCancellation(itemRefund, orderFullyCanceled, now);
             refund = refund.add(itemRefund);
+            releasedByVariant.merge(item.variantId(), canceled, Integer::sum);
             remaining -= canceled;
         }
 
@@ -562,7 +565,8 @@ public class OrderApplicationService implements OrderApi {
         if (concurrentReplay.isPresent()) {
             return replayCancellation(concurrentReplay.get(), fingerprint);
         }
-        stockManager.release(productId, quantity, cancellationId);
+        releasedByVariant.forEach((variantId, releasedQuantity) ->
+                stockManager.release(variantId, releasedQuantity, cancellationId));
         OrderCancellation cancellation = cancellationRepository.save(new OrderCancellation(
                 cancellationId,
                 commandId,
@@ -658,12 +662,12 @@ public class OrderApplicationService implements OrderApi {
             }
             requirePositiveQuantity(item.getQuantity());
         }
-        long distinct = items.stream().map(OrderLineCommand::getProductId).distinct().count();
+        long distinct = items.stream().map(OrderLineCommand::getVariantId).distinct().count();
         if (distinct != items.size()) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "같은 상품은 주문에 한 번만 포함할 수 있습니다.");
         }
         return items.stream()
-                .sorted(Comparator.comparing(line -> line.getProductId().toString()))
+                .sorted(Comparator.comparing(line -> line.getVariantId().toString()))
                 .toList();
     }
 

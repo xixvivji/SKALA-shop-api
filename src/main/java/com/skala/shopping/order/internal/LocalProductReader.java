@@ -14,8 +14,9 @@ class LocalProductReader implements ProductReader {
     }
 
     @Override
-    public OrderProduct getSaleableProduct(UUID productId) {
-        var product = catalogApi.getSaleableProduct(productId);
-        return new OrderProduct(product.getId(), product.getName(), product.getPrice());
+    public OrderProduct getSaleableProduct(UUID productId, UUID variantId) {
+        var product = catalogApi.getSaleableVariant(productId, variantId);
+        return new OrderProduct(product.getProductId(), product.getId(), product.getSku(),
+                product.getOptionName(), product.getOptionValue(), product.getDisplayName(), product.getPrice());
     }
 }

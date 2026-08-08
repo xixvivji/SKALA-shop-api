@@ -11,6 +11,7 @@ import com.skala.shopping.catalog.ProductCreated;
 import com.skala.shopping.catalog.ProductSnapshot;
 import com.skala.shopping.catalog.internal.domain.Product;
 import com.skala.shopping.catalog.internal.domain.ProductStatus;
+import com.skala.shopping.catalog.internal.domain.ProductVariant;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
 import java.math.BigDecimal;
@@ -36,18 +37,23 @@ class ProductApplicationServiceTests {
     private ProductRepository repository;
 
     @Mock
+    private ProductVariantRepository variantRepository;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     private ProductApplicationService service;
 
     @BeforeEach
     void setUp() {
-        service = new ProductApplicationService(repository, eventPublisher);
+        service = new ProductApplicationService(repository, variantRepository, eventPublisher);
     }
 
     @Test
     void acceptsMaximumSafePriceWhenCreatedWithoutController() {
         when(repository.save(any(Product.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(variantRepository.save(any(ProductVariant.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         ProductSnapshot product = service.createProduct("안전 가격 상품", MAX_PRODUCT_PRICE, 1);

@@ -1622,6 +1622,50 @@ class ShoppingJourneyIntegrationTests {
     }
 
     @Test
+    void ordersProductVariantWithIndependentPriceAndStock() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID productId = createProduct(admin, unique("variant-product"), "10000", 2);
+        MvcResult createdVariant = mockMvc.perform(post("/api/products/{productId}/variants", productId)
+                        .with(csrf()).cookie(copy(admin)).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sku":"SHOE-BLACK-270","optionName":"색상/사이즈",
+                                 "optionValue":"BLACK / 270","additionalPrice":2000,"initialQuantity":3}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.price").value(12000))
+                .andReturn();
+        UUID variantId = UUID.fromString(objectMapper.readTree(
+                createdVariant.getResponse().getContentAsString()).get("id").asText());
+        CustomerSession customer = registerAndLogin("variant-customer");
+
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(copy(customer.authCookie))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"productId":"%s","variantId":"%s","quantity":2}
+                                """.formatted(productId, variantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].variantId").value(variantId.toString()))
+                .andExpect(jsonPath("$.items[0].sku").value("SHOE-BLACK-270"))
+                .andExpect(jsonPath("$.totalAmount").value(24000));
+
+        mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"items":[{"productId":"%s","variantId":"%s","quantity":2}]}
+                                """.formatted(productId, variantId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.items[0].variantId").value(variantId.toString()))
+                .andExpect(jsonPath("$.items[0].optionValue").value("BLACK / 270"))
+                .andExpect(jsonPath("$.totalAmount").value(24000));
+
+        mockMvc.perform(get("/api/products/{productId}/stock", variantId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.availableQuantity").value(1));
+        mockMvc.perform(get("/api/products/{productId}/stock", productId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.availableQuantity").value(2));
+    }
+
+    @Test
     void supportsCartSavedAddressMultiItemOrderFulfillmentAndLedgers() throws Exception {
         Cookie admin = loginAdmin();
         UUID first = createProduct(admin, unique("multi-first"), "10000", 10);

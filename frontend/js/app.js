@@ -960,10 +960,10 @@ function renderCart() {
           </div>
           <label class="cart-quantity">
             <span class="visually-hidden">${escapeHtml(item.productName)} 수량</span>
-            <input type="number" min="1" max="${Math.max(1, Number(item.availableQuantity))}" value="${Number(item.quantity)}" data-cart-quantity="${escapeHtml(item.productId)}" />
+            <input type="number" min="1" max="${Math.max(1, Number(item.availableQuantity))}" value="${Number(item.quantity)}" data-cart-quantity="${escapeHtml(item.variantId || item.productId)}" />
           </label>
           <strong>${points(item.lineAmount)}</strong>
-          <button class="text-button text-danger" type="button" data-cart-remove="${escapeHtml(item.productId)}">삭제</button>
+          <button class="text-button text-danger" type="button" data-cart-remove="${escapeHtml(item.variantId || item.productId)}">삭제</button>
         </article>
       `,
     )
@@ -1685,7 +1685,7 @@ async function completeFakePayment(order, testCardNumber) {
   return { ...order, status: "PAID", fulfillmentStatus: "PAID" };
 }
 
-function openOrder(product) {
+async function openOrder(product) {
   if (!isCustomer()) {
     if (isAdmin()) {
       showToast("관리자는 주문할 수 없습니다", "CUSTOMER 계정으로 로그인해 주세요.", "error");
@@ -1705,17 +1705,29 @@ function openOrder(product) {
   }
 
   const form = $("#order-form");
-  const maxOrderQuantity = Math.max(1, Number(product.stock.maxOrderQuantity || 1));
   form.elements.productId.value = product.id;
+  let variants;
+  try {
+    variants = await shopApi.productVariants(product.id);
+  } catch (error) {
+    showApiError(error, "상품 옵션을 불러오지 못했습니다.");
+    return;
+  }
+  const variantSelect = form.elements.variantId;
+  variantSelect.innerHTML = variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${Number(variant.price)}">${escapeHtml(variant.optionValue || "기본 옵션")} · ${money(variant.price)} P</option>`).join("");
+  $("#order-variant-field").classList.toggle("is-hidden", variants.length <= 1);
+  const selected = variants[0];
+  const selectedStock = selected?.id === product.id ? product.stock : await shopApi.stock(selected.id);
+  const maxOrderQuantity = Math.max(1, Number(selectedStock?.maxOrderQuantity || 1));
   form.elements.quantity.value = 1;
   form.elements.couponCode.value = "";
   form.elements.pointAmount.value = "";
   form.elements.testCardNumber.value = "4242-4242-4242-4242";
   form.elements.quantity.max = maxOrderQuantity;
   $("#order-quantity-label").textContent = `주문 수량 · 최대 ${maxOrderQuantity}개`;
-  form.dataset.unitPrice = product.price;
+  form.dataset.unitPrice = selected?.price ?? product.price;
   $("#order-product-name").textContent = product.name;
-  $("#order-product-price").textContent = points(product.price);
+  $("#order-product-price").textContent = points(selected?.price ?? product.price);
   const imageUrl = safeImageUrl(product.imageUrl);
   $("#order-product-visual").innerHTML = imageUrl
     ? `<img src="${escapeHtml(imageUrl)}" alt="" />`
@@ -1982,7 +1994,7 @@ function bindProducts() {
     const edit = event.target.closest("[data-product-edit]");
     const remove = event.target.closest("[data-product-delete]");
 
-    if (buy) openOrder(productById(buy.dataset.productBuy));
+    if (buy) await openOrder(productById(buy.dataset.productBuy));
     if (reviews) await openReviews(productById(reviews.dataset.productReviews));
     if (wishlist) {
       try {
@@ -2240,9 +2252,27 @@ function bindForms() {
       updateOrderTotal();
     });
   });
+  orderForm.elements.variantId.addEventListener("change", async () => {
+    const selected = orderForm.elements.variantId.selectedOptions[0];
+    if (!selected) return;
+    try {
+      const stock = await shopApi.stock(selected.value);
+      const max = Math.max(1, Number(stock.maxOrderQuantity || 1));
+      orderForm.elements.quantity.max = max;
+      orderForm.elements.quantity.value = Math.min(Number(orderForm.elements.quantity.value || 1), max);
+      orderForm.dataset.unitPrice = selected.dataset.price;
+      $("#order-product-price").textContent = points(selected.dataset.price);
+      $("#order-quantity-label").textContent = `주문 수량 · 최대 ${max}개`;
+      refreshOrderCommand();
+      updateOrderTotal();
+    } catch (error) {
+      showApiError(error, "옵션 재고를 확인하지 못했습니다.");
+    }
+  });
   orderForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const productId = orderForm.elements.productId.value;
+    const variantId = orderForm.elements.variantId.value || null;
     const quantity = Number(orderForm.elements.quantity.value);
     const couponCode = orderForm.elements.couponCode.value.trim();
     const rawPointAmount = orderForm.elements.pointAmount.value.trim();
@@ -2250,7 +2280,7 @@ function bindForms() {
     const commandKey = elements.orderDialog.dataset.commandKey;
     try {
       const pendingOrder = await withLoading("주문과 결제를 준비하고 있습니다", () =>
-        shopApi.order(productId, quantity, couponCode, pointAmount, commandKey),
+        shopApi.order(productId, quantity, couponCode, pointAmount, commandKey, variantId),
       );
       const order = await withLoading("Fake PG 결제를 승인하고 있습니다", () =>
         completeFakePayment(pendingOrder, orderForm.elements.testCardNumber.value),
@@ -2403,6 +2433,7 @@ function bindForms() {
     }
     const items = state.cart.items.map((item) => ({
       productId: item.productId,
+      variantId: item.variantId,
       quantity: Number(item.quantity),
     }));
     const shippingAddress = {

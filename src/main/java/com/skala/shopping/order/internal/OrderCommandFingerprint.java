@@ -33,8 +33,8 @@ final class OrderCommandFingerprint {
     static String order(UUID memberId, List<OrderLineCommand> items, ShippingAddressCommand address,
                         String couponCode, BigDecimal pointAmount) {
         String lines = items.stream()
-                .sorted(java.util.Comparator.comparing(line -> line.getProductId().toString()))
-                .map(line -> line.getProductId() + ":" + line.getQuantity())
+                .sorted(java.util.Comparator.comparing(line -> line.getVariantId().toString()))
+                .map(line -> line.getProductId() + ":" + line.getVariantId() + ":" + line.getQuantity())
                 .collect(java.util.stream.Collectors.joining(","));
         String shipping = address == null ? "" : String.join("|",
                 address.getRecipientName(), address.getPhoneNumber(), address.getPostalCode(),
