@@ -22,6 +22,8 @@ jobs:
           cache: gradle
       - name: Test
         run: ./gradlew test --no-daemon
+      - name: Validate public Docker demo
+        run: docker compose -f compose.demo.yml config --quiet
       - name: Simulate deployment release flow
         run: sh deploy/tests/release-flow-test.sh
 

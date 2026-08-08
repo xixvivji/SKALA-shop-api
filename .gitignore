@@ -4,6 +4,7 @@ out/
 .idea/
 *.iml
 .env
+.env.demo
 deploy/.env.app
 deploy/.env.infra
 deploy/.release
