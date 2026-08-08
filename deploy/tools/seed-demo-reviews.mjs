@@ -11,6 +11,12 @@ const argumentsMap = new Map(
 const apiUrl = requiredEnvironment("SKALA_API_BASE_URL");
 const origin = confirmedOrigin(apiUrl, argumentsMap.get("--confirm-origin") || "");
 const runId = `${Date.now().toString(36)}${randomUUID().slice(0, 5)}`;
+const startIndex = Number.parseInt(argumentsMap.get("--start-index") || "0", 10);
+const requestedCount = Number.parseInt(
+  argumentsMap.get("--count") || String(6 - startIndex),
+  10,
+);
+const delayMilliseconds = Number.parseInt(argumentsMap.get("--delay-ms") || "13000", 10);
 
 const reviewers = [
   {
@@ -57,6 +63,23 @@ const reviewers = [
   },
 ];
 
+if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex >= reviewers.length) {
+  throw new Error(`--start-index는 0부터 ${reviewers.length - 1} 사이여야 합니다.`);
+}
+if (!Number.isInteger(requestedCount) || requestedCount < 1
+    || startIndex + requestedCount > reviewers.length) {
+  throw new Error(`--count는 선택 가능한 리뷰어 범위 안의 양수여야 합니다.`);
+}
+if (!Number.isInteger(delayMilliseconds) || delayMilliseconds < 0) {
+  throw new Error("--delay-ms는 0 이상의 정수여야 합니다.");
+}
+
+const selectedReviewers = reviewers.slice(startIndex, startIndex + requestedCount);
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 function commandHeaders() {
   return { "X-Idempotency-Key": randomUUID() };
 }
@@ -74,7 +97,7 @@ async function orderableCatalog(client) {
       }
     }
   }
-  if (result.length < reviewers.length * 2) {
+  if (result.length < (startIndex + selectedReviewers.length) * 2) {
     throw new Error(`리뷰용 주문 가능 상품이 부족합니다: ${result.length}개`);
   }
   return result;
@@ -83,7 +106,8 @@ async function orderableCatalog(client) {
 const catalogClient = new ApiClient(origin);
 const catalog = await orderableCatalog(catalogClient);
 
-for (const [reviewerIndex, reviewer] of reviewers.entries()) {
+for (const [selectionIndex, reviewer] of selectedReviewers.entries()) {
+  const reviewerIndex = startIndex + selectionIndex;
   const client = new ApiClient(origin);
   const loginId = `showcase_${runId}_${reviewerIndex + 1}`.slice(0, 50);
   const password = `Showcase-${randomUUID()}-pw`;
@@ -140,6 +164,9 @@ for (const [reviewerIndex, reviewer] of reviewers.entries()) {
   }
 
   await client.request("/api/customers/logout", { method: "POST" }).catch(() => {});
+  if (selectionIndex < selectedReviewers.length - 1 && delayMilliseconds > 0) {
+    await wait(delayMilliseconds);
+  }
 }
 
-console.log(`demo review seed completed: ${reviewers.length} customers, ${reviewers.length * 2} reviews`);
+console.log(`demo review seed completed: ${selectedReviewers.length} customers, ${selectedReviewers.length * 2} reviews`);
