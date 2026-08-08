@@ -24,15 +24,19 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 ./gradlew test
 ```
 
-현재 90개 테스트가 다음을 포함합니다.
+현재 103개 테스트가 다음을 포함합니다.
 
 - Spring Modulith 모듈 경계
-- Flyway V1~V20 적용과 JPA schema validation
-- 회원가입·로그인·로그아웃·권한·CSRF·BCrypt
+- Flyway V1~V24 적용과 JPA schema validation
+- 회원가입·로그인·로그아웃·Refresh Token 회전·권한·CSRF·BCrypt
 - Validation과 공통 오류 JSON 계약
 - 로그인·회원가입·비밀번호 초기화 요청 제한
 - 상품·카테고리·재고·장바구니·배송지
-- 다중 상품 주문, 부분 취소, 배송 상태와 포인트 원장
+- SKU 기반 다중 상품 주문, 부분 취소, 배송 상태와 포인트 원장
+- Fake PG 준비·승인·실패·중복 웹훅·재처리와 부분 환불
+- 배송 후 반품 상태 머신, 결제 수단별 환불과 재고 복원
+- Outbox 성공·재시도·DEAD 처리와 Kafka 발행 계약
+- Elasticsearch 색인·검색과 PostgreSQL 장애 폴백
 - 쿠폰 사용 이력, 할인 결제액 기준 환불과 쿠폰 재사용 방지
 - 구매 인증 리뷰, 공개 응답 개인정보 비노출과 리뷰 권한
 - 재입고 이벤트 알림 상태와 배송 추적 부분 수정

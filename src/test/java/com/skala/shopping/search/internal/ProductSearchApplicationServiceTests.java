@@ -1,5 +1,6 @@
 package com.skala.shopping.search.internal;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any; import static org.mockito.Mockito.*;
 import com.skala.shopping.catalog.CatalogApi; import com.skala.shopping.catalog.ProductSearchChanged;
 import com.skala.shopping.catalog.ProductSnapshot; import java.math.BigDecimal; import java.util.UUID;
@@ -15,5 +16,16 @@ class ProductSearchApplicationServiceTests {
         verify(repository).save(any(ProductSearchDocument.class));
         service.update(new ProductSearchChanged(product,true));
         verify(repository).deleteById(id.toString());
+    }
+
+    @Test
+    void searchIndexFailureDoesNotPreventApplicationStartup() {
+        ElasticsearchOperations operations = mock(ElasticsearchOperations.class);
+        when(operations.indexOps(ProductSearchDocument.class))
+                .thenThrow(new IllegalStateException("search unavailable"));
+        ProductSearchApplicationService service = new ProductSearchApplicationService(
+                mock(ProductSearchDocumentRepository.class), mock(CatalogApi.class), operations);
+
+        assertDoesNotThrow(service::initializeIndex);
     }
 }

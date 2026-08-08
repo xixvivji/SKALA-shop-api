@@ -13,8 +13,18 @@ class ProductSearchApplicationService {
     private static final Logger log=LoggerFactory.getLogger(ProductSearchApplicationService.class);
     private final ProductSearchDocumentRepository repository; private final CatalogApi catalog; private final ElasticsearchOperations operations;
     ProductSearchApplicationService(ProductSearchDocumentRepository repository,CatalogApi catalog,ElasticsearchOperations operations){this.repository=repository;this.catalog=catalog;this.operations=operations;}
-    @EventListener(ApplicationReadyEvent.class) void initializeIndex(){var index=operations.indexOps(ProductSearchDocument.class);
-        if(!index.exists())index.createWithMapping();}
+    @EventListener(ApplicationReadyEvent.class)
+    void initializeIndex() {
+        try {
+            var index = operations.indexOps(ProductSearchDocument.class);
+            if (!index.exists()) {
+                index.createWithMapping();
+            }
+        } catch (RuntimeException exception) {
+            // 검색 장애가 주문·회원 API의 시작까지 막지 않으며 조회 시 PostgreSQL로 폴백합니다.
+            log.error("product_search_index_initialization_failed", exception);
+        }
+    }
     PageResponse<ProductSearchResponse> search(String query,int page,int size){try{var result=repository
             .findByNameContainingOrDescriptionContaining(query,query,PageRequest.of(page,size));
         return new PageResponse<>(result.getContent().stream().map(ProductSearchResponse::new).toList(),
