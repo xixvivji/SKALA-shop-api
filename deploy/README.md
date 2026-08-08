@@ -10,7 +10,7 @@
 | Event platform | 별도 EC2, Apache Kafka KRaft single node |
 | Search platform | 별도 EC2, Elasticsearch single node |
 | Database | 비공개 RDS PostgreSQL 17 |
-| Monitoring | 배포 적용 예정: Prometheus·Grafana, Application EC2 내부 Compose |
+| Monitoring | Prometheus·Grafana, Application EC2 내부 Compose |
 | Edge/TLS | Nginx와 Certbot 컨테이너 |
 | Image | Docker Hub digest 고정 이미지 |
 | CD | GitHub OIDC + AWS Systems Manager |
@@ -416,7 +416,7 @@ Nginx는 6시간마다 인증서를 다시 읽도록 reload합니다. Certbot에
 
 ## 8. Prometheus와 Grafana
 
-모니터링 릴리스가 운영에 반영되면 Prometheus가 30초마다 Backend의 내부
+Prometheus는 30초마다 Backend의 내부
 `http://backend:9090/actuator/prometheus`를 수집하고 Grafana가 이를 dashboard로
 보여줍니다. Prometheus와 Grafana는 host port가 없으며 Grafana만 다음 HTTPS 경로로
 접근합니다.

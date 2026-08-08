@@ -120,12 +120,14 @@ jobs:
           BACKEND_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}@${{ steps.build.outputs.digest }}
           DEMO_API_PORT: "18080"
         run: |
+          DEMO_SMOKE_DIR="$(mktemp -d)"
           cleanup() {
             exit_code=$?
             if [ "$exit_code" -ne 0 ]; then
               docker compose -f compose.demo.yml logs --no-color || true
             fi
             docker compose -f compose.demo.yml down -v --remove-orphans || true
+            rm -rf "$DEMO_SMOKE_DIR" || true
             exit "$exit_code"
           }
           trap cleanup EXIT
@@ -133,9 +135,22 @@ jobs:
           # 게시 계정의 자격 증명을 지운 뒤 공개 pull 경로 자체를 검증합니다.
           docker logout
           docker compose -f compose.demo.yml up -d --wait
-          curl --fail --silent http://127.0.0.1:18080/actuator/health | grep -q '"status":"UP"'
-          curl --fail --silent http://127.0.0.1:18080/v3/api-docs | grep -q '"openapi"'
-          curl --fail --silent http://127.0.0.1:18080/actuator/prometheus | grep -q '^# HELP http_server_requests'
+          curl --fail --silent --show-error \
+            --output "$DEMO_SMOKE_DIR/health.json" \
+            http://127.0.0.1:18080/actuator/health
+          grep -q '"status":"UP"' "$DEMO_SMOKE_DIR/health.json"
+
+          curl --fail --silent --show-error \
+            --output "$DEMO_SMOKE_DIR/openapi.json" \
+            http://127.0.0.1:18080/v3/api-docs
+          grep -q '"openapi"' "$DEMO_SMOKE_DIR/openapi.json"
+
+          # 긴 Prometheus 응답을 pipe로 넘기면 grep -q가 먼저 종료하면서
+          # pipefail이 curl의 broken pipe(23)를 실패로 판단할 수 있습니다.
+          curl --fail --silent --show-error \
+            --output "$DEMO_SMOKE_DIR/prometheus.txt" \
+            http://127.0.0.1:18080/actuator/prometheus
+          grep -q '^# HELP http_server_requests' "$DEMO_SMOKE_DIR/prometheus.txt"
       - name: Restore Docker Hub credentials for tag promotion
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
