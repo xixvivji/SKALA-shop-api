@@ -97,7 +97,7 @@ shopping:
       login-id: ${BOOTSTRAP_ADMIN_LOGIN_ID:}
       password: ${BOOTSTRAP_ADMIN_PASSWORD:}
     rate-limit:
-      # 단일 EC2 인스턴스용 인메모리 제한입니다. 다중 인스턴스 전환 시 공유 저장소 구현이 필요합니다.
+      # local 기본값은 memory이고 prod profile은 여러 인스턴스가 공유할 수 있는 Redis를 사용합니다.
       enabled: ${AUTH_RATE_LIMIT_ENABLED:true}
       store: ${AUTH_RATE_LIMIT_STORE:memory}
       # 서로 다른 IP·계정 키가 과도하게 쌓이면 새 키 요청을 429로 차단합니다.
