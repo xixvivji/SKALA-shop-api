@@ -302,7 +302,48 @@ Search Service는 Kafka Consumer, 검색 API와 Elasticsearch 색인 책임을 �
 Docker 이미지와 프로세스로 배포합니다. 나머지 도메인은 현재 모듈러 모놀리스에
 유지합니다. 이 구성은 현재 배포에는 적용되어 있지 않습니다.
 
-## 9. Flyway 변경 규칙
+## 9. 운영 관측 구조
+
+운영 profile은 사용자 API와 관리 트래픽을 같은 포트에 두지 않습니다. Backend는
+8080에서 API를 제공하고, Actuator health와 Prometheus 메트릭은 Docker 내부
+management 포트 9090에만 매핑합니다.
+
+```mermaid
+flowchart LR
+    N[Nginx] -->|exact /actuator/health| M[Backend management :9090]
+    P[Prometheus] -->|/actuator/prometheus| M
+    GR[Grafana] -->|PromQL| P
+    N -->|/grafana/| GR
+    X[Public request] -. 404 .-> PM[/actuator/prometheus/]
+```
+
+Prometheus와 Grafana는 Backend·Redis와 같은 애플리케이션 EC2의 Docker 내부
+network에서 실행하며 호스트 port를 열지 않습니다. Nginx는 공개 health endpoint
+하나만 management 포트로 전달하고 `/actuator/prometheus`를 포함한 나머지 Actuator
+경로는 외부에서 404로 처리합니다. Grafana는 `/grafana/`로 접근하지만 자체 로그인이
+필수이며 anonymous access와 사용자 가입은 비활성화합니다.
+
+Micrometer 기본 meter를 사용해 HTTP 요청 수·상태·지연 시간, JVM·process·system과
+HikariCP 상태를 수집합니다. `application=skala-shop-api` 공통 tag를 사용하고 사용자
+ID나 주문 ID 같은 높은 cardinality 값은 label로 추가하지 않습니다. Prometheus는
+데이터를 3일 또는 512MB까지 보존하고, Grafana에는 Backend overview dashboard와
+Prometheus datasource를 provisioning합니다.
+
+애플리케이션 상태는 다음 낮은 cardinality counter로도 구분합니다.
+
+- `shopping_business_errors_total`: 공통 비즈니스 오류 code와 HTTP status
+- `shopping_payment_results_total`: 결제 승인 결과와 실패 code
+- `shopping_payment_refunds_total`: Fake PG 환불 결과
+- `shopping_payment_reconciliations_total`: 결제 재처리 결과
+- `shopping_payment_webhooks_total`: Fake PG webhook 처리 유형
+
+배포와 rollback은 컨테이너가 단순히 실행 중인지만 보지 않습니다. Prometheus와
+Grafana health가 정상이고 Prometheus API에서 `up{job="skala-shop-api"}=1`이 확인돼야
+edge를 전환합니다. 현재 구성은 한 EC2의 local volume을 사용하는 단일 node이므로
+모니터링 자체의 고가용성은 제공하지 않습니다. Alertmanager도 포함하지 않아 기존
+CloudWatch 인프라 alarm과 별개로 Grafana 화면을 확인하는 구조입니다.
+
+## 10. Flyway 변경 규칙
 
 - 적용된 마이그레이션은 수정·삭제하지 않고 새 버전을 추가합니다.
 - 새 마이그레이션은 가능하면 한 모듈의 테이블만 변경합니다.

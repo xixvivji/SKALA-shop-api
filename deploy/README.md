@@ -10,6 +10,7 @@
 | Event platform | 별도 EC2, Apache Kafka KRaft single node |
 | Search platform | 별도 EC2, Elasticsearch single node |
 | Database | 비공개 RDS PostgreSQL 17 |
+| Monitoring | 배포 적용 예정: Prometheus·Grafana, Application EC2 내부 Compose |
 | Edge/TLS | Nginx와 Certbot 컨테이너 |
 | Image | Docker Hub digest 고정 이미지 |
 | CD | GitHub OIDC + AWS Systems Manager |
@@ -124,6 +125,9 @@ flowchart LR
     B --> RD[(Redis container)]
     B --> K[Kafka EC2]
     B --> E[Elasticsearch EC2]
+    P[Prometheus] -->|management 9090 scrape| B
+    GR[Grafana] -->|PromQL| P
+    N -->|/grafana/| GR
     C[Certbot container] -->|renew certificate| N
     V[Vercel frontend] -->|HTTPS API| N
 ```
@@ -131,7 +135,8 @@ flowchart LR
 GitHub에 장기 AWS Access Key와 EC2 SSH key를 저장하지 않습니다. Actions는 GitHub
 OIDC로 배포 전용 IAM Role을 맡고 SSM Run Command를 전송합니다. 저장소가
 비공개이므로 EC2가 GitHub source archive를 직접 다운로드하지 않습니다. Workflow가
-`compose.prod.yml`, `nginx/`, `scripts/`만 압축해 SSM 명령 안으로 전달합니다.
+`compose.prod.yml`, `nginx/`, `monitoring/`, `scripts/`만 압축해 SSM 명령 안으로
+전달합니다.
 
 ## 2. EC2와 RDS 준비 조건
 
@@ -153,7 +158,9 @@ OIDC로 배포 전용 IAM Role을 맡고 SSM Run Command를 전송합니다. 저
 | 443 | `0.0.0.0/0` | 운영 API |
 | 22 | 관리자 IP `/32`만 | 수동 관리; 자동 배포는 SSM 사용 |
 
-Backend 8080과 PostgreSQL 5432는 인터넷에 공개하지 않습니다. Kafka 9092와
+Backend 8080, management 9090, Prometheus 9090, Grafana 3000과 PostgreSQL 5432는
+인터넷에 직접 공개하지 않습니다. Grafana는 기존 HTTPS 443의 `/grafana/` 경로만
+사용합니다. Kafka 9092와
 Elasticsearch 9200은 각각의 보안 그룹에서 Application EC2 보안 그룹만 source로
 허용합니다. 플랫폼 인스턴스의 public IP는 설치 편의를 위한 것이며 서비스 포트는
 인터넷에 열지 않습니다.
@@ -219,10 +226,13 @@ Elasticsearch 색인을 담당합니다.
 /opt/skala-shop/
 ├── deploy/
 │   ├── .env.infra            # 모든 릴리스가 공유하는 공개 인프라 설정
-│   └── .env.app              # Backend 비밀 환경변수
+│   ├── .env.app              # Backend 비밀 환경변수
+│   ├── grafana-admin-password # 최초 배포가 생성하는 mode 600 관리자 비밀번호
+│   └── grafana-secret-key     # Grafana 암호화용 mode 600 secret
 ├── releases/
 │   └── <release-id>/
 │       ├── compose.prod.yml
+│       ├── monitoring/
 │       ├── nginx/
 │       └── scripts/
 └── state/
@@ -379,8 +389,10 @@ node deploy/tools/verify-commerce-flow.mjs \
 
 | Service | 역할 |
 | --- | --- |
-| `backend` | Spring Boot API, 내부 8080 |
+| `backend` | Spring Boot API 8080, Actuator management 9090 |
 | `redis` | Refresh Session과 인증 요청 제한 공유 저장소 |
+| `prometheus` | 내부 management 메트릭 수집·단기 보존 |
+| `grafana` | Prometheus datasource와 Backend dashboard |
 | `nginx` | 80/443, TLS 종료, proxy와 IP rate limit |
 | `certbot-renew` | 12시간마다 인증서 갱신 확인 |
 | `nginx-bootstrap` | 최초 HTTP 인증서 발급 전용 profile |
@@ -402,7 +414,77 @@ Nginx는 6시간마다 인증서를 다시 읽도록 reload합니다. Certbot에
   '<dockerhub-user>/skala-shop-api@sha256:<64-hex-digest>'
 ```
 
-## 8. GitHub 설정
+## 8. Prometheus와 Grafana
+
+모니터링 릴리스가 운영에 반영되면 Prometheus가 30초마다 Backend의 내부
+`http://backend:9090/actuator/prometheus`를 수집하고 Grafana가 이를 dashboard로
+보여줍니다. Prometheus와 Grafana는 host port가 없으며 Grafana만 다음 HTTPS 경로로
+접근합니다.
+
+Dashboard는 HTTP 요청 수·상태·지연 시간, JVM heap·CPU, HikariCP connection과 함께
+비즈니스 오류, 결제 승인·실패, 환불·재처리와 Fake PG webhook counter를 보여줍니다.
+모든 meter에는 `application=skala-shop-api` 공통 label을 사용합니다.
+
+```text
+https://<API_DOMAIN>/grafana/
+```
+
+Grafana의 anonymous access와 사용자 가입은 꺼져 있습니다. 최초 관리자 ID는
+`admin`이고, 배포 script가 다음 파일을 mode 600으로 한 번 생성해 Compose secret으로
+전달합니다.
+
+```text
+/opt/skala-shop/deploy/grafana-admin-password
+/opt/skala-shop/deploy/grafana-secret-key
+```
+
+두 값은 Git, GitHub secret이나 보고서에 복사하지 않습니다. EC2의 `ubuntu` 사용자로
+접속한 상태에서 최초 로그인할 때만 관리자 비밀번호 파일을 확인하고, 로그인 후에는
+Grafana 화면에서 별도 비밀번호로 변경합니다. `grafana-secret-key`는 session과
+datasource secret 암호화에 계속 사용하므로 삭제하거나 임의 교체하지 않습니다. 기존
+`grafana-data` volume이 있는 상태에서 관리자 비밀번호 파일만 바꿔도 이미 생성된
+관리자 비밀번호는 바뀌지 않습니다.
+
+Application EC2는 약 2GiB RAM, swap 0인 소형 인스턴스입니다. 추가 container가
+Backend를 압박하지 않도록 Prometheus와 Grafana 각각에 다음 제한을 둡니다.
+
+| 항목 | Prometheus | Grafana |
+| --- | --- | --- |
+| memory limit | 192MiB | 256MiB |
+| memory reservation | 64MiB | 96MiB |
+| CPU limit | 0.50 | 0.50 |
+| 저장 정책 | 3일 또는 512MB | dashboard·사용자 DB volume |
+
+Prometheus는 기간과 용량 중 먼저 도달한 조건에 따라 오래된 데이터를 정리합니다.
+이 제한은 메모리 부족 가능성을 낮추지만 없애지는 않습니다. 배포 직후와 부하 테스트
+후에는 `free -m`, `docker stats --no-stream`, kernel OOM 기록을 확인하고 여유가
+부족하면 보존 기간을 더 줄이거나 인스턴스 크기를 올립니다.
+
+보안 경계는 다음과 같습니다.
+
+- 공개 `/actuator/health`만 Nginx가 Backend management 9090으로 정확히 전달합니다.
+- `/actuator/prometheus`와 나머지 Actuator 경로는 Nginx에서 404로 차단합니다.
+- Prometheus와 Grafana의 9090·3000은 EC2 security group과 host port에 열지 않습니다.
+- Grafana 화면은 Nginx TLS와 로그인 뒤에서만 제공하고 provisioning dashboard의 UI
+  임의 변경은 비활성화합니다.
+
+배포 script는 Prometheus `/-/healthy`, Grafana `/api/health`와 Prometheus query의
+`up{job="skala-shop-api"}=1`을 확인합니다. 하나라도 실패하면 해당 candidate를
+승격하지 않고 이전 known-good 릴리스로 복구합니다. 공개 경계는 다음 명령으로 다시
+확인할 수 있습니다.
+
+```bash
+curl --fail --silent https://api.example.com/grafana/api/health
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  https://api.example.com/actuator/prometheus)" = 404
+```
+
+현재 구성은 한 EC2와 local Docker volume을 사용하는 단일 node입니다. Prometheus와
+Grafana 자체의 고가용성, 장기 보관, Alertmanager 알림은 포함하지 않습니다. EC2·RDS
+리소스 alarm은 기존 CloudWatch가 담당하고 애플리케이션 요청 상태는 Grafana에서
+확인합니다.
+
+## 9. GitHub 설정
 
 ### Secrets
 
@@ -444,12 +526,13 @@ PRODUCTION_ADMIN_PASSWORD
 이 값은 운영 카탈로그 적재, 관리자 화면 확인과 결제·배송·반품 전체 흐름 검증에
 사용합니다. 일반 애플리케이션 배포에는 사용하지 않습니다.
 
-## 9. CI/CD 흐름
+## 10. CI/CD 흐름
 
 ```text
 feature push / PR
-→ Backend 103 tests
+→ Backend tests
 → Frontend static checks + desktop/mobile E2E
+→ Monitoring config validation
 → Release flow simulation
 → develop merge
 → main PR에서 전체 재검증
@@ -458,6 +541,7 @@ feature push / PR
 → GitHub OIDC
 → SSM으로 릴리스 파일 전달
 → Candidate Backend health
+→ Prometheus·Grafana health와 Backend scrape target UP
 → Candidate Nginx config test
 → live edge 전환과 nginx -t
 → current 승격
@@ -467,7 +551,7 @@ feature push / PR
 배포가 겹치면 취소하지 않고 순서대로 실행하며 EC2의 `flock`도 자동 배포, 수동
 배포, rollback과 TLS bootstrap을 직렬화합니다.
 
-## 10. 배포 상태와 rollback
+## 11. 배포 상태와 rollback
 
 현재 container 확인:
 
@@ -496,9 +580,9 @@ CURRENT_RELEASE_DIR=$(sed -n 's/^RELEASE_DIR=//p' /opt/skala-shop/state/current.
 "$CURRENT_RELEASE_DIR/scripts/rollback.sh"
 ```
 
-Candidate pull, Backend health, Nginx 검사 또는 edge 전환이 실패하면 Backend image와
-Compose/Nginx 구성을 같은 이전 릴리스로 복구합니다. 첫 배포에는 이전 릴리스가
-없어 자동 복구 대상도 없습니다.
+Candidate pull, Backend·Prometheus·Grafana health, Prometheus scrape, Nginx 검사
+또는 edge 전환이 실패하면 Backend image와 Compose/Nginx/monitoring 구성을 같은
+이전 릴리스로 복구합니다. 첫 배포에는 이전 릴리스가 없어 자동 복구 대상도 없습니다.
 
 `current.env`, `known-good.env`, `failed.env`가 가리키는 릴리스 디렉터리는 삭제하지
 않습니다. Flyway 변경은 image rollback으로 되돌아가지 않으므로 DB는
@@ -507,10 +591,11 @@ expand/contract와 forward-fix를 사용합니다.
 로컬에서 상태 전환을 검증합니다.
 
 ```bash
+sh deploy/tests/monitoring-config-test.sh
 sh deploy/tests/release-flow-test.sh
 ```
 
-## 11. 운영 확인
+## 12. 운영 확인
 
 읽기 전용 public smoke:
 
@@ -524,6 +609,8 @@ node deploy/tools/smoke-production.mjs
 
 - Vercel HTML
 - `/actuator/health`의 `UP`
+- `/grafana/api/health`의 database `ok`
+- 공개 `/actuator/prometheus`의 404
 - 카테고리와 상품 공개 API
 - OpenAPI JSON
 
@@ -534,7 +621,7 @@ GitHub의 `Production smoke` workflow도 동일한 검사를 수동 실행합니
 플랫폼 Compose를 변경하거나 인스턴스를 복구한 경우 `Deploy platform` workflow에서
 `kafka` 또는 `search`를 선택해 digest 고정 이미지를 SSM으로 다시 배포합니다.
 
-## 12. Proxy, CORS와 요청 제한
+## 13. Proxy, CORS와 요청 제한
 
 Vercel 기본 구성은 같은 Origin `/api` proxy를 사용합니다. API를 직접 다른
 Origin에서 호출한다면 Spring의 `CORS_ALLOWED_ORIGINS`와 Nginx의
@@ -545,7 +632,7 @@ Nginx와 애플리케이션은 로그인·회원가입·비밀번호 재설정�
 카운터를 저장합니다. ALB/CDN을 앞에 추가하면 trusted proxy와 real IP 설정을 먼저
 구성해야 올바른 client IP 기준으로 제한할 수 있습니다.
 
-## 13. 운영 체크리스트
+## 14. 운영 체크리스트
 
 현재 CloudWatch에는 Application/Kafka/Search EC2 각각의 status check 실패와 10분
 고CPU 알람, RDS의 10분 고CPU와 여유 저장공간 2GiB 미만 알람이 구성되어 있습니다.
@@ -566,6 +653,9 @@ Nginx와 애플리케이션은 로그인·회원가입·비밀번호 재설정�
 - [ ] Vercel production 반영
 - [ ] public smoke 성공
 - [ ] Swagger와 health 응답 확인
+- [ ] Grafana 로그인과 Backend dashboard 데이터 확인
+- [ ] Prometheus target `UP`, 외부 `/actuator/prometheus` 404 확인
+- [ ] `free -m`, `docker stats --no-stream`와 OOM 기록 확인
 - [ ] 오류율·디스크·Docker log 확인
 
 장애 시:
