@@ -5,6 +5,7 @@ import com.skala.shopping.catalog.ProductCreated;
 import com.skala.shopping.catalog.ProductDeleted;
 import com.skala.shopping.catalog.ProductSnapshot;
 import com.skala.shopping.catalog.ProductVariantSnapshot;
+import com.skala.shopping.catalog.ProductSearchChanged;
 import com.skala.shopping.catalog.internal.domain.Product;
 import com.skala.shopping.catalog.internal.domain.ProductStatus;
 import com.skala.shopping.catalog.internal.domain.ProductVariant;
@@ -157,6 +158,7 @@ public class ProductApplicationService implements CatalogApi {
                 product.getId(), product.getId(), "DEFAULT-" + product.getId(), null, null,
                 BigDecimal.ZERO.setScale(2), clock.instant()));
         eventPublisher.publishEvent(new ProductCreated(product.getId(), initialQuantity));
+        eventPublisher.publishEvent(new ProductSearchChanged(product, false));
         return product;
     }
 
@@ -179,12 +181,16 @@ public class ProductApplicationService implements CatalogApi {
         }
         product.update(normalizedName, price, clock.instant());
         product.updateDetails(categoryId, normalizeNullable(description), normalizeNullable(imageUrl), clock.instant());
-        return product.toSnapshot();
+        ProductSnapshot updated = product.toSnapshot();
+        eventPublisher.publishEvent(new ProductSearchChanged(updated, false));
+        return updated;
     }
 
     @Transactional
     public void deleteProduct(UUID productId) {
-        findProduct(productId).delete(clock.instant());
+        Product product=findProduct(productId);
+        ProductSnapshot deletedSnapshot=product.toSnapshot();
+        product.delete(clock.instant());
         // 마이그레이션 전에 생성되어 기본 SKU 행이 없는 레거시 상품도 재고를 반드시 비활성화합니다.
         eventPublisher.publishEvent(new ProductDeleted(productId));
         variantRepository.findAllByProductIdAndStatusNotOrderByCreatedAtAscIdAsc(productId, ProductStatus.DELETED)
@@ -193,6 +199,7 @@ public class ProductApplicationService implements CatalogApi {
                     variant.deactivate(clock.instant());
                     eventPublisher.publishEvent(new ProductDeleted(variant.id()));
                 });
+        eventPublisher.publishEvent(new ProductSearchChanged(deletedSnapshot, true));
     }
 
     private Product findProduct(UUID productId) {
