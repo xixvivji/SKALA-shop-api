@@ -2,29 +2,142 @@
   "categories": [
     {
       "name": "디지털",
-      "description": "일상과 업무를 가볍게 만드는 디지털 제품"
+      "description": "일과 휴식의 몰입도를 높이는 디지털 셀렉션"
     },
     {
-      "name": "라이프",
-      "description": "매일 사용하기 좋은 생활 제품"
+      "name": "리빙",
+      "description": "공간의 분위기와 쓰임을 채우는 리빙 아이템"
+    },
+    {
+      "name": "패션",
+      "description": "매일 편안하게 즐기는 데일리 패션"
+    },
+    {
+      "name": "아웃도어",
+      "description": "가벼운 나들이와 여행을 위한 실용적인 장비"
     }
   ],
   "products": [
     {
-      "productName": "SKALA 무선 키보드",
+      "productName": "Arc 무선 키보드",
       "productPrice": "89000.00",
-      "initialQuantity": 50,
+      "initialQuantity": 24,
       "categoryName": "디지털",
-      "description": "차분한 타건감과 간결한 배열을 갖춘 무선 키보드",
-      "imageUrl": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=1200&q=80"
+      "description": "차분한 타건감과 간결한 84키 배열, 최대 3대까지 연결되는 멀티 페어링 키보드",
+      "imageUrl": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "ARC-KB-IVORY", "optionName": "색상", "optionValue": "아이보리", "additionalPrice": "0.00", "initialQuantity": 18 },
+        { "sku": "ARC-KB-CHARCOAL", "optionName": "색상", "optionValue": "차콜", "additionalPrice": "5000.00", "initialQuantity": 14 }
+      ]
     },
     {
-      "productName": "데일리 텀블러",
+      "productName": "Pebble 무선 마우스",
+      "productPrice": "49000.00",
+      "initialQuantity": 32,
+      "categoryName": "디지털",
+      "description": "손 안에 편안하게 머무는 저소음 무선 마우스",
+      "imageUrl": "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "PEBBLE-MOUSE-WHITE", "optionName": "색상", "optionValue": "클라우드 화이트", "additionalPrice": "0.00", "initialQuantity": 28 },
+        { "sku": "PEBBLE-MOUSE-BLACK", "optionName": "색상", "optionValue": "매트 블랙", "additionalPrice": "0.00", "initialQuantity": 21 }
+      ]
+    },
+    {
+      "productName": "Studio 노이즈 캔슬링 헤드폰",
+      "productPrice": "219000.00",
+      "initialQuantity": 12,
+      "categoryName": "디지털",
+      "description": "선명한 사운드와 편안한 착용감을 갖춘 오버이어 헤드폰",
+      "imageUrl": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "STUDIO-HP-SILVER", "optionName": "색상", "optionValue": "미스트 실버", "additionalPrice": "0.00", "initialQuantity": 10 },
+        { "sku": "STUDIO-HP-NAVY", "optionName": "색상", "optionValue": "딥 네이비", "additionalPrice": "10000.00", "initialQuantity": 8 }
+      ]
+    },
+    {
+      "productName": "데일리 진공 텀블러",
       "productPrice": "32000.00",
-      "initialQuantity": 80,
-      "categoryName": "라이프",
+      "initialQuantity": 45,
+      "categoryName": "리빙",
       "description": "오래도록 온도를 유지하는 500ml 스테인리스 텀블러",
-      "imageUrl": "https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=1200&q=80"
+      "imageUrl": "https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "TUMBLER-500-SAND", "optionName": "색상", "optionValue": "샌드 베이지", "additionalPrice": "0.00", "initialQuantity": 35 },
+        { "sku": "TUMBLER-500-MINT", "optionName": "색상", "optionValue": "세이지 민트", "additionalPrice": "0.00", "initialQuantity": 30 }
+      ]
+    },
+    {
+      "productName": "Lume 테이블 램프",
+      "productPrice": "78000.00",
+      "initialQuantity": 20,
+      "categoryName": "리빙",
+      "description": "세 단계 밝기와 따뜻한 색온도로 공간을 채우는 무선 테이블 램프",
+      "imageUrl": "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "LUME-LAMP-CREAM", "optionName": "색상", "optionValue": "크림", "additionalPrice": "0.00", "initialQuantity": 16 },
+        { "sku": "LUME-LAMP-ORANGE", "optionName": "색상", "optionValue": "번트 오렌지", "additionalPrice": "4000.00", "initialQuantity": 11 }
+      ]
+    },
+    {
+      "productName": "Soft Grid 블랭킷",
+      "productPrice": "59000.00",
+      "initialQuantity": 26,
+      "categoryName": "리빙",
+      "description": "사계절 가볍게 덮기 좋은 코튼 혼방 니트 블랭킷",
+      "imageUrl": "https://images.unsplash.com/photo-1580301762395-21ce84d00bc6?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "GRID-BLANKET-S", "optionName": "사이즈", "optionValue": "소파 100×150", "additionalPrice": "0.00", "initialQuantity": 22 },
+        { "sku": "GRID-BLANKET-L", "optionName": "사이즈", "optionValue": "베드 150×200", "additionalPrice": "28000.00", "initialQuantity": 13 }
+      ]
+    },
+    {
+      "productName": "Essential 코튼 스웨트셔츠",
+      "productPrice": "68000.00",
+      "initialQuantity": 18,
+      "categoryName": "패션",
+      "description": "탄탄한 코튼 소재와 여유로운 실루엣의 데일리 스웨트셔츠",
+      "imageUrl": "https://images.unsplash.com/photo-1576566588028-4147f3842f27?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "ESS-SWEAT-M", "optionName": "사이즈", "optionValue": "M", "additionalPrice": "0.00", "initialQuantity": 20 },
+        { "sku": "ESS-SWEAT-L", "optionName": "사이즈", "optionValue": "L", "additionalPrice": "0.00", "initialQuantity": 18 },
+        { "sku": "ESS-SWEAT-XL", "optionName": "사이즈", "optionValue": "XL", "additionalPrice": "3000.00", "initialQuantity": 12 }
+      ]
+    },
+    {
+      "productName": "City 미니 크로스백",
+      "productPrice": "74000.00",
+      "initialQuantity": 22,
+      "categoryName": "패션",
+      "description": "필요한 소지품만 가볍게 담는 발수 나일론 미니백",
+      "imageUrl": "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "CITY-BAG-BLACK", "optionName": "색상", "optionValue": "블랙", "additionalPrice": "0.00", "initialQuantity": 20 },
+        { "sku": "CITY-BAG-KHAKI", "optionName": "색상", "optionValue": "카키", "additionalPrice": "0.00", "initialQuantity": 15 }
+      ]
+    },
+    {
+      "productName": "Trail 데이팩 22L",
+      "productPrice": "128000.00",
+      "initialQuantity": 15,
+      "categoryName": "아웃도어",
+      "description": "도심과 가벼운 하이킹을 모두 아우르는 22리터 데이팩",
+      "imageUrl": "https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "TRAIL-22-GRAY", "optionName": "색상", "optionValue": "스톤 그레이", "additionalPrice": "0.00", "initialQuantity": 13 },
+        { "sku": "TRAIL-22-GREEN", "optionName": "색상", "optionValue": "포레스트 그린", "additionalPrice": "0.00", "initialQuantity": 10 }
+      ]
+    },
+    {
+      "productName": "Picnic 폴딩 체어",
+      "productPrice": "54000.00",
+      "initialQuantity": 25,
+      "categoryName": "아웃도어",
+      "description": "한 손에 들리는 가벼운 무게와 안정적인 착좌감의 접이식 체어",
+      "imageUrl": "https://images.unsplash.com/photo-1504851149312-7a075b496cc7?auto=format&fit=crop&w=1200&q=85",
+      "variants": [
+        { "sku": "PICNIC-CHAIR-TAN", "optionName": "색상", "optionValue": "탄", "additionalPrice": "0.00", "initialQuantity": 23 },
+        { "sku": "PICNIC-CHAIR-NAVY", "optionName": "색상", "optionValue": "네이비", "additionalPrice": "0.00", "initialQuantity": 17 }
+      ]
     }
   ]
 }

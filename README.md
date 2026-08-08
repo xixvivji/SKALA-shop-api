@@ -244,6 +244,10 @@ feature/* → develop → main → production
 운영 환경변수, 최초 TLS, bootstrap 관리자, 초기 상품, smoke와 롤백 방법은
 [배포 문서](deploy/README.md)를 참고합니다.
 
+운영 카탈로그는 카테고리·상품 이미지·옵션 SKU·옵션별 재고를 seed로 관리합니다.
+`Production smoke` workflow에서 반복 적재한 뒤 회원가입 → 장바구니 → 카드 결제 →
+배송 완료 → 반품·환불까지 실제 운영 환경의 전체 흐름을 검증할 수 있습니다.
+
 ## 현재 제한과 다음 확장
 
 현재 요구한 쇼핑 흐름과 학습용 분산 인프라 구현을 완료했으므로 백엔드 기능 범위는
