@@ -230,8 +230,8 @@ BOOTSTRAP_ADMIN_PASSWORD=
 ## 6. 운영 초기 상품
 
 [`seed/catalog.example.json`](seed/catalog.example.json)을 복사해 카테고리·상품·
-초기 재고를 작성합니다. 도구는 이름이 이미 존재하는 항목을 건너뛰므로 반복
-실행할 수 있습니다.
+옵션 SKU·옵션별 초기 재고를 작성합니다. 도구는 카테고리명·상품명·SKU가 이미
+존재하면 건너뛰므로 반복 실행할 수 있습니다.
 
 관리자 비밀번호는 파일이나 shell history에 평문으로 남기지 말고 안전한 방식으로
 환경변수에 주입합니다.
@@ -247,6 +247,17 @@ node deploy/tools/bootstrap-catalog.mjs \
 
 `--confirm-origin`은 실수로 다른 서버의 데이터를 변경하지 않도록 API Origin과
 정확히 같아야 합니다. 작업 후 도구가 관리자 세션을 로그아웃합니다.
+
+결제부터 배송과 반품 환불까지 운영 전체 흐름을 점검하려면 다음 도구를 사용합니다.
+검증용 고객은 완료 여부와 관계없이 마지막에 비활성화됩니다.
+
+```bash
+SKALA_API_BASE_URL=https://api.example.com \
+SKALA_ADMIN_ID=<admin-id> \
+SKALA_ADMIN_PASSWORD=<securely-injected-password> \
+node deploy/tools/verify-commerce-flow.mjs \
+  --confirm-origin=https://api.example.com
+```
 
 ## 7. TLS와 container
 

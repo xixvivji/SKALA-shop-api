@@ -40,25 +40,44 @@ try {
   }
 
   const firstPage = await client.request("/api/products?page=0&size=100");
-  const productNames = new Set((firstPage.content || []).map((product) => product.name));
+  const productByName = new Map((firstPage.content || []).map((product) => [product.name, product]));
   for (const product of seed.products) {
-    if (productNames.has(product.productName)) {
-      console.log(`product exists: ${product.productName}`);
-      continue;
-    }
     const categoryId = product.categoryName
       ? categoryByName.get(product.categoryName)?.id
       : undefined;
     if (product.categoryName && !categoryId) {
       throw new Error(`상품 '${product.productName}'의 카테고리를 찾을 수 없습니다: ${product.categoryName}`);
     }
-    const { categoryName: _categoryName, ...body } = product;
-    const created = await client.request("/api/products", {
-      method: "POST",
-      body: { ...body, categoryId },
-    });
-    productNames.add(created.name);
-    console.log(`product created: ${created.name}`);
+    const { categoryName: _categoryName, variants = [], ...body } = product;
+    let savedProduct = productByName.get(product.productName);
+    if (savedProduct) {
+      console.log(`product exists: ${product.productName}`);
+    } else {
+      savedProduct = await client.request("/api/products", {
+        method: "POST",
+        body: { ...body, categoryId },
+      });
+      productByName.set(savedProduct.name, savedProduct);
+      console.log(`product created: ${savedProduct.name}`);
+    }
+
+    if (!Array.isArray(variants)) {
+      throw new Error(`상품 '${product.productName}'의 variants는 배열이어야 합니다.`);
+    }
+    const currentVariants = await client.request(`/api/products/${savedProduct.id}/variants`);
+    const variantSkus = new Set(currentVariants.map((variant) => variant.sku));
+    for (const variant of variants) {
+      if (variantSkus.has(variant.sku)) {
+        console.log(`variant exists: ${variant.sku}`);
+        continue;
+      }
+      const createdVariant = await client.request(`/api/products/${savedProduct.id}/variants`, {
+        method: "POST",
+        body: variant,
+      });
+      variantSkus.add(createdVariant.sku);
+      console.log(`variant created: ${createdVariant.sku}`);
+    }
   }
 } finally {
   await client.request("/api/customers/logout", { method: "POST" }).catch(() => {});

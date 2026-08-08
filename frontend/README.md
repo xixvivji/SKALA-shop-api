@@ -166,8 +166,9 @@ npm --prefix frontend run test:e2e:live
 ```
 
 이 검사는 실제 고객·주문 기록을 생성하므로 명시적으로 활성화할 때만 실행합니다.
-주문은 전량 취소하고 임시 고객은 비활성화합니다. 관리자 읽기 검사에는
-`SKALA_ADMIN_ID`, `SKALA_ADMIN_PASSWORD` 환경변수가 추가로 필요합니다.
+브라우저에서는 회원가입·장바구니·주문·취소를 확인하고, 운영 smoke workflow는
+결제·배송·반품·환불 전체 상태 전이까지 추가로 확인합니다. 임시 고객은 점검 후
+비활성화합니다. 전체 흐름에는 `SKALA_ADMIN_ID`, `SKALA_ADMIN_PASSWORD`가 필요합니다.
 
 전체 테스트 범위는 [테스트 전략](../docs/testing.md)을 참고합니다.
 
