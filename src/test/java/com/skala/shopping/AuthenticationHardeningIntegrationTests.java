@@ -140,6 +140,29 @@ class AuthenticationHardeningIntegrationTests {
     }
 
     @Test
+    void refreshesWithValidRefreshTokenEvenWhenAccessCookieIsInvalid() throws Exception {
+        String customerId = unique("refresh-invalid-access");
+        performRegistration(customerId, "203.0.113.35")
+                .andExpect(status().isCreated());
+        MvcResult login = performLogin(customerId, "customer-password", "203.0.113.36")
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie refreshCookie = login.getResponse().getCookie("bff-refresh");
+        assertNotNull(refreshCookie);
+
+        mockMvc.perform(post("/api/customers/refresh")
+                        .with(clientAddress("203.0.113.36"))
+                        .with(csrf())
+                        .cookie(
+                                new Cookie("bff-access", "expired-or-damaged-access-token"),
+                                copy(refreshCookie)
+                        ))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("bff-access=")))
+                .andExpect(jsonPath("$.customerId").value(customerId));
+    }
+
+    @Test
     void rotatesAdminPasswordAfterCurrentPasswordVerificationAndInvalidatesJwt() throws Exception {
         String oldPassword = "security-admin-password";
         String newPassword = "rotated-admin-password";
