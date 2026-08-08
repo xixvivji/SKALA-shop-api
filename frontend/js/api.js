@@ -257,6 +257,14 @@ export const shopApi = {
       body: { productId, quantity },
       idempotencyKey,
     }),
+  requestReturn: (payload, idempotencyKey = createCommandId()) =>
+    request("/api/returns", { method: "POST", body: payload, idempotencyKey }),
+  returns: () => request("/api/returns/me?page=0&size=100"),
+  adminReturns: () => request("/api/admin/returns?page=0&size=100"),
+  updateReturnStatus: (returnId, status, adminNote = "", idempotencyKey = createCommandId()) =>
+    request(`/api/admin/returns/${returnId}/status`, {
+      method: "PUT", body: { status, adminNote }, idempotencyKey,
+    }),
   members: (page = 0, size = 50) =>
     request(`/api/customers/list?page=${page}&size=${size}`),
   adminOrders: (page = 0, size = 20) =>
