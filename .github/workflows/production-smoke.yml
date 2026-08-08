@@ -93,3 +93,14 @@ jobs:
           node deploy/tools/bootstrap-catalog.mjs
           --seed=deploy/seed/catalog.example.json
           --confirm-origin=${{ vars.PRODUCTION_API_ORIGIN }}
+
+      - name: Load showcase catalog
+        if: ${{ inputs.load_catalog }}
+        env:
+          SKALA_API_BASE_URL: ${{ vars.PRODUCTION_API_ORIGIN }}
+          SKALA_ADMIN_ID: ${{ secrets.PRODUCTION_ADMIN_ID }}
+          SKALA_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_ADMIN_PASSWORD }}
+        run: >-
+          node deploy/tools/bootstrap-catalog.mjs
+          --seed=deploy/seed/catalog.showcase.json
+          --confirm-origin=${{ vars.PRODUCTION_API_ORIGIN }}

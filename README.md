@@ -2,8 +2,7 @@
 
 포인트와 Fake PG 결제를 지원하는 쇼핑몰을 Java 21, Spring Boot와 Vanilla JavaScript로
 구현한 모노레포입니다. 백엔드는 하나의 프로세스로 배포하지만 도메인별 경계를
-분명히 둔 **모듈러 모놀리식**이며, 필요한 모듈을 나중에 MSA로 분리할 수 있게
-공개 API와 데이터 소유권을 나눴습니다.
+분명히 둔 **모듈러 모놀리식**이며, 모듈별 공개 API와 데이터 소유권을 구분합니다.
 
 현재 Vercel 프론트, AWS EC2 백엔드와 비공개 RDS PostgreSQL까지 운영 배포되어
 있습니다.
@@ -245,24 +244,34 @@ feature/* → develop → main → production
 [배포 문서](deploy/README.md)를 참고합니다.
 
 운영 카탈로그는 카테고리·상품 이미지·옵션 SKU·옵션별 재고를 seed로 관리합니다.
-`Production smoke` workflow에서 반복 적재한 뒤 회원가입 → 장바구니 → 카드 결제 →
-배송 완료 → 반품·환불까지 실제 운영 환경의 전체 흐름을 검증할 수 있습니다.
+기본 카탈로그와 쇼케이스 카탈로그를 함께 적재하면 약 30개의 상품과 옵션 재고가
+구성됩니다. 구매·결제 이력이 있는 시연 회원과 리뷰 데이터도 별도 도구로 생성할 수
+있습니다. `Production smoke` workflow는 공개 API 확인, 카탈로그 적재, 회원가입 →
+장바구니 → 카드 결제 → 배송 완료 → 반품·환불까지 운영 환경의 전체 흐름을
+검증합니다.
 
-## 현재 제한과 다음 확장
+## Kafka 사용 방식
 
-현재 요구한 쇼핑 흐름과 학습용 분산 인프라 구현을 완료했으므로 백엔드 기능 범위는
-동결합니다. 이후 백엔드 변경은 보안 패치, 결함 수정, 의존성 유지보수와 운영
-안정성 개선을 원칙으로 하며, 새로운 도메인 기능은 명확한 요구가 생길 때만 별도
-범위로 검토합니다.
+주문 생성, 상품 생성과 재입고 이벤트는 원본 데이터 변경과 같은 PostgreSQL
+트랜잭션에서 `outbox.outbox_events`에 저장됩니다. Outbox Relay는 `PENDING` 이벤트를
+Kafka의 `skala-shop.domain-events` 토픽으로 발행하고 성공하면 `PUBLISHED`, 반복
+실패하면 `DEAD`로 상태를 변경합니다. aggregate ID를 Kafka key로 사용해 같은
+aggregate 이벤트의 partition 순서를 유지합니다.
 
-- 비밀번호 재설정은 교육용으로 고객 ID와 현재 이름을 확인합니다. 외부 서비스라면
-  이메일·휴대전화 소유 확인과 만료되는 일회용 토큰으로 교체해야 합니다.
-- 로컬 인증 요청 제한과 Refresh Session은 인메모리이며 운영은 Redis를 사용합니다.
-- 결제 경계·원장·실패·보상 흐름은 구현했지만 외부 결제는 교육용 Fake PG입니다.
-  실제 서비스에서는 PG sandbox/운영 API 어댑터와 웹훅 서명 검증으로 교체합니다.
-- Kafka와 Elasticsearch는 별도 인프라지만 검색 코드는 아직 같은 Spring Boot
-  프로세스에 있습니다. Search/Cart처럼 원자 트랜잭션에 덜 묶인 모듈부터 서비스로
-  추출하고, Payment·Inventory·Order는 Outbox·Saga 운영 경험을 확보한 뒤 분리합니다.
+현재 Kafka는 Outbox 이벤트의 발행·재시도·실패 보존 경로를 담당합니다. Kafka
+Consumer는 아직 없으며, Elasticsearch 상품 색인은 모듈러 모놀리스 내부의
+`ProductSearchChanged` 트랜잭션 이벤트가 처리합니다.
 
-구체적인 분리 순서와 데이터 소유권은 [아키텍처 문서](docs/architecture.md)의
-`MSA 전환 순서`를 참고합니다.
+## 선택적 확장 방향
+
+검색 기능을 독립 서비스로 분리할 때도 회원·주문·결제·재고 ERD와 기존 RDS 구조는
+유지합니다.
+
+1. 상품 변경 이벤트를 Outbox와 Kafka로 전달합니다.
+2. Search Service가 Kafka Consumer로 이벤트를 받아 Elasticsearch를 갱신합니다.
+3. Elasticsearch를 Search Service 전용 저장소로 사용합니다.
+4. Search Service를 별도 Docker 이미지와 프로세스로 독립 배포합니다.
+5. 나머지 도메인은 현재 모듈러 모놀리스에 유지합니다.
+
+이 구성이 적용되면 전체 시스템은 모듈러 모놀리스와 독립 Search Service가 함께
+동작하는 형태가 됩니다. 현재 배포에는 이 분리가 적용되어 있지 않습니다.
