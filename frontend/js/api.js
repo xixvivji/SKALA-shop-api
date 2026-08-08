@@ -211,6 +211,8 @@ export const shopApi = {
     if (maxPrice !== undefined && maxPrice !== "") parameters.set("maxPrice", maxPrice);
     return request(`/api/products?${parameters.toString()}`);
   },
+  searchProducts: (query, page = 0, size = 100) =>
+    request(`/api/search/products?${new URLSearchParams({ query, page, size }).toString()}`),
   categories: () => request("/api/categories"),
   register: (payload) => request("/api/customers", { method: "POST", body: payload }),
   resetPassword: (payload) =>

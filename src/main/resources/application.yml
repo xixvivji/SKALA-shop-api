@@ -59,6 +59,8 @@ management:
         http.server.requests: true
 
 shopping:
+  search:
+    enabled: ${SEARCH_ENABLED:false}
   outbox:
     relay-enabled: ${OUTBOX_RELAY_ENABLED:false}
     poll-interval: ${OUTBOX_POLL_INTERVAL:1s}

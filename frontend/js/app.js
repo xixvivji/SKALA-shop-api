@@ -1251,11 +1251,17 @@ async function loadProducts({ append = false } = {}) {
   state.productsLoading = true;
   renderProducts();
   try {
-    const page = await shopApi.products({
-      page: targetPage,
-      size: PRODUCT_PAGE_SIZE,
-      ...state.productFilters,
-    });
+    let page;
+    const searchOnly = state.productFilters.query && !state.productFilters.categoryId
+      && !state.productFilters.minPrice && !state.productFilters.maxPrice;
+    if (searchOnly) {
+      try {
+        page = await shopApi.searchProducts(state.productFilters.query, targetPage, PRODUCT_PAGE_SIZE);
+      } catch (error) {
+        if (![404, 503].includes(error?.status)) throw error;
+      }
+    }
+    page ||= await shopApi.products({ page: targetPage, size: PRODUCT_PAGE_SIZE, ...state.productFilters });
     const products = page.content || [];
     let stocksByProductId = new Map();
     try {
