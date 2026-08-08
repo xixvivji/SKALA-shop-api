@@ -29,6 +29,11 @@ public final class CreateOrderRequest {
     private List<OrderLineRequest> items;
 
     @Valid
+    @NotNull
+    @Schema(
+            description = "주문 시점에 저장할 필수 배송지",
+            requiredMode = Schema.RequiredMode.REQUIRED
+    )
     private ShippingAddressRequest shippingAddress;
 
     private String couponCode;

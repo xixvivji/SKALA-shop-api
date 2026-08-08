@@ -48,7 +48,7 @@ class ReviewController {
     }
 
     @PostMapping("/api/products/{productId}/reviews")
-    @Operation(summary = "상품 리뷰 등록/수정")
+    @Operation(summary = "상품 리뷰 등록/수정", description = "구매한 상품의 평점과 내용을 등록하거나 기존 리뷰를 수정합니다.")
     ReviewResponse write(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID productId,
@@ -58,7 +58,7 @@ class ReviewController {
     }
 
     @GetMapping("/api/products/{productId}/reviews/me")
-    @Operation(summary = "내 리뷰 조회")
+    @Operation(summary = "내 리뷰 조회", description = "로그인한 고객이 해당 상품에 작성한 리뷰를 조회합니다.")
     ReviewResponse getMine(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID productId
@@ -67,7 +67,7 @@ class ReviewController {
     }
 
     @GetMapping("/api/products/{productId}/reviews")
-    @Operation(summary = "상품 리뷰 목록")
+    @Operation(summary = "상품 리뷰 목록", description = "상품에 등록된 리뷰를 최신순으로 페이지 조회합니다.")
     PageResponse<ReviewResponse> listByProduct(
             @PathVariable UUID productId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
@@ -78,13 +78,13 @@ class ReviewController {
 
     @DeleteMapping("/api/products/{productId}/reviews")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "내 리뷰 삭제")
+    @Operation(summary = "내 리뷰 삭제", description = "로그인한 고객이 해당 상품에 작성한 리뷰를 삭제합니다.")
     void delete(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID productId) {
         reviewApi.deleteReview(memberId(jwt), productId);
     }
 
     @GetMapping("/api/reviews/me")
-    @Operation(summary = "내 리뷰 목록")
+    @Operation(summary = "내 리뷰 목록", description = "로그인한 고객이 작성한 모든 리뷰를 페이지 조회합니다.")
     PageResponse<ReviewResponse> listMine(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "0") @Min(0) int page,

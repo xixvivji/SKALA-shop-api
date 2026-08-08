@@ -90,6 +90,7 @@ class AuthController {
     @PostMapping("/logout")
     @Operation(
             summary = "로그아웃",
+            description = "현재 리프레시 세션을 폐기하고 인증 쿠키를 만료시킵니다.",
             responses = {
                     @ApiResponse(responseCode = "204", description = "인증 쿠키 삭제 완료"),
                     @ApiResponse(

@@ -1,6 +1,7 @@
 package com.skala.shopping.storefront.internal.web.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -17,6 +18,14 @@ public final class PlaceStorefrontOrderRequest {
     @Min(1)
     @Max(1_000_000)
     private int quantity;
+
+    @Valid
+    @NotNull
+    @Schema(
+            description = "주문 시점에 저장할 필수 배송지",
+            requiredMode = Schema.RequiredMode.REQUIRED
+    )
+    private StorefrontShippingAddressRequest shippingAddress;
 
     public PlaceStorefrontOrderRequest() {
     }
@@ -35,5 +44,13 @@ public final class PlaceStorefrontOrderRequest {
 
     public void setQuantity(int quantity) {
         this.quantity = quantity;
+    }
+
+    public StorefrontShippingAddressRequest getShippingAddress() {
+        return shippingAddress;
+    }
+
+    public void setShippingAddress(StorefrontShippingAddressRequest shippingAddress) {
+        this.shippingAddress = shippingAddress;
     }
 }

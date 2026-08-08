@@ -4,6 +4,7 @@ import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.common.PageResponse;
+import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.internal.web.dto.request.CancelOrderRequest;
 import com.skala.shopping.order.internal.web.dto.request.CreateOrderRequest;
@@ -62,6 +63,7 @@ class OrderController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "주문 생성",
+            description = "선택한 상품, 배송지, 쿠폰과 포인트를 검증해 주문을 멱등하게 생성합니다.",
             responses = {
                     @ApiResponse(
                             responseCode = "201",
@@ -70,7 +72,7 @@ class OrderController {
                     ),
                     @ApiResponse(
                             responseCode = "400",
-                            description = "잘못된 요청 또는 멱등성 키",
+                            description = "상품·배송지 입력 오류 또는 잘못된 멱등성 키",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
                     ),
                     @ApiResponse(
@@ -99,7 +101,7 @@ class OrderController {
                     memberId(jwt),
                     java.util.List.of(new com.skala.shopping.order.OrderLineCommand(
                             request.getProductId(), request.getQuantity())),
-                    request.getShippingAddress() == null ? null : request.getShippingAddress().toCommand(),
+                    request.getShippingAddress().toCommand(),
                     commandId,
                     request.getCouponCode(),
                     request.getPointAmount()));
@@ -107,14 +109,14 @@ class OrderController {
         return OrderResponse.from(orderApi.placeOrder(
                 memberId(jwt),
                 request.getItems().stream().map(item -> item.toCommand()).toList(),
-                request.getShippingAddress() == null ? null : request.getShippingAddress().toCommand(),
+                request.getShippingAddress().toCommand(),
                 commandId,
                 request.getCouponCode(),
                 request.getPointAmount()));
     }
 
     @GetMapping("/me")
-    @Operation(summary = "내 주문 목록 조회")
+    @Operation(summary = "내 주문 목록 조회", description = "로그인한 고객의 주문을 최신순으로 페이지 조회합니다.")
     PageResponse<OrderResponse> getMyOrders(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "0") @Min(0) int page,
@@ -124,7 +126,7 @@ class OrderController {
     }
 
     @GetMapping("/{orderId}")
-    @Operation(summary = "내 주문 상세 조회")
+    @Operation(summary = "내 주문 상세 조회", description = "내 주문의 상품, 금액, 결제와 배송 상태를 상세 조회합니다.")
     @ApiResponse(
             responseCode = "200",
             description = "주문 상세 응답",
@@ -144,8 +146,9 @@ class OrderController {
 
     @PostMapping("/cancellations")
     @Operation(
-            summary = "상품 부분 취소",
-            description = "상품 ID와 수량을 기준으로 취소하며, 같은 상품의 취소 가능 수량을 최신 주문부터 차감합니다.",
+            summary = "주문 항목 부분 취소",
+            description = "주문 조회 응답의 orderItemId와 수량을 기준으로 정확한 SKU를 취소합니다. "
+                    + "productId 입력은 이전 단순상품 API 호환용입니다.",
             responses = {
                     @ApiResponse(
                             responseCode = "200",
@@ -173,12 +176,12 @@ class OrderController {
             @RequestHeader(name = "X-Idempotency-Key") UUID commandId,
             @Valid @RequestBody CancelOrderRequest request
     ) {
-        return CancellationResponse.from(orderApi.cancelProduct(
-                memberId(jwt),
-                request.getProductId(),
-                request.getQuantity(),
-                commandId
-        ));
+        CancellationView cancellation = request.getOrderItemId() != null
+                ? orderApi.cancelOrderItem(
+                        memberId(jwt), request.getOrderItemId(), request.getQuantity(), commandId)
+                : orderApi.cancelProduct(
+                        memberId(jwt), request.getProductId(), request.getQuantity(), commandId);
+        return CancellationResponse.from(cancellation);
     }
 
     private UUID memberId(Jwt jwt) {

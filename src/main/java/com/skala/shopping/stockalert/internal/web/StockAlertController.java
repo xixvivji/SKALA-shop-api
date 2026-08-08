@@ -45,7 +45,7 @@ class StockAlertController {
     }
 
     @GetMapping
-    @Operation(summary = "내 재입고 알림 목록")
+    @Operation(summary = "내 재입고 알림 목록", description = "로그인한 고객의 재입고 알림 구독을 페이지 조회합니다.")
     PageResponse<StockAlertResponse> list(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "0") @Min(0) int page,
@@ -55,7 +55,7 @@ class StockAlertController {
     }
 
     @PostMapping("/{productId}")
-    @Operation(summary = "재입고 알림 구독")
+    @Operation(summary = "재입고 알림 구독", description = "품절된 상품의 재입고 알림을 구독합니다.")
     StockAlertResponse subscribe(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID productId
@@ -64,7 +64,7 @@ class StockAlertController {
     }
 
     @DeleteMapping("/{productId}")
-    @Operation(summary = "재입고 알림 해지")
+    @Operation(summary = "재입고 알림 해지", description = "선택한 상품의 재입고 알림 구독을 해지합니다.")
     void unsubscribe(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID productId

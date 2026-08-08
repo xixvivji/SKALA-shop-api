@@ -7,7 +7,9 @@ import com.skala.shopping.member.MemberApi;
 import com.skala.shopping.member.MemberResponse;
 import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
+import com.skala.shopping.order.OrderLineCommand;
 import com.skala.shopping.order.OrderView;
+import com.skala.shopping.order.ShippingAddressCommand;
 import com.skala.shopping.wallet.WalletApi;
 import java.util.UUID;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -93,9 +95,15 @@ public class StorefrontApplicationService {
             UUID memberId,
             UUID productId,
             int quantity,
+            ShippingAddressCommand shippingAddress,
             UUID commandId
     ) {
-        return orderApi.placeOrder(memberId, productId, quantity, commandId);
+        return orderApi.placeOrder(
+                memberId,
+                java.util.List.of(new OrderLineCommand(productId, quantity)),
+                shippingAddress,
+                commandId
+        );
     }
 
     @Transactional

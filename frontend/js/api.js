@@ -268,10 +268,10 @@ export const shopApi = {
       body: { testCardNumber },
       idempotencyKey,
     }),
-  cancel: (productId, quantity, idempotencyKey = createCommandId()) =>
+  cancel: (orderItemId, quantity, idempotencyKey = createCommandId()) =>
     request("/api/orders/cancellations", {
       method: "POST",
-      body: { productId, quantity },
+      body: { orderItemId, quantity },
       idempotencyKey,
     }),
   requestReturn: (payload, idempotencyKey = createCommandId()) =>

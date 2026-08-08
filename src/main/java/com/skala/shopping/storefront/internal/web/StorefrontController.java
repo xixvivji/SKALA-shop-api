@@ -60,6 +60,7 @@ class StorefrontController {
     @PostMapping
     @Operation(
             summary = "회원가입",
+            description = "고객 ID, 비밀번호와 이름을 검증해 고객 계정과 기본 포인트 지갑을 생성합니다.",
             responses = {
                     @ApiResponse(
                             responseCode = "201",
@@ -176,6 +177,7 @@ class StorefrontController {
     @GetMapping("/{customerId}")
     @Operation(
             summary = "고객 상세 조회",
+            description = "관리자가 고객 ID로 프로필, 포인트와 구매 내역을 상세 조회합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")}
     )
     CustomerResponse getCustomer(
@@ -191,6 +193,7 @@ class StorefrontController {
     @PostMapping("/order")
     @Operation(
             summary = "주문 생성 호환 API",
+            description = "이전 단일 상품 요청 형식의 상품 ID, 수량과 필수 배송지로 포인트 주문을 멱등하게 생성합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")},
             responses = {
                     @ApiResponse(
@@ -200,7 +203,7 @@ class StorefrontController {
                     ),
                     @ApiResponse(
                             responseCode = "400",
-                            description = "잘못된 요청 또는 멱등성 키",
+                            description = "상품·배송지 입력 오류 또는 잘못된 멱등성 키",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
                     ),
                     @ApiResponse(
@@ -234,6 +237,7 @@ class StorefrontController {
                 memberId,
                 request.getProductId(),
                 request.getQuantity(),
+                request.getShippingAddress().toCommand(),
                 commandId
         );
         return OrderCompatibilityResponse.from(
@@ -295,6 +299,7 @@ class StorefrontController {
     @DeleteMapping("/me")
     @Operation(
             summary = "회원 탈퇴",
+            description = "로그인한 고객 계정을 비활성화하고 인증 세션을 종료합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")},
             responses = {
                     @ApiResponse(responseCode = "204", description = "회원 탈퇴 완료"),

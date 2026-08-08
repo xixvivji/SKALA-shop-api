@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.ObjectError;
 
@@ -64,6 +65,17 @@ class GlobalExceptionHandlerTests {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getFieldErrors())
                 .containsEntry("_global", "요청 항목의 조합이 올바르지 않습니다.");
+    }
+
+    @Test
+    void mapsOptimisticLockFailuresToConflict() {
+        ResponseEntity<ApiError> response = handler.handleOptimisticLockingFailure(
+                new ObjectOptimisticLockingFailureException("CartItem", "item-id")
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("CONCURRENT_MODIFICATION");
     }
 
     private DataIntegrityViolationException violationWithSqlState(String sqlState) {

@@ -7,6 +7,11 @@ public enum ErrorCode {
     INVALID_PARAMETER(HttpStatus.BAD_REQUEST, "INVALID_PARAMETER", "요청 값이 올바르지 않습니다."),
     DATA_NOT_FOUND(HttpStatus.NOT_FOUND, "DATA_NOT_FOUND", "요청한 데이터를 찾을 수 없습니다."),
     DATA_DUPLICATED(HttpStatus.CONFLICT, "DATA_DUPLICATED", "이미 존재하는 데이터입니다."),
+    CONCURRENT_MODIFICATION(
+            HttpStatus.CONFLICT,
+            "CONCURRENT_MODIFICATION",
+            "다른 요청이 먼저 데이터를 변경했습니다. 최신 상태를 확인한 뒤 다시 시도해 주세요."
+    ),
     IDEMPOTENCY_CONFLICT(
             HttpStatus.CONFLICT,
             "IDEMPOTENCY_CONFLICT",

@@ -48,7 +48,7 @@ class MemberAddressController {
     }
 
     @GetMapping
-    @Operation(summary = "내 배송지 목록")
+    @Operation(summary = "내 배송지 목록", description = "로그인한 고객이 저장한 배송지 목록을 조회합니다.")
     List<MemberAddressResponse> getAddresses(@AuthenticationPrincipal Jwt jwt) {
         return service.getAddresses(memberId(jwt)).stream()
                 .map(MemberAddressResponse::from)
@@ -56,7 +56,7 @@ class MemberAddressController {
     }
 
     @PostMapping
-    @Operation(summary = "배송지 저장")
+    @Operation(summary = "배송지 저장", description = "주문에 사용할 새 배송지를 내 주소록에 저장합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "저장된 배송지"),
             @ApiResponse(responseCode = "400", description = "배송지 입력값 오류",
@@ -84,7 +84,7 @@ class MemberAddressController {
     }
 
     @PutMapping("/{addressId}")
-    @Operation(summary = "배송지 수정")
+    @Operation(summary = "배송지 수정", description = "내 주소록에 저장된 배송지 정보를 수정합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "400", description = "배송지 ID 또는 입력값 오류",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
@@ -112,7 +112,7 @@ class MemberAddressController {
     }
 
     @DeleteMapping("/{addressId}")
-    @Operation(summary = "배송지 삭제")
+    @Operation(summary = "배송지 삭제", description = "내 주소록에서 선택한 배송지를 삭제합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "배송지 삭제 완료"),
             @ApiResponse(responseCode = "400", description = "배송지 ID 오류",

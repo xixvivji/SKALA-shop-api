@@ -7,7 +7,6 @@ import com.skala.shopping.cart.internal.domain.Cart;
 import com.skala.shopping.cart.internal.domain.CartItem;
 import com.skala.shopping.catalog.CatalogApi;
 import com.skala.shopping.catalog.ProductDeleted;
-import com.skala.shopping.catalog.ProductSnapshot;
 import com.skala.shopping.catalog.ProductVariantSnapshot;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
@@ -111,7 +110,10 @@ public class CartApplicationService implements CartApi {
     @EventListener
     @Transactional
     public void removeDeletedProduct(ProductDeleted event) {
+        // ProductDeleted는 상품 ID와 개별 SKU ID를 모두 전달한다. 상품 삭제 시에는 모든
+        // 옵션 행을 지우고, 옵션 삭제 시에는 해당 SKU 행만 지워 두 경우를 함께 처리한다.
         itemRepository.deleteAllByProductId(event.getProductId());
+        itemRepository.deleteAllByVariantId(event.getProductId());
     }
 
     private CartView assemble(UUID memberId) {

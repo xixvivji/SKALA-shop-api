@@ -8,6 +8,7 @@ const errors = [];
 const htmlPath = resolve(frontendRoot, "index.html");
 const html = readFileSync(htmlPath, "utf8");
 const appSource = readFileSync(resolve(frontendRoot, "js/app.js"), "utf8");
+const apiSource = readFileSync(resolve(frontendRoot, "js/api.js"), "utf8");
 
 const productPriceMaximum = html.match(
   /name=["']productPrice["'][^>]*\bmax=["']([^"']+)["']/,
@@ -57,6 +58,53 @@ if (
     .length < 2
 ) {
   errors.push("고객 정보 요청은 성공과 실패 모두 현재 인증 세션인지 검증해야 합니다.");
+}
+
+for (const [loaderName, nextLoaderName] of [
+  ["loadCart", "loadAddresses"],
+  ["loadAddresses", "loadWishlist"],
+  ["loadOrders", "loadTransactions"],
+  ["loadTransactions", "loadMembers"],
+  ["loadMembers", "loadAdminOrders"],
+  ["loadAdminOrders", "loadReturns"],
+]) {
+  const source = appSource.slice(
+    appSource.indexOf(`async function ${loaderName}`),
+    appSource.indexOf(`async function ${nextLoaderName}`),
+  );
+  if (
+    !source.includes("captureAuthenticatedRequest()") ||
+    !source.includes("isCurrentAuthenticatedRequest(request)")
+  ) {
+    errors.push(`${loaderName} 요청은 계정 전환 뒤의 오래된 응답을 무시해야 합니다.`);
+  }
+}
+
+const reviewSource = appSource.slice(
+  appSource.indexOf("async function openReviews"),
+  appSource.indexOf("async function loadCustomer"),
+);
+if (
+  !reviewSource.includes("++reviewRequestSequence") ||
+  !reviewSource.includes("elements.reviewDialog.dataset.productId !== product.id")
+) {
+  errors.push("리뷰 대화상자는 먼저 시작된 다른 상품 요청의 응답을 무시해야 합니다.");
+}
+
+if (
+  !appSource.includes('data-product-variant=') ||
+  !appSource.includes("selectedVariantForCardAction") ||
+  !appSource.includes("isVariantOrderable")
+) {
+  errors.push("옵션 상품은 주문 가능한 SKU를 명시적으로 선택한 뒤 장바구니에 담아야 합니다.");
+}
+
+const cancelApiSource = apiSource.slice(
+  apiSource.indexOf("cancel:"),
+  apiSource.indexOf("requestReturn:"),
+);
+if (!cancelApiSource.includes("orderItemId") || cancelApiSource.includes("body: { productId")) {
+  errors.push("부분 취소 요청은 상품이 아니라 주문 항목 ID를 전송해야 합니다.");
 }
 
 const renderLoadMoreSource = appSource.slice(

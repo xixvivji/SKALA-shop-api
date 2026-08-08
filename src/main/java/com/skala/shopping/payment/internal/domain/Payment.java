@@ -27,6 +27,16 @@ public class Payment {
     @Column(name = "prepare_command_id", nullable = false) private UUID prepareCommandId;
     @Column(name = "prepare_fingerprint", nullable = false, length = 300) private String prepareFingerprint;
     @Column(name = "approve_command_id") private UUID approveCommandId;
+    @Column(name = "approve_fingerprint", length = 80) private String approveFingerprint;
+    @Column(name = "approve_result_status", length = 30) private String approveResultStatus;
+    @Column(name = "approve_result_failure_code", length = 50) private String approveResultFailureCode;
+    @Column(name = "approve_result_failure_message", length = 200) private String approveResultFailureMessage;
+    @Column(name = "approve_result_transaction_id", length = 100) private String approveResultTransactionId;
+    @Column(name = "approve_result_approved_amount", precision = 19, scale = 2)
+    private BigDecimal approveResultApprovedAmount;
+    @Column(name = "approve_result_refunded_amount", precision = 19, scale = 2)
+    private BigDecimal approveResultRefundedAmount;
+    @Column(name = "approve_result_approved_at") private Instant approveResultApprovedAt;
     @Column(nullable = false, length = 30) private String provider;
     @Column(name = "provider_transaction_id", length = 100) private String providerTransactionId;
     @Column(nullable = false, length = 30) private String method;
@@ -60,16 +70,48 @@ public class Payment {
     public String providerTransactionId() { return providerTransactionId; }
     public boolean belongsTo(UUID candidate) { return memberId.equals(candidate); }
     public boolean hasPrepareFingerprint(String value) { return prepareFingerprint.equals(value); }
-    public boolean wasApprovedBy(UUID commandId) {
-        return approveCommandId != null && approveCommandId.equals(commandId)
-                && status == PaymentStatus.PAID;
+    public boolean isApprovalReplay(UUID commandId, String fingerprint) {
+        if (approveCommandId == null || !approveCommandId.equals(commandId)) {
+            return false;
+        }
+        // Rows approved before approve_fingerprint was introduced can still be safely replayed,
+        // although a changed legacy card cannot be distinguished from the original request.
+        if (approveFingerprint != null && !approveFingerprint.equals(fingerprint)) {
+            throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT);
+        }
+        if (status == PaymentStatus.PAYMENT_PENDING) {
+            throw new BusinessException(ErrorCode.PAYMENT_NOT_READY, "결제 승인이 처리 중입니다.");
+        }
+        return true;
     }
 
-    public void beginApproval(UUID commandId, String masked, Instant now) {
+    public PaymentView approvalReplayView() {
+        if (approveResultStatus == null) {
+            return toView();
+        }
+        return new PaymentView(
+                id, orderId, provider, approveResultTransactionId, method, maskedNumber,
+                requestedAmount, approveResultApprovedAmount, approveResultRefundedAmount,
+                approveResultStatus, approveResultFailureCode, approveResultFailureMessage,
+                approveResultApprovedAt, createdAt
+        );
+    }
+
+    public void captureApprovalResult() {
+        approveResultStatus = status.name();
+        approveResultFailureCode = failureCode;
+        approveResultFailureMessage = failureMessage;
+        approveResultTransactionId = providerTransactionId;
+        approveResultApprovedAmount = approvedAmount;
+        approveResultRefundedAmount = refundedAmount;
+        approveResultApprovedAt = approvedAt;
+    }
+
+    public void beginApproval(UUID commandId, String fingerprint, String masked, Instant now) {
         if (status != PaymentStatus.READY) {
             throw new BusinessException(ErrorCode.PAYMENT_NOT_READY);
         }
-        approveCommandId = commandId; maskedNumber = masked;
+        approveCommandId = commandId; approveFingerprint = fingerprint; maskedNumber = masked;
         status = PaymentStatus.PAYMENT_PENDING; failureCode = null; failureMessage = null;
         updatedAt = now;
     }

@@ -77,6 +77,9 @@ flowchart LR
     O --> I
     O --> W
     O --> CP[coupon]
+    P[payment] --> O
+    RT[returns] --> O
+    RT --> P
     RV[review] --> O
     RV --> CA
     WL[wishlist] --> CA
@@ -107,6 +110,9 @@ flowchart LR
 `ModularityTests`가 허용되지 않은 패키지 의존을 자동으로 검증합니다.
 
 ## 5. PostgreSQL 데이터 소유권
+
+시각 자료는 [도메인 ERD](erd/skala-shopping-erd-overview.svg)와
+[전체 테이블 ERD](erd/skala-shopping-erd-full.svg)를 참고합니다.
 
 ```text
 auth
@@ -146,7 +152,8 @@ payment
 └── payment_webhook_events
 
 returns
-└── return_requests
+├── return_requests
+└── return_status_commands
 
 outbox
 └── outbox_events
@@ -212,28 +219,35 @@ Access Token은 브라우저 JavaScript에 반환하지 않고 HttpOnly 쿠키�
 → 전체 commit 또는 전체 rollback
 ```
 
-상품 ID 정렬은 동시 주문의 잠금 순서를 고정해 교착 가능성을 낮춥니다. 주문
-fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니다. 같은 키와 같은
-요청은 최초 결과를 반환하고, 같은 키에 다른 내용이 오면
-`IDEMPOTENCY_CONFLICT`를 반환합니다.
+SKU ID 정렬은 동시 주문의 잠금 순서를 고정해 교착 가능성을 낮춥니다. 주문
+fingerprint에는 회원, 정렬된 상품·SKU·수량, 배송지, 쿠폰과 포인트 사용액이
+포함되며 SHA-256으로 저장됩니다. 같은 회원과 명령 키의 첫 요청은 PostgreSQL
+트랜잭션 advisory lock으로 직렬화합니다. 같은 키와 같은 요청은 최초 결과를
+반환하고, 같은 키에 다른 내용이 오면 `IDEMPOTENCY_CONFLICT`를 반환합니다.
 
 ### 취소·반품과 환급
 
-취소 가능한 주문항목을 잠그고 최신 구매부터 요청 수량을 차감합니다. 주문 당시
-쿠폰 할인 후 항목별로 배분해 저장한 실제 결제액을 기준으로 포인트와 Fake PG를
-원래 결제 비율대로 환급하고
-같은 취소 ID로 재고를 복원합니다. 부분 취소의 소수점 절사 차이는 마지막 취소가
-흡수하므로 항목별 누적 환불액이 결제액을 넘지 않습니다. 주문 상태, 취소 이력,
-포인트 환급과 재고 복원 중 하나라도 실패하면 전체를 롤백합니다.
+취소는 주문 조회 결과의 `orderItemId`로 정확한 SKU와 수량을 지정합니다. 기존
+`productId` 방식은 취소 가능한 SKU가 하나뿐인 단순 상품에 한해 호환 경로로
+유지합니다. 주문과 해당 주문 항목을 잠근 뒤, 주문 당시 쿠폰 할인 후 항목별로
+배분해 저장한 실제 결제액을 기준으로 포인트와 Fake PG 금액을 누적 결제 비율대로
+나눠 환급합니다. 외부 결제 환불 이벤트는 동기 listener가 같은 트랜잭션에서
+Payment 원장에 반영하고, 결정적인 하위 명령 ID로 재고를 복원합니다. 부분 취소의
+소수점 절사 차이는 마지막 취소가 흡수하므로 항목별 누적 환불액이 결제액을 넘지
+않습니다. 주문 상태, 취소 이력, 포인트·Fake PG 환급과 재고 복원 중 하나라도
+실패하면 전체를 롤백합니다.
 
 금전 상태 `PAID/PARTIALLY_CANCELED/CANCELED`와 배송 상태는 별도입니다. 배송은
-`PAID → PREPARING → SHIPPED → DELIVERED` 순서만 허용하며 `SHIPPED` 이후에는
-취소할 수 없습니다.
+`PAID → PREPARING → SHIPPED → DELIVERED` 순서만 허용합니다. 결제 대기·실패·전량
+취소 주문에는 배송 상태나 운송장을 등록할 수 없고 `SHIPPED` 이후에는 취소할 수
+없습니다.
 
 배송 완료 뒤에는 주문 항목별 반품을 신청합니다. 반품은
 `REQUESTED → COLLECTING → INSPECTING → APPROVED → REFUNDED` 또는 `REJECTED`로
-전이합니다. 환불 완료 트랜잭션에서 포인트/Fake PG 환급과 판매 가능 재고 복원을
-함께 처리합니다.
+전이합니다. 같은 항목의 여러 부분 반품은 활성 요청 수량 합계를 주문 항목 잠금
+안에서 검사하며, 거절된 요청의 수량은 다시 신청할 수 있습니다. 상태 변경 명령은
+요청 내용과 최초 응답 snapshot을 별도 기록해 재시도 시 정산을 반복하지 않습니다.
+환불 완료 트랜잭션에서 포인트/Fake PG 환급과 판매 가능 재고 복원을 함께 처리합니다.
 
 ### 장바구니와 배송지
 
@@ -246,11 +260,14 @@ fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니�
 
 ## 7. 일관성·동시성·멱등성
 
-- 주문·취소·재고 조정 명령은 UUID `X-Idempotency-Key`를 사용합니다.
+- 주문·취소·결제·반품·재고 조정 명령은 UUID `X-Idempotency-Key`를 사용합니다.
 - 포인트와 재고의 수정 쿼리는 잠금과 조건을 사용해 음수 잔액·재고를 방지합니다.
 - 다중 상품 재고는 동일한 정렬 순서로 잠급니다.
 - 주문 상세는 `REPEATABLE_READ` snapshot으로 주문과 항목을 일관되게 읽습니다.
-- 멱등 재생에는 최초 결과 스냅샷을 보존해 이후 상태와 섞이지 않게 합니다.
+- 주문·취소·결제 승인·반품 상태 변경은 요청 fingerprint와 최초 결과 snapshot을
+  보존해 이후 상태와 섞이지 않게 합니다.
+- JPA 낙관적 잠금 충돌은 일반 500이 아니라 `409 CONCURRENT_MODIFICATION`으로
+  반환합니다.
 - 상품·회원·주문·원장 페이지는 동률에서 누락되지 않도록 `id` 보조 정렬을 둡니다.
 
 목록 API는 안정적인 보조 정렬을 포함한 offset pagination을 사용합니다.
@@ -260,7 +277,7 @@ fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니�
 Catalog와 Inventory는 애플리케이션 내부 상태 변경 이벤트를 발행합니다.
 
 - `ProductCreated`: 같은 트랜잭션에서 초기 재고 생성
-- `ProductDeleted`: 재고 비활성화와 해당 상품 장바구니 항목 정리
+- `ProductDeleted`: 상품 또는 SKU 재고 비활성화와 해당 장바구니 항목 정리
 - `StockReplenished`: 재고가 0에서 양수로 바뀔 때 대기 중 구독을 알림 완료로 변경
 - `ProductSearchChanged`: Elasticsearch 상품 색인 갱신
 
@@ -270,10 +287,12 @@ Kafka로 발행하고 성공 시 `PUBLISHED`, 반복 실패 시 `DEAD`로 기록
 aggregate ID를 Kafka key로 사용해 partition 안의 순서를 유지합니다. 로컬에서는
 logging publisher를 사용할 수 있습니다.
 
-상품 검색은 Elasticsearch를 우선 사용하되 연결 실패 시 PostgreSQL 검색으로
-폴백합니다. 현재 `ProductSearchChanged`는 트랜잭션 commit 이후 모듈러 모놀리스
-내부 listener가 Elasticsearch에 직접 반영합니다. Kafka Consumer는 아직 없으므로
-Kafka는 Outbox 발행·재시도·실패 보존 경로만 담당합니다.
+상품 검색은 Elasticsearch를 우선 사용하되 연결 실패 또는 빈 결과일 때 PostgreSQL
+검색으로 폴백합니다. 애플리케이션 시작 시 빈 인덱스는 Catalog 원본으로 채우며,
+전체 재색인은 새 문서를 먼저 저장한 뒤 사라진 문서만 제거해 색인 공백을 피합니다.
+현재 `ProductSearchChanged`는 트랜잭션 commit 이후 모듈러 모놀리스 내부 listener가
+Elasticsearch에 직접 반영합니다. Kafka Consumer는 아직 없으므로 Kafka는 Outbox
+발행·재시도·실패 보존 경로만 담당합니다.
 
 ### Search Service 분리 방향
 
@@ -291,5 +310,7 @@ Docker 이미지와 프로세스로 배포합니다. 나머지 도메인은 현�
 - 애플리케이션 롤백이 DB 마이그레이션까지 되돌린다고 가정하지 않습니다.
 - 파괴적 변경 전 RDS snapshot/backup과 forward-fix 절차를 준비합니다.
 
-현재 최신 마이그레이션은 V24입니다. V13은 초기 기능 확장에서 Member와 Cart를 함께 만든 과거 예외입니다. 이후
-마이그레이션은 모듈 소유권을 유지합니다.
+현재 최신 마이그레이션은 V26입니다. V25는 부분 반품과 반품 상태 명령 이력을,
+V26은 결제 승인 요청 fingerprint와 최초 결과 snapshot을 추가합니다. V13은 초기
+기능 확장에서 Member와 Cart를 함께 만든 과거 예외이며 이후 마이그레이션은 모듈
+소유권을 유지합니다.

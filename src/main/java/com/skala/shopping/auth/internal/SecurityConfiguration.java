@@ -108,9 +108,12 @@ class SecurityConfiguration {
                                 "/api/customers",
                                 "/api/customers/login",
                                 "/api/customers/refresh",
-                                "/api/customers/logout",
-                                "/api/customers/password/reset"
+                                "/api/customers/logout"
                         ).permitAll()
+                        // 과제용 데모에서는 이메일·휴대전화 인증 없이 고객 ID와 이름을 확인해
+                        // 비밀번호를 초기화합니다. 로그인할 수 없는 사용자가 호출해야 하므로 공개하되,
+                        // 이 정보는 계정 소유 증명이 아니므로 실제 서비스에서는 이 규칙을 그대로 쓰면 안 됩니다.
+                        .requestMatchers(HttpMethod.POST, "/api/customers/password/reset").permitAll()
                         .requestMatchers(HttpMethod.PUT, "/api/admin/password").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/customers/list").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
@@ -207,11 +210,12 @@ class SecurityConfiguration {
         String requestUri = request.getRequestURI();
         String contextPath = request.getContextPath();
         String path = requestUri.substring(contextPath.length());
-        // 만료되거나 손상된 기존 쿠키가 로그인·가입 같은 공개 요청까지 가로막지 않도록 무시합니다.
+        // 만료되거나 손상된 기존 쿠키가 로그인·가입·토큰 갱신 같은 공개 요청까지 가로막지 않도록 무시합니다.
         return (HttpMethod.GET.matches(method) && "/api/auth/csrf".equals(path))
                 || (HttpMethod.POST.matches(method) && (
                         "/api/customers".equals(path)
                                 || "/api/customers/login".equals(path)
+                                || "/api/customers/refresh".equals(path)
                                 || "/api/customers/logout".equals(path)
                                 || "/api/customers/password/reset".equals(path)
                 ));

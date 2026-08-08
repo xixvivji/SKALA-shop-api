@@ -43,13 +43,13 @@ class WalletController {
     }
 
     @GetMapping
-    @Operation(summary = "내 포인트 잔액 조회")
+    @Operation(summary = "내 포인트 잔액 조회", description = "로그인한 고객의 사용 가능한 포인트 잔액을 조회합니다.")
     WalletBalance balance(@AuthenticationPrincipal Jwt jwt) {
         return walletApi.getBalance(memberId(jwt));
     }
 
     @GetMapping("/transactions")
-    @Operation(summary = "내 포인트 거래 내역 조회")
+    @Operation(summary = "내 포인트 거래 내역 조회", description = "포인트 적립·사용·환불 원장을 최신순으로 페이지 조회합니다.")
     @ApiResponse(responseCode = "400", description = "페이지 요청값 오류",
             content = @Content(schema = @Schema(implementation = ApiError.class)))
     PageResponse<PointTransactionView> transactions(

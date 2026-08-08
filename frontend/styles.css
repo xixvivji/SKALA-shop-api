@@ -113,6 +113,30 @@ select {
   gap: 8px;
 }
 
+.product-option-picker {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.product-option-picker select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--ink);
+}
+
+.product-option-picker select:focus-visible {
+  border-color: var(--blue);
+  outline: 3px solid rgba(88, 101, 242, .14);
+}
+
 .cart-modal {
   width: min(860px, calc(100vw - 30px));
 }

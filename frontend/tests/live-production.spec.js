@@ -33,6 +33,13 @@ test.describe("@live 실제 배포 환경", () => {
 
     const orderableProduct = page.locator("[data-product-cart]:not([disabled])").first();
     await expect(orderableProduct).toBeVisible();
+    const optionSelect = orderableProduct.locator("xpath=ancestor::article").locator("[data-product-variant]");
+    if (await optionSelect.count()) {
+      const optionValue = await optionSelect.locator("option:not([disabled])").evaluateAll(
+        (options) => options.map((option) => option.value).find(Boolean),
+      );
+      await optionSelect.selectOption(optionValue);
+    }
     await orderableProduct.click();
     await page.getByRole("button", { name: "장바구니 열기" }).click();
     await page.getByRole("button", { name: "주문하기" }).click();
@@ -52,7 +59,7 @@ test.describe("@live 실제 배포 환경", () => {
     await page.getByRole("button", { name: "전체 주문하기" }).click();
     await expect(page.locator("#order-list")).toContainText("결제 완료");
 
-    const cancelButton = page.locator("[data-product-cancel]").first();
+    const cancelButton = page.locator("[data-order-item-cancel]").first();
     await expect(cancelButton).toBeVisible();
     await cancelButton.click();
     await page.locator("#cancel-form button[type=submit]").click();

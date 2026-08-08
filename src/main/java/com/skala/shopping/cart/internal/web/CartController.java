@@ -44,13 +44,13 @@ class CartController {
     }
 
     @GetMapping
-    @Operation(summary = "장바구니 조회")
+    @Operation(summary = "장바구니 조회", description = "내 장바구니 상품과 현재 가격·재고 정보를 조회합니다.")
     CartView get(@AuthenticationPrincipal Jwt jwt) {
         return service.getCart(memberId(jwt));
     }
 
     @PostMapping("/items")
-    @Operation(summary = "장바구니 상품 추가")
+    @Operation(summary = "장바구니 상품 추가", description = "선택한 상품 옵션과 수량을 내 장바구니에 추가합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "400", description = "상품 ID 또는 수량 오류",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
@@ -64,7 +64,7 @@ class CartController {
     }
 
     @PutMapping("/items/{variantId}")
-    @Operation(summary = "장바구니 상품 수량 변경")
+    @Operation(summary = "장바구니 상품 수량 변경", description = "장바구니에 담긴 상품 옵션의 수량을 변경합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "400", description = "상품 ID 또는 수량 오류",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
@@ -82,7 +82,7 @@ class CartController {
     }
 
     @DeleteMapping("/items/{variantId}")
-    @Operation(summary = "장바구니 상품 삭제")
+    @Operation(summary = "장바구니 상품 삭제", description = "선택한 상품 옵션을 내 장바구니에서 삭제합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "400", description = "상품 ID 오류",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
@@ -94,7 +94,7 @@ class CartController {
     }
 
     @DeleteMapping
-    @Operation(summary = "장바구니 비우기")
+    @Operation(summary = "장바구니 비우기", description = "내 장바구니에 담긴 모든 상품을 삭제합니다.")
     CartView clear(@AuthenticationPrincipal Jwt jwt) {
         return service.clearCart(memberId(jwt));
     }

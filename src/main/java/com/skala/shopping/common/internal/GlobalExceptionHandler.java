@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -151,6 +152,22 @@ class GlobalExceptionHandler {
         }
         log.warn("Database constraint violation (SQL state: {})", sqlState == null ? "unknown" : sqlState);
         return build(ErrorCode.INVALID_PARAMETER, "데이터 제약 조건을 충족하지 못했습니다.", Map.of());
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    ResponseEntity<ApiError> handleOptimisticLockingFailure(
+            ObjectOptimisticLockingFailureException exception
+    ) {
+        log.warn(
+                "Concurrent entity modification detected (entity: {}, identifier: {})",
+                exception.getPersistentClassName(),
+                exception.getIdentifier()
+        );
+        return build(
+                ErrorCode.CONCURRENT_MODIFICATION,
+                ErrorCode.CONCURRENT_MODIFICATION.message(),
+                Map.of()
+        );
     }
 
     @ExceptionHandler(Exception.class)
