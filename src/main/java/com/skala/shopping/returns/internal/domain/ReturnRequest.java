@@ -12,6 +12,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -54,7 +55,8 @@ public class ReturnRequest {
         this.evidenceImageUrl=evidenceImageUrl; status=ReturnStatus.REQUESTED;
         this.grossRefundAmount=grossRefundAmount; this.shippingFee=shippingFee;
         this.refundAmount=refundAmount; this.pointRefundAmount=pointRefundAmount;
-        this.paymentRefundAmount=paymentRefundAmount; requestedAt=now; updatedAt=now;
+        this.paymentRefundAmount=paymentRefundAmount;
+        requestedAt=databaseTimestamp(now); updatedAt=requestedAt;
     }
     public UUID id(){return id;} public UUID memberId(){return memberId;}
     public UUID orderId(){return orderId;} public UUID orderItemId(){return orderItemId;}
@@ -72,7 +74,8 @@ public class ReturnRequest {
     public void transition(ReturnStatus next, UUID adminId, String note, Instant now) {
         if (!status.canTransitionTo(next))
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "허용되지 않는 반품 상태 변경입니다.");
-        status=next; processedBy=adminId; adminNote=normalize(note); updatedAt=now;
+        status=next; processedBy=adminId; adminNote=normalize(note);
+        updatedAt=databaseTimestamp(now);
     }
     public void complete(BigDecimal balance, UUID adminId, String note, Instant now) {
         transition(ReturnStatus.REFUNDED, adminId, note, now); balanceAfter=balance;
@@ -89,4 +92,7 @@ public class ReturnRequest {
                 requestedAt,resultUpdatedAt);
     }
     private String normalize(String value){return value==null||value.isBlank()?null:value.trim();}
+    private static Instant databaseTimestamp(Instant timestamp) {
+        return timestamp.truncatedTo(ChronoUnit.MICROS);
+    }
 }

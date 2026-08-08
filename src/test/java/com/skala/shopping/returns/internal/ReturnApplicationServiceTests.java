@@ -241,6 +241,42 @@ class ReturnApplicationServiceTests {
         verify(orderApi).settleReturn(any(), any(), any(), any(Integer.class), any(), any(), any());
     }
 
+    @Test
+    void normalizesReturnTimestampsToPostgresMicrosecondPrecision() {
+        ReturnRequest request = new ReturnRequest(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "테스트 상품",
+                1,
+                "DAMAGED",
+                null,
+                new BigDecimal("10000.00"),
+                BigDecimal.ZERO.setScale(2),
+                new BigDecimal("10000.00"),
+                new BigDecimal("5000.00"),
+                new BigDecimal("5000.00"),
+                Instant.parse("2026-01-01T00:00:00.123456789Z")
+        );
+
+        assertEquals(
+                Instant.parse("2026-01-01T00:00:00.123456Z"),
+                request.toView().getRequestedAt()
+        );
+        request.transition(
+                ReturnStatus.COLLECTING,
+                UUID.randomUUID(),
+                null,
+                Instant.parse("2026-01-01T00:00:01.987654321Z")
+        );
+        assertEquals(
+                Instant.parse("2026-01-01T00:00:01.987654Z"),
+                request.toView().getUpdatedAt()
+        );
+    }
+
     private ReturnRequest returnRequest(
             UUID commandId,
             UUID memberId,
