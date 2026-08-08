@@ -6,7 +6,9 @@
 | 영역 | 현재 구성 |
 | --- | --- |
 | Frontend | Vercel, `main` production branch |
-| Backend | 단일 EC2, Docker Compose |
+| Application | EC2, Backend·Redis·Nginx·Certbot Compose |
+| Event platform | 별도 EC2, Apache Kafka KRaft single node |
+| Search platform | 별도 EC2, Elasticsearch single node |
 | Database | 비공개 RDS PostgreSQL 17 |
 | Edge/TLS | Nginx와 Certbot 컨테이너 |
 | Image | Docker Hub digest 고정 이미지 |
@@ -22,10 +24,13 @@
 flowchart LR
     GH[GitHub Actions] -->|build and push| DH[Docker Hub]
     GH -->|OIDC assume role| AWS[AWS]
-    AWS -->|SSM Run Command| EC2[EC2]
+    AWS -->|SSM Run Command| EC2[Application EC2]
     EC2 --> N[Nginx container]
     N --> B[Backend container]
     B --> R[(Private RDS PostgreSQL)]
+    B --> RD[(Redis container)]
+    B --> K[Kafka EC2]
+    B --> E[Elasticsearch EC2]
     C[Certbot container] -->|renew certificate| N
     V[Vercel frontend] -->|HTTPS API| N
 ```
@@ -55,7 +60,10 @@ OIDC로 배포 전용 IAM Role을 맡고 SSM Run Command를 전송합니다. 저
 | 443 | `0.0.0.0/0` | 운영 API |
 | 22 | 관리자 IP `/32`만 | 수동 관리; 자동 배포는 SSM 사용 |
 
-Backend 8080과 PostgreSQL 5432는 인터넷에 공개하지 않습니다.
+Backend 8080과 PostgreSQL 5432는 인터넷에 공개하지 않습니다. Kafka 9092와
+Elasticsearch 9200은 각각의 보안 그룹에서 Application EC2 보안 그룹만 source로
+허용합니다. 플랫폼 인스턴스의 public IP는 설치 편의를 위한 것이며 서비스 포트는
+인터넷에 열지 않습니다.
 
 ### RDS
 
@@ -77,6 +85,35 @@ sh deploy/tools/audit-aws.sh
 
 이 도구는 EC2 IMDSv2와 RDS의 private, encryption, deletion protection, backup,
 available 상태를 검사하며 리소스를 수정하지 않습니다.
+
+### Kafka와 Elasticsearch EC2
+
+플랫폼 인스턴스는 `deploy/aws/user-data-platform.sh`로 Docker와 SSM Agent를
+준비하고 `/opt/skala-shop-platform`만 사용합니다. 운영 이미지는 tag가 아니라
+multi-architecture manifest digest로 고정합니다.
+
+```bash
+bash deploy/scripts/deploy-platform-via-ssm.sh \
+  ap-northeast-2 kafka <kafka-instance-id> <kafka-private-ip> \
+  'apache/kafka@sha256:<digest>'
+
+bash deploy/scripts/deploy-platform-via-ssm.sh \
+  ap-northeast-2 search <search-instance-id> <search-private-ip> \
+  'docker.elastic.co/elasticsearch/elasticsearch@sha256:<digest>'
+```
+
+스크립트는 Compose 파일을 SSM Run Command로 전달하고 이미지 pull, 기동과 health
+확인까지 수행합니다. Kafka cluster ID와 데이터 volume은 재배포에서도 유지합니다.
+Elasticsearch 호스트에는 `vm.max_map_count=262144`를 영구 적용합니다. 현재 구성은
+학습·소규모 운영을 위한 single node이므로 broker/검색 노드 장애 시 자동 failover는
+제공하지 않습니다.
+
+현재 운영 private endpoint:
+
+| Service | Private endpoint | Compose |
+| --- | --- | --- |
+| Kafka | `172.31.36.153:9092` | `compose.kafka.yml` |
+| Elasticsearch | `http://172.31.32.50:9200` | `compose.search.yml` |
 
 ## 3. EC2 디렉터리
 
@@ -138,12 +175,21 @@ DB_PASSWORD=<application-user-password>
 JWT_SECRET=<at-least-32-byte-random-secret>
 JWT_ISSUER=skala-shop-api
 JWT_ACCESS_TOKEN_TTL=1h
+JWT_REFRESH_TOKEN_TTL=14d
 JWT_COOKIE_SECURE=true
 JWT_COOKIE_SAME_SITE=Lax
 CORS_ALLOWED_ORIGINS=https://example.vercel.app
 INITIAL_MEMBER_POINTS=1000000
 API_LOGGING_ENABLED=true
 AUTH_RATE_LIMIT_ENABLED=true
+AUTH_RATE_LIMIT_STORE=redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+OUTBOX_RELAY_ENABLED=true
+OUTBOX_PUBLISHER=kafka
+KAFKA_BOOTSTRAP_SERVERS=<kafka-private-ip>:9092
+SEARCH_ENABLED=true
+ELASTICSEARCH_URIS=http://<search-private-ip>:9200
 BOOTSTRAP_ADMIN_ENABLED=false
 BOOTSTRAP_ADMIN_LOGIN_ID=
 BOOTSTRAP_ADMIN_PASSWORD=
@@ -209,6 +255,7 @@ node deploy/tools/bootstrap-catalog.mjs \
 | Service | 역할 |
 | --- | --- |
 | `backend` | Spring Boot API, 내부 8080 |
+| `redis` | Refresh Session과 인증 요청 제한 공유 저장소 |
 | `nginx` | 80/443, TLS 종료, proxy와 IP rate limit |
 | `certbot-renew` | 12시간마다 인증서 갱신 확인 |
 | `nginx-bootstrap` | 최초 HTTP 인증서 발급 전용 profile |
@@ -249,6 +296,10 @@ DOCKERHUB_IMAGE=<dockerhub-user>/skala-shop-api
 AWS_DEPLOY_ROLE_ARN=arn:aws:iam::<account-id>:role/SKALAShopGitHubDeployRole
 AWS_REGION=ap-northeast-2
 EC2_INSTANCE_ID=i-xxxxxxxxxxxxxxxxx
+KAFKA_INSTANCE_ID=i-xxxxxxxxxxxxxxxxx
+KAFKA_PRIVATE_IP=10.x.x.x
+SEARCH_INSTANCE_ID=i-xxxxxxxxxxxxxxxxx
+SEARCH_PRIVATE_IP=10.x.x.x
 PRODUCTION_DEPLOY_ENABLED=true
 PRODUCTION_FRONTEND_ORIGIN=https://example.vercel.app
 PRODUCTION_API_ORIGIN=https://api.example.com
@@ -272,7 +323,7 @@ live E2E와 일반 배포에는 영향이 없습니다.
 
 ```text
 feature push / PR
-→ Backend 82 tests
+→ Backend 103 tests
 → Frontend static checks + desktop/mobile E2E
 → Release flow simulation
 → develop merge
@@ -355,6 +406,9 @@ GitHub의 `Production smoke` workflow도 동일한 검사를 수동 실행합니
 `run_mutating_e2e=true`를 선택할 때만 임시 고객을 만들어 가입·주문·취소·탈퇴를
 검사합니다.
 
+플랫폼 Compose를 변경하거나 인스턴스를 복구한 경우 `Deploy platform` workflow에서
+`kafka` 또는 `search`를 선택해 digest 고정 이미지를 SSM으로 다시 배포합니다.
+
 ## 12. Proxy, CORS와 요청 제한
 
 Vercel 기본 구성은 같은 Origin `/api` proxy를 사용합니다. API를 직접 다른
@@ -362,11 +416,16 @@ Origin에서 호출한다면 Spring의 `CORS_ALLOWED_ORIGINS`와 Nginx의
 `FRONTEND_ORIGIN`을 정확히 맞춰야 합니다.
 
 Nginx와 애플리케이션은 로그인·회원가입·교육용 비밀번호 재설정에 요청 제한을
-적용합니다. 현재 인메모리 제한은 단일 EC2에 적합합니다. ALB/CDN을 앞에 추가하면
-trusted proxy와 real IP 설정을 먼저 구성하고, 여러 Backend 인스턴스로 확장할 때는
-요청 제한 저장소를 Redis 같은 공유 저장소로 바꿉니다.
+적용합니다. local profile은 인메모리, prod profile은 같은 Compose의 Redis에 IP·계정
+카운터를 저장합니다. ALB/CDN을 앞에 추가하면 trusted proxy와 real IP 설정을 먼저
+구성해야 올바른 client IP 기준으로 제한할 수 있습니다.
 
 ## 13. 운영 체크리스트
+
+현재 CloudWatch에는 Application/Kafka/Search EC2 각각의 status check 실패와 10분
+고CPU 알람, RDS의 10분 고CPU와 여유 저장공간 2GiB 미만 알람이 구성되어 있습니다.
+알람은 AWS 상태를 기록하지만 SNS action은 아직 없으므로 운영 연락용 이메일 또는
+메신저 endpoint를 정한 뒤 SNS topic을 연결해야 실제 통지를 받을 수 있습니다.
 
 배포 전:
 

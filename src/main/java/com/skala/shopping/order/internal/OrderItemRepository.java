@@ -21,11 +21,18 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
     List<OrderItem> findAllByOrderIdInOrderByOrderIdAscLineNumberAsc(Collection<UUID> orderIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select item from OrderItem item where item.id = :itemId and item.orderId = :orderId")
+    java.util.Optional<OrderItem> findByIdAndOrderIdForUpdate(
+            @Param("itemId") UUID itemId, @Param("orderId") UUID orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select item
             from OrderItem item
             join ShopOrder shopOrder on shopOrder.id = item.orderId
             where shopOrder.memberId = :memberId
+              and shopOrder.status in (com.skala.shopping.order.internal.domain.OrderStatus.PAID,
+                                       com.skala.shopping.order.internal.domain.OrderStatus.PARTIALLY_CANCELED)
               and item.productId = :productId
               and item.canceledQuantity < item.orderedQuantity
             order by shopOrder.orderedAt desc, shopOrder.id desc, item.id asc
@@ -40,6 +47,8 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             from OrderItem item
             join ShopOrder shopOrder on shopOrder.id = item.orderId
             where shopOrder.memberId = :memberId
+              and shopOrder.status in (com.skala.shopping.order.internal.domain.OrderStatus.PAID,
+                                       com.skala.shopping.order.internal.domain.OrderStatus.PARTIALLY_CANCELED)
               and item.canceledQuantity < item.orderedQuantity
             order by shopOrder.orderedAt desc, shopOrder.id desc, item.id asc
             """)
@@ -50,6 +59,8 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             from OrderItem item
             join ShopOrder shopOrder on shopOrder.id = item.orderId
             where shopOrder.memberId = :memberId
+              and shopOrder.status in (com.skala.shopping.order.internal.domain.OrderStatus.PAID,
+                                       com.skala.shopping.order.internal.domain.OrderStatus.PARTIALLY_CANCELED)
               and item.productId = :productId
               and item.canceledQuantity < item.orderedQuantity
             """)

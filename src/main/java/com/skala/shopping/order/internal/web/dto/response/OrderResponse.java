@@ -22,6 +22,8 @@ public final class OrderResponse {
     private final BigDecimal remainingPoints;
     private final BigDecimal originalAmount;
     private final BigDecimal discountAmount;
+    private final BigDecimal pointUsedAmount;
+    private final BigDecimal paymentAmount;
     private final String usedCouponCode;
     private final String trackingCarrier;
     private final String trackingNumber;
@@ -60,6 +62,8 @@ public final class OrderResponse {
                 remainingPoints,
                 originalAmount,
                 discountAmount,
+                totalAmount,
+                BigDecimal.ZERO,
                 usedCouponCode,
                 trackingCarrier,
                 trackingNumber,
@@ -82,6 +86,8 @@ public final class OrderResponse {
             BigDecimal remainingPoints,
             BigDecimal originalAmount,
             BigDecimal discountAmount,
+            BigDecimal pointUsedAmount,
+            BigDecimal paymentAmount,
             String usedCouponCode,
             String trackingCarrier,
             String trackingNumber,
@@ -101,6 +107,8 @@ public final class OrderResponse {
         this.remainingPoints = remainingPoints;
         this.originalAmount = originalAmount == null ? totalAmount : originalAmount;
         this.discountAmount = discountAmount == null ? BigDecimal.ZERO : discountAmount;
+        this.pointUsedAmount = pointUsedAmount == null ? totalAmount : pointUsedAmount;
+        this.paymentAmount = paymentAmount == null ? BigDecimal.ZERO : paymentAmount;
         this.usedCouponCode = usedCouponCode;
         this.trackingCarrier = trackingCarrier;
         this.trackingNumber = trackingNumber;
@@ -123,6 +131,8 @@ public final class OrderResponse {
                 order.getRemainingPoints(),
                 order.getOriginalAmount(),
                 order.getDiscountAmount(),
+                order.getPointUsedAmount(),
+                order.getPaymentAmount(),
                 order.getUsedCouponCode(),
                 order.getTrackingCarrier(),
                 order.getTrackingNumber(),
@@ -180,6 +190,10 @@ public final class OrderResponse {
     public BigDecimal getDiscountAmount() {
         return discountAmount;
     }
+
+    public BigDecimal getPointUsedAmount() { return pointUsedAmount; }
+
+    public BigDecimal getPaymentAmount() { return paymentAmount; }
 
     public String getUsedCouponCode() {
         return usedCouponCode;

@@ -96,15 +96,21 @@ class OrderController {
     ) {
         if (request.getItems() == null || request.getItems().isEmpty()) {
             return OrderResponse.from(orderApi.placeOrder(
-                    memberId(jwt), request.getProductId(), request.getQuantity(), commandId,
-                    request.getCouponCode()));
+                    memberId(jwt),
+                    java.util.List.of(new com.skala.shopping.order.OrderLineCommand(
+                            request.getProductId(), request.getQuantity())),
+                    request.getShippingAddress() == null ? null : request.getShippingAddress().toCommand(),
+                    commandId,
+                    request.getCouponCode(),
+                    request.getPointAmount()));
         }
         return OrderResponse.from(orderApi.placeOrder(
                 memberId(jwt),
                 request.getItems().stream().map(item -> item.toCommand()).toList(),
                 request.getShippingAddress() == null ? null : request.getShippingAddress().toCommand(),
                 commandId,
-                request.getCouponCode()));
+                request.getCouponCode(),
+                request.getPointAmount()));
     }
 
     @GetMapping("/me")

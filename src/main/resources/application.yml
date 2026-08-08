@@ -45,14 +45,31 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
         enabled: true
       show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 
 shopping:
+  search:
+    enabled: ${SEARCH_ENABLED:false}
+  outbox:
+    relay-enabled: ${OUTBOX_RELAY_ENABLED:false}
+    poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
+    publisher: ${OUTBOX_PUBLISHER:logging}
+    kafka-topic: ${OUTBOX_KAFKA_TOPIC:skala-shop.domain-events}
+    kafka-timeout: ${OUTBOX_KAFKA_TIMEOUT:5s}
+  observability:
+    correlation-header: X-Correlation-ID
+
   logging:
     api:
       # 본문·헤더·쿠키를 제외한 메서드, 경로 패턴, 상태 코드와 처리 시간만 기록합니다.
@@ -65,8 +82,12 @@ shopping:
       issuer: ${JWT_ISSUER:skala-shop-api}
       secret: ${JWT_SECRET:local-development-secret-must-be-at-least-32-bytes}
       access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:1h}
+      refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:14d}
+    refresh-token:
+      store: ${REFRESH_TOKEN_STORE:memory}
     cookie:
       name: bff-access
+      refresh-name: bff-refresh
       secure: ${JWT_COOKIE_SECURE:false}
       same-site: ${JWT_COOKIE_SAME_SITE:Lax}
     cors:
@@ -76,8 +97,9 @@ shopping:
       login-id: ${BOOTSTRAP_ADMIN_LOGIN_ID:}
       password: ${BOOTSTRAP_ADMIN_PASSWORD:}
     rate-limit:
-      # 단일 EC2 인스턴스용 인메모리 제한입니다. 다중 인스턴스 전환 시 공유 저장소 구현이 필요합니다.
+      # local 기본값은 memory이고 prod profile은 여러 인스턴스가 공유할 수 있는 Redis를 사용합니다.
       enabled: ${AUTH_RATE_LIMIT_ENABLED:true}
+      store: ${AUTH_RATE_LIMIT_STORE:memory}
       # 서로 다른 IP·계정 키가 과도하게 쌓이면 새 키 요청을 429로 차단합니다.
       max-tracked-keys: ${AUTH_RATE_LIMIT_MAX_TRACKED_KEYS:50000}
       login:

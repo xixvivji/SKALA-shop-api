@@ -8,6 +8,7 @@ import com.skala.shopping.cart.internal.domain.CartItem;
 import com.skala.shopping.catalog.CatalogApi;
 import com.skala.shopping.catalog.ProductDeleted;
 import com.skala.shopping.catalog.ProductSnapshot;
+import com.skala.shopping.catalog.ProductVariantSnapshot;
 import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.inventory.InventoryApi;
@@ -51,11 +52,16 @@ public class CartApplicationService implements CartApi {
 
     @Transactional
     public CartView addItem(UUID memberId, UUID productId, int quantity) {
+        return addItem(memberId, productId, null, quantity);
+    }
+
+    @Transactional
+    public CartView addItem(UUID memberId, UUID productId, UUID variantId, int quantity) {
         requireMemberId(memberId);
         requireQuantity(quantity);
-        ProductSnapshot product = catalogApi.getSaleableProduct(productId);
-        StockBalance stock = inventoryApi.getStock(productId);
-        CartItem existing = itemRepository.findByMemberIdAndProductId(memberId, productId).orElse(null);
+        ProductVariantSnapshot product = catalogApi.getSaleableVariant(productId, variantId);
+        StockBalance stock = inventoryApi.getStock(product.getId());
+        CartItem existing = itemRepository.findByMemberIdAndVariantId(memberId, product.getId()).orElse(null);
         int newQuantity = existing == null ? quantity : Math.addExact(existing.getQuantity(), quantity);
         requireQuantity(newQuantity);
         requireOrderable(stock, newQuantity);
@@ -65,7 +71,7 @@ public class CartApplicationService implements CartApi {
             if (itemRepository.countByMemberId(memberId) >= MAX_DISTINCT_ITEMS) {
                 throw new BusinessException(ErrorCode.INVALID_PARAMETER, "장바구니에는 최대 50종의 상품을 담을 수 있습니다.");
             }
-            itemRepository.save(new CartItem(memberId, product.getId(), quantity, now));
+            itemRepository.save(new CartItem(memberId, product.getProductId(), product.getId(), quantity, now));
         } else {
             existing.changeQuantity(newQuantity, now);
         }
@@ -74,20 +80,20 @@ public class CartApplicationService implements CartApi {
     }
 
     @Transactional
-    public CartView updateItem(UUID memberId, UUID productId, int quantity) {
+    public CartView updateItem(UUID memberId, UUID variantId, int quantity) {
         requireMemberId(memberId);
         requireQuantity(quantity);
-        catalogApi.getSaleableProduct(productId);
-        requireOrderable(inventoryApi.getStock(productId), quantity);
-        CartItem item = itemRepository.findByMemberIdAndProductId(memberId, productId)
+        CartItem item = itemRepository.findByMemberIdAndVariantId(memberId, variantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "장바구니 상품을 찾을 수 없습니다."));
+        catalogApi.getSaleableVariant(item.getProductId(), item.getVariantId());
+        requireOrderable(inventoryApi.getStock(variantId), quantity);
         item.changeQuantity(quantity, clock.instant());
         return assemble(memberId);
     }
 
     @Transactional
-    public CartView removeItem(UUID memberId, UUID productId) {
-        CartItem item = itemRepository.findByMemberIdAndProductId(memberId, productId)
+    public CartView removeItem(UUID memberId, UUID variantId) {
+        CartItem item = itemRepository.findByMemberIdAndVariantId(memberId, variantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "장바구니 상품을 찾을 수 없습니다."));
         itemRepository.delete(item);
         itemRepository.flush();
@@ -111,18 +117,17 @@ public class CartApplicationService implements CartApi {
     private CartView assemble(UUID memberId) {
         List<CartItem> items = itemRepository.findAllByMemberIdOrderByCreatedAtAscIdAsc(memberId);
         if (items.isEmpty()) return new CartView(List.of());
-        List<UUID> ids = items.stream().map(CartItem::getProductId).toList();
-        Map<UUID, ProductSnapshot> products = catalogApi.getSaleableProducts(ids).stream()
-                .collect(Collectors.toMap(ProductSnapshot::getId, Function.identity()));
+        List<UUID> ids = items.stream().map(CartItem::getVariantId).toList();
         Map<UUID, StockBalance> stocks = inventoryApi.getStocks(ids).stream()
                 .collect(Collectors.toMap(StockBalance::getProductId, Function.identity()));
         return new CartView(items.stream().map(item -> {
-            ProductSnapshot product = products.get(item.getProductId());
-            StockBalance stock = stocks.get(item.getProductId());
+            ProductVariantSnapshot product = catalogApi.getSaleableVariant(item.getProductId(), item.getVariantId());
+            StockBalance stock = stocks.get(item.getVariantId());
             int available = stock == null ? 0 : stock.getAvailableQuantity();
             boolean orderable = stock != null && stock.isOrderable()
                     && item.getQuantity() <= stock.getMaxOrderQuantity();
-            return new CartItemView(item.getProductId(), product.getName(), product.getPrice(),
+            return new CartItemView(item.getProductId(), item.getVariantId(), product.getSku(),
+                    product.getOptionName(), product.getOptionValue(), product.getDisplayName(), product.getPrice(),
                     item.getQuantity(), available, orderable);
         }).toList());
     }

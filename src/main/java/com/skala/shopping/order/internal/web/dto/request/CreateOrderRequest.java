@@ -9,6 +9,9 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 
 @Schema(name = "CreateOrderRequest", description = "주문 생성 요청")
 public final class CreateOrderRequest {
@@ -29,6 +32,11 @@ public final class CreateOrderRequest {
     private ShippingAddressRequest shippingAddress;
 
     private String couponCode;
+
+    @DecimalMin(value = "0.00")
+    @Digits(integer = 14, fraction = 2)
+    @Schema(description = "사용할 포인트. 생략하면 기존 호환 방식으로 전액 포인트 결제", example = "5000.00")
+    private BigDecimal pointAmount;
 
     public CreateOrderRequest() {
     }
@@ -61,6 +69,10 @@ public final class CreateOrderRequest {
     public void setCouponCode(String couponCode) {
         this.couponCode = couponCode;
     }
+
+    public BigDecimal getPointAmount() { return pointAmount; }
+
+    public void setPointAmount(BigDecimal pointAmount) { this.pointAmount = pointAmount; }
 
     @AssertTrue(message = "productId/quantity 또는 items를 입력해야 합니다.")
     public boolean isOrderShapeValid() {

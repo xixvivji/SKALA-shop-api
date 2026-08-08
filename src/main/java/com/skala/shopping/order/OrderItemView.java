@@ -7,6 +7,10 @@ public final class OrderItemView {
 
     private final UUID id;
     private final UUID productId;
+    private final UUID variantId;
+    private final String sku;
+    private final String optionName;
+    private final String optionValue;
     private final String productName;
     private final BigDecimal unitPrice;
     private final BigDecimal paidAmount;
@@ -24,8 +28,21 @@ public final class OrderItemView {
             int orderedQuantity,
             int canceledQuantity
     ) {
+        this(id, productId, productId, null, null, null, productName, unitPrice,
+                paidAmount, refundedAmount, orderedQuantity, canceledQuantity);
+    }
+
+    public OrderItemView(
+            UUID id, UUID productId, UUID variantId, String sku, String optionName, String optionValue,
+            String productName, BigDecimal unitPrice, BigDecimal paidAmount, BigDecimal refundedAmount,
+            int orderedQuantity, int canceledQuantity
+    ) {
         this.id = id;
         this.productId = productId;
+        this.variantId = variantId;
+        this.sku = sku;
+        this.optionName = optionName;
+        this.optionValue = optionValue;
         this.productName = productName;
         this.unitPrice = unitPrice;
         this.paidAmount = paidAmount;
@@ -41,6 +58,11 @@ public final class OrderItemView {
     public UUID getProductId() {
         return productId;
     }
+
+    public UUID getVariantId() { return variantId; }
+    public String getSku() { return sku; }
+    public String getOptionName() { return optionName; }
+    public String getOptionValue() { return optionValue; }
 
     public String getProductName() {
         return productName;

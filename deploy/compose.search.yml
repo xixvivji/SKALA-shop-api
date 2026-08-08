@@ -1,0 +1,23 @@
+name: skala-shop-search
+
+services:
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE_REF}
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    restart: unless-stopped
+
+volumes:
+  elasticsearch-data:

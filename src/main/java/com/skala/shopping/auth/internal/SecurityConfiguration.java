@@ -107,6 +107,7 @@ class SecurityConfiguration {
                                 HttpMethod.POST,
                                 "/api/customers",
                                 "/api/customers/login",
+                                "/api/customers/refresh",
                                 "/api/customers/logout",
                                 "/api/customers/password/reset"
                         ).permitAll()
@@ -123,8 +124,11 @@ class SecurityConfiguration {
                         .requestMatchers(HttpMethod.DELETE, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/categories/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/search/**").permitAll()
                         .requestMatchers("/api/categories/**").hasRole("ADMIN")
                         .requestMatchers("/api/orders/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/payments/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/returns/**").hasRole("CUSTOMER")
                         .requestMatchers("/api/cart/**", "/api/wallet/**").hasRole("CUSTOMER")
                         .requestMatchers(HttpMethod.GET, "/api/stock-alerts/**").hasRole("CUSTOMER")
                         .requestMatchers(HttpMethod.POST, "/api/stock-alerts/**").hasRole("CUSTOMER")
@@ -176,9 +180,13 @@ class SecurityConfiguration {
         configuration.setAllowedHeaders(java.util.List.of(
                 "Content-Type",
                 "X-Idempotency-Key",
+                "X-Correlation-ID",
                 "X-XSRF-TOKEN"
         ));
-        configuration.setExposedHeaders(java.util.List.of(HttpHeaders.RETRY_AFTER));
+        configuration.setExposedHeaders(java.util.List.of(
+                HttpHeaders.RETRY_AFTER,
+                "X-Correlation-ID"
+        ));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

@@ -26,16 +26,20 @@ public class AuthApplicationService implements AuthAccountApi {
     private final AuthAccountRepository repository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenService tokenService;
+    private final RefreshSessionStore refreshSessionStore;
+    private final SecurityProperties properties;
     private final Clock clock = Clock.systemUTC();
 
     public AuthApplicationService(
             AuthAccountRepository repository,
             PasswordEncoder passwordEncoder,
-            JwtTokenService tokenService
+            JwtTokenService tokenService, RefreshSessionStore refreshSessionStore, SecurityProperties properties
     ) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
+        this.refreshSessionStore = refreshSessionStore;
+        this.properties = properties;
     }
 
     @Override
@@ -118,14 +122,31 @@ public class AuthApplicationService implements AuthAccountApi {
         }
         AuthAccount account = candidate.get();
         var token = tokenService.issue(account);
+        String refreshToken = refreshSessionStore.issue(account.id(), account.credentialVersion(),
+                properties.getJwt().getRefreshTokenTtl());
         return new LoginResult(
                 account.id(),
                 account.loginId(),
                 account.role().name(),
-                token.getValue(),
+                token.getValue(), refreshToken,
                 token.getExpiresAt()
         );
     }
+
+    @Transactional(readOnly = true)
+    public LoginResult refresh(String refreshToken) {
+        RefreshSessionStore.RefreshPrincipal principal = refreshSessionStore.consume(refreshToken);
+        AuthAccount account = repository.findById(principal.memberId()).filter(AuthAccount::isActive)
+                .filter(candidate -> candidate.credentialVersion() == principal.credentialVersion())
+                .orElseThrow(this::loginFailure);
+        var access = tokenService.issue(account);
+        String rotated = refreshSessionStore.issue(account.id(), account.credentialVersion(),
+                properties.getJwt().getRefreshTokenTtl());
+        return new LoginResult(account.id(), account.loginId(), account.role().name(),
+                access.getValue(), rotated, access.getExpiresAt());
+    }
+
+    public void revokeRefreshToken(String token) { refreshSessionStore.revoke(token); }
 
     private void validatePasswordForEncoding(String rawPassword) {
         if (!BcryptPasswordPolicy.isCompatible(rawPassword)) {

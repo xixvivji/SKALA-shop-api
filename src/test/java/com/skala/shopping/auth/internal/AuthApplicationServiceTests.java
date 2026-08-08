@@ -34,7 +34,9 @@ class AuthApplicationServiceTests {
         service = new AuthApplicationService(
                 repository,
                 passwordEncoder,
-                mock(JwtTokenService.class)
+                mock(JwtTokenService.class),
+                mock(RefreshSessionStore.class),
+                new SecurityProperties()
         );
     }
 

@@ -68,11 +68,14 @@ await fetch("/api/customers/login", {
 ```
 
 로그인 성공 시 Access JWT는 JSON이 아니라 `bff-access` HttpOnly 쿠키로 설정됩니다.
+동시에 회전 가능한 opaque Refresh Token이 `bff-refresh` HttpOnly 쿠키에 저장됩니다.
 브라우저 JavaScript는 토큰을 읽지 않고 모든 요청에 `credentials: "include"`만
 사용합니다.
 
-쿠키가 만료되었거나 비밀번호 변경으로 기존 JWT가 무효화되면 보호 API는
-`401 NOT_AUTHENTICATED`를 반환합니다.
+Access Token이 만료되면 프론트는 `POST /api/customers/refresh`를 한 번 호출해 두
+쿠키를 회전하고 원래 요청을 재시도합니다. Refresh Token은 서버에 hash만 저장하며
+한 번 사용한 토큰은 재사용할 수 없습니다. 비밀번호 변경·탈퇴로 credential version이
+바뀌면 기존 세션도 거부됩니다.
 
 ## 4. 역할
 
@@ -127,6 +130,11 @@ Validation, 인증·인가와 비즈니스 오류는 같은 JSON 형식을 사�
 
 - `POST /api/orders`
 - `POST /api/orders/cancellations`
+- `POST /api/payments`
+- `POST /api/payments/{paymentId}/approve`
+- `POST /api/admin/payments/{paymentId}/refunds`
+- `POST /api/returns`
+- `PUT /api/admin/returns/{returnId}/status`
 - `POST /api/products/{productId}/stock`
 - `POST /api/products/{productId}/stock/adjustments`
 
@@ -171,8 +179,7 @@ await fetch("/api/orders", {
 
 ## 8. API 목록
 
-현재 Controller 기준 56개 HTTP operation이 있으며, 실행 중인 버전의 정확한 계약은
-OpenAPI 문서를 기준으로 합니다.
+실행 중인 버전의 정확한 operation 수와 계약은 OpenAPI 문서를 기준으로 합니다.
 
 | 그룹 | 대표 경로 |
 | --- | --- |
@@ -180,9 +187,13 @@ OpenAPI 문서를 기준으로 합니다.
 | 배송지 | `/api/customers/me/addresses/**` |
 | 카테고리 | `/api/categories/**` |
 | 상품 | `/api/products/**` |
+| SKU 옵션 | `/api/products/{productId}/variants/**` |
 | 재고 | `/api/products/{id}/stock/**`, `/api/products/stocks` |
 | 장바구니 | `/api/cart/**` |
 | 주문·취소 | `/api/orders/**` |
+| 결제 | `/api/payments/**`, `/api/admin/payments/**` |
+| 반품 | `/api/returns/**`, `/api/admin/returns/**` |
+| 검색 | `/api/search/products`, `/api/admin/search/reindex` |
 | 관리자 주문 | `/api/admin/orders/**` |
 | 포인트 | `/api/wallet/me/**` |
 | 위시리스트 | `/api/wishlist/**` |
@@ -202,7 +213,7 @@ OpenAPI 문서를 기준으로 합니다.
 | 고객 이름 | 최대 100자 |
 | 상품 가격 | `0.01`~`30,000,000.00` |
 | 상품별 재고·주문 수량 | 최대 1,000,000 |
-| 한 주문 상품 종류 | 최대 50종, 중복 productId 불가 |
+| 한 주문 상품 종류 | 최대 50종, 중복 variantId 불가 |
 | 장바구니 | 회원당 최대 50종 |
 | 저장 배송지 | 회원당 최대 10개 |
 | 주문 총액·초기 포인트 | 최대 `30,000,000,000,000.00` |
@@ -216,7 +227,18 @@ OpenAPI 문서를 기준으로 합니다.
 상품만 신청할 수 있고, 재고가 양수로 전환되면 상태가 `WAITING`에서 `NOTIFIED`로
 변경됩니다.
 
-## 10. 비밀번호 재설정 주의
+## 10. Fake PG 결제와 반품
+
+주문은 포인트만 사용하거나 포인트와 Fake PG 금액을 나눠 결제할 수 있습니다.
+Fake PG가 필요한 주문은 `PAYMENT_PENDING`으로 생성한 뒤 결제를 준비·승인합니다.
+`4242-4242-4242-4242`는 성공 테스트 카드이며 다른 문서화된 번호로 승인 실패를
+재현할 수 있습니다. 실제 카드 정보나 돈은 처리하지 않습니다.
+
+배송 전 취소는 기존 주문 취소 API를 사용합니다. 배송 완료 후에는 주문 항목별로
+반품을 신청하고 관리자가 회수·검수·승인 또는 거절 상태를 변경합니다. 최종
+`REFUNDED`에서 결제 수단별 환불과 재고 복원이 완료됩니다.
+
+## 11. 비밀번호 재설정 주의
 
 현재 재설정 API는 교육용 요구사항에 맞춰 고객 ID와 현재 이름을 확인합니다. 두
 값은 강한 본인 인증 수단이 아닙니다. 공개 상용 서비스에서는 이메일·휴대전화

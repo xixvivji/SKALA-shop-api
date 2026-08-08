@@ -8,9 +8,13 @@ import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.OrderItemView;
 import com.skala.shopping.order.OrderLineCommand;
+import com.skala.shopping.order.OrderPlaced;
 import com.skala.shopping.order.OrderStatusHistoryView;
 import com.skala.shopping.order.OrderView;
 import com.skala.shopping.order.PurchasedProductView;
+import com.skala.shopping.order.PaymentOrderView;
+import com.skala.shopping.order.ReturnableOrderItemView;
+import com.skala.shopping.order.ReturnSettlementView;
 import com.skala.shopping.order.ShippingAddressCommand;
 import com.skala.shopping.order.ShippingAddressView;
 import com.skala.shopping.order.internal.domain.OrderCancellation;
@@ -34,6 +38,7 @@ import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,6 +60,7 @@ public class OrderApplicationService implements OrderApi {
     private final PointManager pointManager;
     private final StockManager stockManager;
     private final CouponManager couponManager;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock = Clock.systemUTC();
 
     OrderApplicationService(
@@ -66,7 +72,8 @@ public class OrderApplicationService implements OrderApi {
             ProductReader productReader,
             PointManager pointManager,
             StockManager stockManager,
-            CouponManager couponManager
+            CouponManager couponManager,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.orderRepository = orderRepository;
         this.itemRepository = itemRepository;
@@ -77,6 +84,7 @@ public class OrderApplicationService implements OrderApi {
         this.pointManager = pointManager;
         this.stockManager = stockManager;
         this.couponManager = couponManager;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -105,10 +113,19 @@ public class OrderApplicationService implements OrderApi {
     public OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
                                 ShippingAddressCommand shippingAddress, UUID commandId,
                                 String couponCode) {
+        return placeOrder(memberId, items, shippingAddress, commandId, couponCode, null);
+    }
+
+    @Override
+    @Transactional
+    public OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
+                                ShippingAddressCommand shippingAddress, UUID commandId,
+                                String couponCode, BigDecimal pointAmount) {
         List<OrderLineCommand> normalizedItems = validateAndSortItems(items);
         validateShippingAddress(shippingAddress);
         String normalizedCoupon = normalizeText(couponCode);
-        String fingerprint = OrderCommandFingerprint.order(memberId, normalizedItems, shippingAddress, normalizedCoupon);
+        String fingerprint = OrderCommandFingerprint.order(
+                memberId, normalizedItems, shippingAddress, normalizedCoupon, pointAmount);
         return orderRepository.findByMemberIdAndRequestId(memberId, commandId)
                 .map(order -> replayOrder(order, fingerprint))
                 .orElseGet(() -> createOrder(
@@ -117,8 +134,97 @@ public class OrderApplicationService implements OrderApi {
                         shippingAddress,
                         commandId,
                         fingerprint,
-                        normalizedCoupon
+                        normalizedCoupon,
+                        pointAmount
                 ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PaymentOrderView getPaymentOrder(UUID memberId, UUID orderId) {
+        ShopOrder order = orderRepository.findByIdAndMemberId(orderId, memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
+        return new PaymentOrderView(order.id(), order.memberId(), order.paymentAmount(),
+                order.isPaymentPending() ? "PAYMENT_PENDING" : "NOT_PAYABLE");
+    }
+
+    @Override
+    @Transactional
+    public OrderView confirmExternalPayment(UUID memberId, UUID orderId, UUID paymentId) {
+        ShopOrder order = lockedMemberOrder(memberId, orderId);
+        boolean wasPending = order.isPaymentPending();
+        order.confirmPayment(clock.instant());
+        if (wasPending) {
+            statusHistoryRepository.save(new OrderStatusHistory(
+                    orderId, FulfillmentStatus.PAYMENT_PENDING, FulfillmentStatus.PAID,
+                    null, clock.instant()));
+            if (order.usedCouponCode() != null) {
+                CouponDiscount coupon = couponManager.applyPreview(
+                        memberId, order.usedCouponCode(), order.originalAmount());
+                couponManager.applyUsage(memberId, orderId, order.requestId(), coupon);
+            }
+        }
+        return toCreationView(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderView failExternalPayment(UUID memberId, UUID orderId, UUID paymentId) {
+        ShopOrder order = lockedMemberOrder(memberId, orderId);
+        if (!order.isPaymentPending()) return toCreationView(order);
+        BigDecimal restoredBalance = order.pointUsedAmount().signum() == 0
+                ? pointManager.balance(memberId)
+                : pointManager.credit(memberId, order.pointUsedAmount(), orderId, paymentId);
+        for (OrderItem item : itemRepository.findAllByOrderIdOrderByLineNumberAsc(orderId)) {
+            stockManager.release(item.variantId(), item.availableQuantity(), paymentId);
+        }
+        order.failPayment(restoredBalance, clock.instant());
+        return toCreationView(order);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ReturnableOrderItemView getReturnableItem(UUID memberId, UUID orderId, UUID orderItemId) {
+        ShopOrder order = orderRepository.findByIdAndMemberId(orderId, memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
+        if (order.fulfillmentStatus() != FulfillmentStatus.DELIVERED) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송 완료 주문만 반품할 수 있습니다.");
+        }
+        OrderItem item = itemRepository.findById(orderItemId)
+                .filter(candidate -> candidate.orderId().equals(orderId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문 항목을 찾을 수 없습니다."));
+        BigDecimal pointRatio = order.totalAmount().signum() == 0 ? BigDecimal.ZERO
+                : order.pointUsedAmount().divide(order.totalAmount(), 8, RoundingMode.DOWN);
+        return new ReturnableOrderItemView(orderId, item.id(), memberId, item.productId(),
+                item.productName(), item.availableQuantity(),
+                item.refundableAmount(item.availableQuantity()), pointRatio);
+    }
+
+    @Override
+    @Transactional
+    public ReturnSettlementView settleReturn(UUID memberId, UUID orderId, UUID orderItemId,
+                                             int quantity, BigDecimal refundAmount,
+                                             BigDecimal pointRefundAmount, UUID commandId) {
+        requirePositiveQuantity(quantity);
+        ShopOrder order = lockedMemberOrder(memberId, orderId);
+        if (order.fulfillmentStatus() != FulfillmentStatus.DELIVERED) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송 완료 주문만 반품 정산할 수 있습니다.");
+        }
+        OrderItem item = itemRepository.findByIdAndOrderIdForUpdate(orderItemId, orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문 항목을 찾을 수 없습니다."));
+        if (refundAmount == null || pointRefundAmount == null || refundAmount.signum() < 0
+                || pointRefundAmount.signum() < 0 || pointRefundAmount.compareTo(refundAmount) > 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "반품 정산 금액이 올바르지 않습니다.");
+        }
+        item.returnQuantity(quantity, refundAmount);
+        BigDecimal balance = pointRefundAmount.signum() == 0
+                ? pointManager.balance(memberId)
+                : pointManager.credit(memberId, pointRefundAmount, orderId, commandId);
+        stockManager.release(item.variantId(), quantity, commandId);
+        boolean fullyReturned = itemRepository.findAllByOrderIdOrderByLineNumberAsc(orderId)
+                .stream().allMatch(candidate -> candidate.availableQuantity() == 0);
+        order.applyCancellation(refundAmount, fullyReturned, clock.instant());
+        return new ReturnSettlementView(refundAmount, pointRefundAmount, balance);
     }
 
     @Override
@@ -290,10 +396,11 @@ public class OrderApplicationService implements OrderApi {
             ShippingAddressCommand shippingAddress,
             UUID commandId,
             String fingerprint,
-            String couponCode
+            String couponCode,
+            BigDecimal requestedPointAmount
     ) {
         List<OrderProduct> products = lines.stream()
-                .map(line -> productReader.getSaleableProduct(line.getProductId()))
+                .map(line -> productReader.getSaleableProduct(line.getProductId(), line.getVariantId()))
                 .toList();
         BigDecimal originalAmount = BigDecimal.ZERO;
         for (int index = 0; index < lines.size(); index++) {
@@ -312,13 +419,12 @@ public class OrderApplicationService implements OrderApi {
                     "쿠폰 할인액은 주문 금액보다 작아야 합니다."
             );
         }
+        BigDecimal pointAmount = normalizePointAmount(requestedPointAmount, finalAmount);
+        BigDecimal paymentAmount = finalAmount.subtract(pointAmount);
         UUID orderId = UUID.randomUUID();
-        BigDecimal remainingPoints = pointManager.debit(
-                memberId,
-                finalAmount,
-                orderId,
-                commandId
-        );
+        BigDecimal remainingPoints = pointAmount.signum() == 0
+                ? pointManager.balance(memberId)
+                : pointManager.debit(memberId, pointAmount, orderId, commandId);
         // 포인트 계정 잠금을 기다리는 사이 동일 멱등 요청이 완료됐을 수 있다.
         // 이 시점에 재확인해야 중복 재고 차감과 주문 UNIQUE 충돌을 피할 수 있다.
         var concurrentReplay = orderRepository.findByMemberIdAndRequestId(memberId, commandId);
@@ -326,7 +432,7 @@ public class OrderApplicationService implements OrderApi {
             return replayOrder(concurrentReplay.get(), fingerprint);
         }
         for (OrderLineCommand line : lines) {
-            stockManager.reserve(line.getProductId(), line.getQuantity(), orderId);
+            stockManager.reserve(line.getVariantId(), line.getQuantity(), orderId);
         }
         var now = clock.instant();
         ShopOrder order = orderRepository.save(new ShopOrder(
@@ -339,25 +445,31 @@ public class OrderApplicationService implements OrderApi {
                 originalAmount,
                 discountAmount,
                 coupon.getCouponCode(),
+                pointAmount,
+                paymentAmount,
                 remainingPoints,
                 now
         ));
-        statusHistoryRepository.save(new OrderStatusHistory(
-                orderId, null, FulfillmentStatus.PAID, null, now));
+        if (paymentAmount.signum() == 0) {
+            statusHistoryRepository.save(new OrderStatusHistory(
+                    orderId, null, FulfillmentStatus.PAID, null, now));
+        }
         List<BigDecimal> paidAmounts = allocatePaidAmounts(lines, products, finalAmount);
         for (int index = 0; index < lines.size(); index++) {
             OrderProduct product = products.get(index);
             itemRepository.save(new OrderItem(
-                    orderId, product.getId(), product.getName(), product.getPrice(),
+                    orderId, product.getId(), product.getVariantId(), product.getSku(),
+                    product.getOptionName(), product.getOptionValue(), product.getName(), product.getPrice(),
                     lines.get(index).getQuantity(), paidAmounts.get(index), index));
         }
-        if (coupon.getCouponId() != null) {
+        if (paymentAmount.signum() == 0 && coupon.getCouponId() != null) {
             couponManager.applyUsage(memberId, orderId, commandId, coupon);
         }
         OrderView view = order.toView(
                 itemRepository.findAllByOrderIdOrderByLineNumberAsc(orderId)
                         .stream().map(OrderItem::toView).toList()
         );
+        eventPublisher.publishEvent(new OrderPlaced(orderId, memberId, finalAmount, now));
         if (shippingAddress != null) {
             ShippingAddressView savedAddress = orderShippingAddressRepositorySave(
                     order.id(),
@@ -428,6 +540,7 @@ public class OrderApplicationService implements OrderApi {
         UUID cancellationId = UUID.randomUUID();
         int remaining = quantity;
         BigDecimal refund = BigDecimal.ZERO;
+        Map<UUID, Integer> releasedByVariant = new LinkedHashMap<>();
         var now = clock.instant();
         for (OrderItem item : items) {
             if (remaining == 0) {
@@ -446,6 +559,7 @@ public class OrderApplicationService implements OrderApi {
                     .allMatch(orderItem -> orderItem.availableQuantity() == 0);
             order.applyCancellation(itemRefund, orderFullyCanceled, now);
             refund = refund.add(itemRefund);
+            releasedByVariant.merge(item.variantId(), canceled, Integer::sum);
             remaining -= canceled;
         }
 
@@ -457,7 +571,8 @@ public class OrderApplicationService implements OrderApi {
         if (concurrentReplay.isPresent()) {
             return replayCancellation(concurrentReplay.get(), fingerprint);
         }
-        stockManager.release(productId, quantity, cancellationId);
+        releasedByVariant.forEach((variantId, releasedQuantity) ->
+                stockManager.release(variantId, releasedQuantity, cancellationId));
         OrderCancellation cancellation = cancellationRepository.save(new OrderCancellation(
                 cancellationId,
                 commandId,
@@ -553,12 +668,12 @@ public class OrderApplicationService implements OrderApi {
             }
             requirePositiveQuantity(item.getQuantity());
         }
-        long distinct = items.stream().map(OrderLineCommand::getProductId).distinct().count();
+        long distinct = items.stream().map(OrderLineCommand::getVariantId).distinct().count();
         if (distinct != items.size()) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "같은 상품은 주문에 한 번만 포함할 수 있습니다.");
         }
         return items.stream()
-                .sorted(Comparator.comparing(line -> line.getProductId().toString()))
+                .sorted(Comparator.comparing(line -> line.getVariantId().toString()))
                 .toList();
     }
 
@@ -567,6 +682,28 @@ public class OrderApplicationService implements OrderApi {
     private boolean hasText(String value) { return value != null && !value.isBlank(); }
 
     private String normalizeText(String value) { return value == null ? null : value.trim(); }
+
+    private BigDecimal normalizePointAmount(BigDecimal requested, BigDecimal total) {
+        BigDecimal value = requested == null ? total : requested;
+        try {
+            value = value.setScale(2, RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException exception) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "포인트 사용액은 소수점 둘째 자리까지 입력해야 합니다.");
+        }
+        if (value.signum() < 0 || value.compareTo(total) > 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "포인트 사용액은 0 이상 주문 결제액 이하여야 합니다.");
+        }
+        return value;
+    }
+
+    private ShopOrder lockedMemberOrder(UUID memberId, UUID orderId) {
+        ShopOrder order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
+        if (!order.memberId().equals(memberId)) {
+            throw new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다.");
+        }
+        return order;
+    }
 
     private String orderNumber(UUID id, java.time.Instant now) {
         return "SKALA-" + ORDER_DATE.format(now) + "-" +

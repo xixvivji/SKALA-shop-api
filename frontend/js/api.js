@@ -6,6 +6,7 @@ export const API_BASE_URL = configuredBaseUrl.replace(/\/+$/, "");
 const activityListeners = new Set();
 let csrfToken = null;
 let csrfRequest = null;
+let refreshRequest = null;
 
 export class ApiError extends Error {
   constructor({ status = 0, code = "UNKNOWN_ERROR", message, fieldErrors = {} }) {
@@ -100,6 +101,7 @@ async function request(
     headers = {},
     idempotencyKey,
     retryCsrf = true,
+    retryAuth = true,
   } = {},
 ) {
   const normalizedMethod = method.toUpperCase();
@@ -159,6 +161,18 @@ async function request(
   });
 
   if (!response.ok) {
+    const refreshExcluded = ["/api/customers/login", "/api/customers/refresh", "/api/customers/logout"].includes(path);
+    if (response.status === 401 && retryAuth && !refreshExcluded) {
+      refreshRequest ||= request("/api/customers/refresh", { method: "POST", retryAuth: false })
+        .finally(() => { refreshRequest = null; });
+      try {
+        await refreshRequest;
+        return request(path, { method: normalizedMethod, body, headers, idempotencyKey,
+          retryCsrf, retryAuth: false });
+      } catch {
+        throw errorFromResponse(response, payload);
+      }
+    }
     if (response.status === 403 && isMutation(normalizedMethod) && retryCsrf) {
       await issueCsrfToken(true);
       return request(path, {
@@ -167,6 +181,7 @@ async function request(
         headers,
         idempotencyKey,
         retryCsrf: false,
+        retryAuth,
       });
     }
     throw errorFromResponse(response, payload);
@@ -196,6 +211,8 @@ export const shopApi = {
     if (maxPrice !== undefined && maxPrice !== "") parameters.set("maxPrice", maxPrice);
     return request(`/api/products?${parameters.toString()}`);
   },
+  searchProducts: (query, page = 0, size = 100) =>
+    request(`/api/search/products?${new URLSearchParams({ query, page, size }).toString()}`),
   categories: () => request("/api/categories"),
   register: (payload) => request("/api/customers", { method: "POST", body: payload }),
   resetPassword: (payload) =>
@@ -215,28 +232,40 @@ export const shopApi = {
   deleteAddress: (addressId) =>
     request(`/api/customers/me/addresses/${addressId}`, { method: "DELETE" }),
   cart: () => request("/api/cart"),
-  addCartItem: (productId, quantity = 1) =>
-    request("/api/cart/items", { method: "POST", body: { productId, quantity } }),
-  updateCartItem: (productId, quantity) =>
-    request(`/api/cart/items/${productId}`, { method: "PUT", body: { quantity } }),
-  removeCartItem: (productId) =>
-    request(`/api/cart/items/${productId}`, { method: "DELETE" }),
+  addCartItem: (productId, quantity = 1, variantId = null) =>
+    request("/api/cart/items", { method: "POST", body: { productId, variantId, quantity } }),
+  updateCartItem: (variantId, quantity) =>
+    request(`/api/cart/items/${variantId}`, { method: "PUT", body: { quantity } }),
+  removeCartItem: (variantId) =>
+    request(`/api/cart/items/${variantId}`, { method: "DELETE" }),
   clearCart: () => request("/api/cart", { method: "DELETE" }),
   orders: (page = 0, size = 10) =>
     request(`/api/orders/me?page=${page}&size=${size}`),
   wallet: () => request("/api/wallet/me"),
   walletTransactions: (page = 0, size = 20) =>
     request(`/api/wallet/me/transactions?page=${page}&size=${size}`),
-  order: (productId, quantity, couponCode, idempotencyKey = createCommandId()) =>
+  order: (productId, quantity, couponCode, pointAmount, idempotencyKey = createCommandId(), variantId = null) =>
     request("/api/orders", {
       method: "POST",
-      body: { productId, quantity, couponCode: couponCode || null },
+      body: { productId, variantId, quantity, couponCode: couponCode || null, pointAmount },
       idempotencyKey,
     }),
-  createOrder: (items, shippingAddress, couponCode, idempotencyKey = createCommandId()) =>
+  createOrder: (items, shippingAddress, couponCode, pointAmount, idempotencyKey = createCommandId()) =>
     request("/api/orders", {
       method: "POST",
-      body: { items, shippingAddress, couponCode: couponCode || null },
+      body: { items, shippingAddress, couponCode: couponCode || null, pointAmount },
+      idempotencyKey,
+    }),
+  preparePayment: (orderId, method = "CARD", idempotencyKey = createCommandId()) =>
+    request("/api/payments", {
+      method: "POST",
+      body: { orderId, method },
+      idempotencyKey,
+    }),
+  approveFakePayment: (paymentId, testCardNumber, idempotencyKey = createCommandId()) =>
+    request(`/api/payments/${paymentId}/approve`, {
+      method: "POST",
+      body: { testCardNumber },
       idempotencyKey,
     }),
   cancel: (productId, quantity, idempotencyKey = createCommandId()) =>
@@ -244,6 +273,14 @@ export const shopApi = {
       method: "POST",
       body: { productId, quantity },
       idempotencyKey,
+    }),
+  requestReturn: (payload, idempotencyKey = createCommandId()) =>
+    request("/api/returns", { method: "POST", body: payload, idempotencyKey }),
+  returns: () => request("/api/returns/me?page=0&size=100"),
+  adminReturns: () => request("/api/admin/returns?page=0&size=100"),
+  updateReturnStatus: (returnId, status, adminNote = "", idempotencyKey = createCommandId()) =>
+    request(`/api/admin/returns/${returnId}/status`, {
+      method: "PUT", body: { status, adminNote }, idempotencyKey,
     }),
   members: (page = 0, size = 50) =>
     request(`/api/customers/list?page=${page}&size=${size}`),
@@ -260,6 +297,7 @@ export const shopApi = {
     productIds.forEach((productId) => query.append("productIds", productId));
     return request(`/api/products/stocks?${query.toString()}`);
   },
+  stock: (stockItemId) => request(`/api/products/${stockItemId}/stock`),
   initializeStock: (
     productId,
     availableQuantity,
@@ -293,6 +331,11 @@ export const shopApi = {
     }),
   deleteProduct: (productId) =>
     request(`/api/products/${productId}`, { method: "DELETE" }),
+  productVariants: (productId) => request(`/api/products/${productId}/variants`),
+  createProductVariant: (productId, payload) =>
+    request(`/api/products/${productId}/variants`, { method: "POST", body: payload }),
+  deleteProductVariant: (productId, variantId) =>
+    request(`/api/products/${productId}/variants/${variantId}`, { method: "DELETE" }),
   wishlist: () => request("/api/wishlist"),
   addWishlist: (productId) =>
     request("/api/wishlist", { method: "POST", body: { productId } }),

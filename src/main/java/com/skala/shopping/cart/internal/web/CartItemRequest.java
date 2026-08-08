@@ -8,11 +8,14 @@ import java.util.UUID;
 public final class CartItemRequest {
     @NotNull
     private UUID productId;
+    private UUID variantId;
     @Min(1) @Max(1_000_000)
     private int quantity;
     public CartItemRequest() { }
     public UUID getProductId() { return productId; }
     public void setProductId(UUID productId) { this.productId = productId; }
+    public UUID getVariantId() { return variantId; }
+    public void setVariantId(UUID variantId) { this.variantId = variantId; }
     public int getQuantity() { return quantity; }
     public void setQuantity(int quantity) { this.quantity = quantity; }
 }

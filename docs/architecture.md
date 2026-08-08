@@ -42,13 +42,17 @@ com.skala.shopping.<module>
 
 | 모듈 | 소유하는 책임 | 대표 공개 계약 |
 | --- | --- | --- |
-| `auth` | 계정, 비밀번호, JWT, 역할, 인증 제한 | 인증 쿠키·계정 조회 API |
+| `auth` | 계정, 비밀번호, JWT, Refresh Token, 역할, 인증 제한 | 인증 쿠키·계정 조회 API |
 | `member` | 고객 프로필과 배송지 | `MemberApi` |
-| `catalog` | 카테고리와 상품 | `CatalogApi`, 상품 이벤트 |
-| `inventory` | 주문 가능 재고와 원장 | `InventoryApi` |
+| `catalog` | 카테고리, 상품과 SKU 옵션 | `CatalogApi`, 상품 이벤트 |
+| `inventory` | SKU별 주문 가능 재고와 원장 | `InventoryApi` |
 | `cart` | 회원 장바구니 | 장바구니 HTTP API |
 | `wallet` | 포인트 잔액과 거래 원장 | `WalletApi` |
 | `order` | 주문·취소·배송 상태 | 주문 HTTP API와 View |
+| `payment` | 포인트·Fake PG 결제와 환불 원장 | `PaymentApi` |
+| `returns` | 배송 후 항목별 반품과 검수 | `ReturnApi` |
+| `outbox` | 이벤트 영속화와 Kafka relay | Outbox recorder |
+| `search` | Elasticsearch 색인·검색과 DB 폴백 | 검색 HTTP API |
 | `coupon` | 쿠폰 규칙과 사용 이력 | `CouponApi` |
 | `wishlist` | 회원별 관심 상품 | `WishlistApi` |
 | `review` | 구매 인증 리뷰 | `ReviewApi` |
@@ -114,7 +118,8 @@ member
 
 catalog
 ├── categories
-└── products
+├── products
+└── product_variants
 
 inventory
 ├── stocks
@@ -134,6 +139,17 @@ orders
 ├── order_cancellations
 ├── order_shipping_addresses
 └── order_status_histories
+
+payment
+├── payments
+├── payment_refunds
+└── payment_webhook_events
+
+returns
+└── return_requests
+
+outbox
+└── outbox_events
 
 coupon
 └── coupon_usages
@@ -181,17 +197,18 @@ Access Token은 브라우저 JavaScript에 반환하지 않고 HttpOnly 쿠키�
 비밀번호 변경 시 `credentialVersion`을 올려 기존 JWT를 무효화합니다. 운영 쿠키는
 `Secure`, CSRF 쿠키는 JavaScript가 헤더로 되돌려 보내야 하므로 HttpOnly가 아닙니다.
 
-### 다중 상품 주문
+### 다중 상품 주문과 결제
 
 ```text
 요청 형식·중복 상품·수량 검증
-→ 상품 ID 순으로 정렬
-→ 판매 상품과 주문 시점 이름·단가 조회
-→ 포인트 계정 잠금과 전체 금액 차감
+→ SKU ID 순으로 정렬
+→ 판매 상품·SKU 옵션과 주문 시점 이름·단가 조회
+→ 포인트 사용액 차감
 → 멱등 재시도 여부 재확인
 → 정렬된 순서로 재고 잠금과 예약
-→ 주문·항목·배송지 스냅샷 저장
-→ 초기 배송 이력 PAID 저장
+→ 주문·항목·SKU·배송지 스냅샷 저장
+→ Fake PG 금액이 있으면 PAYMENT_PENDING, 없으면 PAID
+→ 결제 승인 후 PAID 또는 실패 시 PAYMENT_FAILED와 보상
 → 전체 commit 또는 전체 rollback
 ```
 
@@ -200,10 +217,11 @@ fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니�
 요청은 최초 결과를 반환하고, 같은 키에 다른 내용이 오면
 `IDEMPOTENCY_CONFLICT`를 반환합니다.
 
-### 취소와 환급
+### 취소·반품과 환급
 
 취소 가능한 주문항목을 잠그고 최신 구매부터 요청 수량을 차감합니다. 주문 당시
-쿠폰 할인 후 항목별로 배분해 저장한 실제 결제액을 기준으로 포인트를 환급하고
+쿠폰 할인 후 항목별로 배분해 저장한 실제 결제액을 기준으로 포인트와 Fake PG를
+원래 결제 비율대로 환급하고
 같은 취소 ID로 재고를 복원합니다. 부분 취소의 소수점 절사 차이는 마지막 취소가
 흡수하므로 항목별 누적 환불액이 결제액을 넘지 않습니다. 주문 상태, 취소 이력,
 포인트 환급과 재고 복원 중 하나라도 실패하면 전체를 롤백합니다.
@@ -211,6 +229,11 @@ fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니�
 금전 상태 `PAID/PARTIALLY_CANCELED/CANCELED`와 배송 상태는 별도입니다. 배송은
 `PAID → PREPARING → SHIPPED → DELIVERED` 순서만 허용하며 `SHIPPED` 이후에는
 취소할 수 없습니다.
+
+배송 완료 뒤에는 주문 항목별 반품을 신청합니다. 반품은
+`REQUESTED → COLLECTING → INSPECTING → APPROVED → REFUNDED` 또는 `REJECTED`로
+전이합니다. 환불 완료 트랜잭션에서 포인트/Fake PG 환급과 판매 가능 재고 복원을
+함께 처리합니다.
 
 ### 장바구니와 배송지
 
@@ -233,22 +256,34 @@ fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니�
 현재 목록은 offset pagination입니다. 데이터가 커지면 주문과 원장부터
 `(createdAt, id)` cursor/keyset pagination으로 바꿀 수 있습니다.
 
-## 8. 이벤트 사용
+## 8. Outbox, Kafka와 검색
 
 Catalog와 Inventory는 모듈 간 상태 변경 이벤트를 발행합니다.
 
 - `ProductCreated`: 같은 트랜잭션에서 초기 재고 생성
 - `ProductDeleted`: 재고 비활성화와 해당 상품 장바구니 항목 정리
 - `StockReplenished`: 재고가 0에서 양수로 바뀔 때 대기 중 구독을 알림 완료로 변경
+- `ProductSearchChanged`: Elasticsearch 상품 색인 갱신
 
-현재 이벤트는 같은 프로세스와 트랜잭션에서 처리됩니다. Catalog를 분리하면
-Outbox를 통해 메시지로 발행하고 소비자 멱등성과 재처리를 추가해야 합니다.
+DB 변경과 외부 메시지 발행 사이의 유실을 막기 위해 같은 트랜잭션에서
+`outbox.outbox_events`를 저장합니다. Relay는 `PENDING` 이벤트를 Kafka로 발행하고
+성공 시 `PUBLISHED`, 반복 실패 시 `DEAD`로 기록합니다. 같은 aggregate ID를 Kafka
+key로 사용해 partition 안의 순서를 유지합니다. 로컬에서는 logging publisher를
+사용할 수 있습니다.
+
+상품 검색은 Elasticsearch를 우선 사용하되 연결 실패 시 PostgreSQL 검색으로
+폴백합니다. Kafka와 Elasticsearch는 별도 EC2에 있지만 검색 Java 코드는 아직
+모듈러 모놀리스 안에 있으므로, 이것만으로 MSA 분리가 끝난 것은 아닙니다.
 
 ## 9. MSA 전환 순서
 
-### 1단계: Cart 또는 Catalog
+### 1단계: Search 또는 Cart
 
-Cart는 주문 원자 트랜잭션에 직접 참여하지 않아 가장 먼저 분리하기 좋습니다.
+Search는 독립 Elasticsearch projection과 재색인 경로가 있어 첫 추출 대상으로
+적합합니다. Outbox Kafka topic을 소비하는 별도 프로세스로 옮긴 뒤 현재 공개 검색
+API를 원격 호출 또는 edge routing으로 전환합니다.
+
+Cart는 주문 원자 트랜잭션에 직접 참여하지 않아 다음 분리 후보입니다.
 저장소를 옮기고 Catalog/Inventory 공개 조회를 HTTP 클라이언트로 바꿉니다.
 
 Catalog를 분리할 때 `CatalogApi`의 로컬 구현을 원격 어댑터로 교체합니다. 주문에
@@ -282,5 +317,5 @@ Saga 상태, Outbox relay, 재처리 운영 도구와 관측 가능성을 먼저
 - 애플리케이션 롤백이 DB 마이그레이션까지 되돌린다고 가정하지 않습니다.
 - 파괴적 변경 전 RDS snapshot/backup과 forward-fix 절차를 준비합니다.
 
-V13은 초기 기능 확장에서 Member와 Cart를 함께 만든 과거 예외입니다. 이후
+현재 최신 마이그레이션은 V24입니다. V13은 초기 기능 확장에서 Member와 Cart를 함께 만든 과거 예외입니다. 이후
 마이그레이션은 모듈 소유권을 유지합니다.
