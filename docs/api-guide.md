@@ -2,6 +2,7 @@
 
 SKALA Shop API의 인증, 요청·응답, 오류, 멱등성과 주요 경로를 설명합니다. 전체
 스키마와 상태 코드별 응답은 Swagger UI가 최종 기준입니다.
+Swagger UI의 도메인 그룹명과 각 API의 요약·상세 설명은 한국어로 제공합니다.
 
 - 로컬 Swagger: <http://localhost:8080/swagger-ui.html>
 - 운영 Swagger: <https://api-3-39-64-119.sslip.io/swagger-ui/index.html>

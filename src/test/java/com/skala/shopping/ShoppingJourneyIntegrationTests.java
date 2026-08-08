@@ -95,7 +95,7 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(content().string(containsString("requestInterceptor")))
                 .andExpect(content().string(containsString("X-XSRF-TOKEN")));
 
-        mockMvc.perform(get("/v3/api-docs"))
+        MvcResult openApiResult = mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.info.title").value("SKALA Shop API"))
                 .andExpect(jsonPath("$.components.securitySchemes.cookieAuth.type").value("apiKey"))
@@ -122,6 +122,9 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(jsonPath("$['paths']['/api/categories']['post']['security'][0].cookieAuth").exists())
                 .andExpect(jsonPath("$['paths']['/api/admin/orders']['get']['responses']['400']").exists())
                 .andExpect(jsonPath("$['paths']['/api/admin/orders/{orderId}/history']['get']['responses']['404']").exists())
+                .andExpect(jsonPath("$['paths']['/api/admin/returns']['get']['tags'][0]").value("관리자 반품"))
+                .andExpect(jsonPath("$['paths']['/api/admin/returns']['get']['summary']").value("전체 반품 신청 조회"))
+                .andExpect(jsonPath("$['paths']['/api/admin/returns']['get']['description']").isNotEmpty())
                 .andExpect(jsonPath("$['paths']['/api/wallet/me']['get']['responses']['401']").exists())
                 .andExpect(jsonPath("$['paths']['/api/wallet/me/transactions']['get']['responses']['400']").exists())
                 .andExpect(jsonPath("$['paths']['/api/customers/logout']['post']['responses']['204']").exists())
@@ -135,7 +138,30 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(jsonPath("$.components.schemas.StockResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.ResetPasswordRequest").exists())
                 .andExpect(jsonPath("$.components.schemas.CsrfTokenResponse").exists())
-                .andExpect(jsonPath("$.components.schemas.ApiError").exists());
+                .andExpect(jsonPath("$.components.schemas.ApiError").exists())
+                .andReturn();
+
+        JsonNode paths = objectMapper.readTree(openApiResult.getResponse().getContentAsString()).path("paths");
+        paths.fields().forEachRemaining(pathEntry ->
+                pathEntry.getValue().fields().forEachRemaining(operationEntry -> {
+                    if (!List.of("get", "post", "put", "patch", "delete").contains(operationEntry.getKey())) {
+                        return;
+                    }
+                    JsonNode operation = operationEntry.getValue();
+                    String operationLabel = operationEntry.getKey().toUpperCase() + " " + pathEntry.getKey();
+                    assertTrue(operation.path("summary").isTextual()
+                                    && operation.path("summary").asText().matches(".*[가-힣].*"),
+                            operationLabel + "의 한국어 요약이 필요합니다.");
+                    assertTrue(operation.path("description").isTextual()
+                                    && operation.path("description").asText().matches(".*[가-힣].*"),
+                            operationLabel + "의 한국어 설명이 필요합니다.");
+                    operation.path("tags").forEach(tag -> {
+                        assertTrue(tag.asText().matches(".*[가-힣].*"),
+                                operationLabel + "의 한국어 그룹명이 필요합니다.");
+                        assertTrue(!tag.asText().endsWith("-controller"),
+                                operationLabel + "에 기본 컨트롤러 태그가 노출되었습니다.");
+                    });
+                }));
     }
 
     @Test

@@ -63,6 +63,7 @@ class OrderController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "주문 생성",
+            description = "선택한 상품, 배송지, 쿠폰과 포인트를 검증해 주문을 멱등하게 생성합니다.",
             responses = {
                     @ApiResponse(
                             responseCode = "201",
@@ -115,7 +116,7 @@ class OrderController {
     }
 
     @GetMapping("/me")
-    @Operation(summary = "내 주문 목록 조회")
+    @Operation(summary = "내 주문 목록 조회", description = "로그인한 고객의 주문을 최신순으로 페이지 조회합니다.")
     PageResponse<OrderResponse> getMyOrders(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "0") @Min(0) int page,
@@ -125,7 +126,7 @@ class OrderController {
     }
 
     @GetMapping("/{orderId}")
-    @Operation(summary = "내 주문 상세 조회")
+    @Operation(summary = "내 주문 상세 조회", description = "내 주문의 상품, 금액, 결제와 배송 상태를 상세 조회합니다.")
     @ApiResponse(
             responseCode = "200",
             description = "주문 상세 응답",

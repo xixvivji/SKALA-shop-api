@@ -196,6 +196,7 @@ Repository는 해당 모듈의 DB 접근을 담당합니다. JPA Entity를 HTTP 
 ## API 규칙
 
 - 정확한 HTTP operation 수와 계약은 실행 중인 `/v3/api-docs`를 기준으로 합니다.
+- Swagger UI의 도메인 그룹명, API 요약과 상세 설명은 한국어로 제공합니다.
 - 상태 변경 요청은 CSRF 토큰과 `credentials: "include"`가 필요합니다.
 - 주문·취소·결제·반품과 재고 초기화·조정은 `X-Idempotency-Key` UUID가 필수입니다.
 - 목록의 `page`는 0부터 시작하며 `size`는 1~100입니다.
