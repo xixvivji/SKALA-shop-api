@@ -144,6 +144,7 @@ let ordersReloadQueued = false;
 let membersReloadQueued = false;
 let transactionsReloadQueued = false;
 let adminOrdersReloadQueued = false;
+let reviewRequestSequence = 0;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -209,6 +210,16 @@ function isAdmin() {
 
 function invalidatePendingSessionRestore() {
   authGeneration += 1;
+  state.cartLoading = false;
+  state.addressesLoading = false;
+  state.ordersLoading = false;
+  state.transactionsLoading = false;
+  state.membersLoading = false;
+  state.adminOrdersLoading = false;
+  ordersReloadQueued = false;
+  membersReloadQueued = false;
+  transactionsReloadQueued = false;
+  adminOrdersReloadQueued = false;
 }
 
 function captureSessionSnapshot() {
@@ -230,6 +241,17 @@ function isCurrentSessionRequest(generation, snapshot) {
   );
 }
 
+function captureAuthenticatedRequest() {
+  return {
+    generation: authGeneration,
+    snapshot: captureSessionSnapshot(),
+  };
+}
+
+function isCurrentAuthenticatedRequest(request) {
+  return isCurrentSessionRequest(request.generation, request.snapshot);
+}
+
 function stockStatusLabel(stock) {
   if (!stock) return "재고 미설정";
   const labels = {
@@ -245,6 +267,56 @@ function stockStatusLabel(stock) {
 
 function stockStatusClass(stock) {
   return String(stock?.stockStatus || "UNAVAILABLE").toLowerCase().replaceAll("_", "-");
+}
+
+function isVariantOrderable(variant) {
+  return Boolean(
+    variant?.status === "ACTIVE" &&
+      variant.stock?.orderable === true &&
+      Number(variant.stock.maxOrderQuantity) >= 1,
+  );
+}
+
+function aggregateVariantAvailability(variants) {
+  const activeVariants = variants.filter((variant) => variant.status === "ACTIVE");
+  const orderableVariants = activeVariants.filter(isVariantOrderable);
+  const availableQuantity = activeVariants.reduce(
+    (total, variant) => total + Math.max(0, Number(variant.stock?.availableQuantity || 0)),
+    0,
+  );
+  const maxOrderQuantity = orderableVariants.reduce(
+    (maximum, variant) => Math.max(maximum, Number(variant.stock.maxOrderQuantity)),
+    0,
+  );
+  const stockStatus = orderableVariants.some(
+    (variant) => variant.stock.stockStatus === "IN_STOCK",
+  )
+    ? "IN_STOCK"
+    : orderableVariants.length
+      ? "LOW_STOCK"
+      : activeVariants.length
+        ? "OUT_OF_STOCK"
+        : "INACTIVE";
+  return {
+    availableQuantity,
+    maxOrderQuantity,
+    orderable: orderableVariants.length > 0,
+    orderableVariantCount: orderableVariants.length,
+    stockStatus,
+  };
+}
+
+function productHasSelectableOptions(product) {
+  const variants = product?.variants || [];
+  return variants.length > 1 || Boolean(variants[0]?.optionValue);
+}
+
+function productStockLabel(product) {
+  if (state.stocksError) return "재고 확인 오류";
+  if (productHasSelectableOptions(product) && product.availability?.orderable) {
+    return `옵션 ${product.availability.orderableVariantCount}개 주문 가능`;
+  }
+  return stockStatusLabel(product.availability);
 }
 
 function fieldErrorDetail(error) {
@@ -470,6 +542,8 @@ function clearSession() {
   state.stockAlerts = [];
   state.reviews = [];
   state.myReview = null;
+  state.returns = [];
+  state.adminReturns = [];
   window.localStorage.removeItem("skala-session-hint");
   renderSession();
   renderOrders();
@@ -480,6 +554,7 @@ function clearSession() {
   renderStockAlerts();
   renderTransactions();
   renderAdminOrders();
+  renderReturns();
 }
 
 function setSession(session, customer = null) {
@@ -678,8 +753,24 @@ function renderProducts() {
       const tone = toneFor(product.id);
       const imageUrl = safeImageUrl(product.imageUrl);
       const stock = product.stock;
-      const orderable = stock?.orderable === true;
-      const stockLabel = state.stocksError ? "재고 확인 오류" : stockStatusLabel(stock);
+      const availability = product.availability;
+      const orderable = availability?.orderable === true;
+      const stockLabel = productStockLabel(product);
+      const selectableOptions = productHasSelectableOptions(product)
+        ? `
+          <label class="product-option-picker">
+            <span>상품 옵션</span>
+            <select data-product-variant="${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} 옵션 선택">
+              <option value="">옵션을 선택해 주세요</option>
+              ${(product.variants || []).map((variant) => {
+                const variantOrderable = isVariantOrderable(variant);
+                const label = variant.optionValue || "기본 옵션";
+                return `<option value="${escapeHtml(variant.id)}" ${variantOrderable ? "" : "disabled"}>${escapeHtml(label)} · ${money(variant.price)} P${variantOrderable ? "" : " · 품절"}</option>`;
+              }).join("")}
+            </select>
+          </label>
+        `
+        : "";
       const controls = isAdmin()
         ? `
           <div class="admin-card-actions">
@@ -692,7 +783,7 @@ function renderProducts() {
           <div class="shop-card-actions">
             <button class="mini-button" type="button" data-product-reviews="${escapeHtml(product.id)}">리뷰</button>
             ${isCustomer() ? `<button class="mini-button" type="button" data-product-wishlist="${escapeHtml(product.id)}">♡</button>` : ""}
-            ${isCustomer() && stock?.stockStatus === "OUT_OF_STOCK" ? `<button class="mini-button" type="button" data-product-alert="${escapeHtml(product.id)}">재입고</button>` : ""}
+            ${isCustomer() && availability?.stockStatus === "OUT_OF_STOCK" ? `<button class="mini-button" type="button" data-product-alert="${escapeHtml(product.id)}">재입고</button>` : ""}
             <button class="mini-button" type="button" data-product-cart="${escapeHtml(product.id)}" ${orderable ? "" : "disabled"}>담기</button>
             <button class="buy-button" type="button" data-product-buy="${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} ${orderable ? "바로 주문" : stockLabel}" ${orderable ? "" : "disabled"}>${orderable ? "→" : "×"}</button>
           </div>
@@ -701,12 +792,13 @@ function renderProducts() {
         <article class="product-card">
           <div class="product-visual tone-${tone}${imageUrl ? " has-image" : ""}">
             ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" />` : `<span>${escapeHtml(initials(product.name))}</span>`}
-            <small class="product-badge stock-${state.stocksError ? "unavailable" : stockStatusClass(stock)}">${escapeHtml(stockLabel)}</small>
+            <small class="product-badge stock-${state.stocksError ? "unavailable" : stockStatusClass(availability)}">${escapeHtml(stockLabel)}</small>
           </div>
           <div class="product-body">
             <small>${escapeHtml(state.categories.find((category) => category.id === product.categoryId)?.name || "SKALA SELECT")} · ${String(index + 1).padStart(2, "0")}</small>
             <h3 title="${escapeHtml(product.name)}">${escapeHtml(product.name)}</h3>
             ${product.description ? `<p class="product-description">${escapeHtml(product.description)}</p>` : ""}
+            ${isAdmin() ? "" : selectableOptions}
             <div class="product-card-foot">
               <div class="product-price">${money(product.price)} <small>P</small></div>
               ${controls}
@@ -815,7 +907,7 @@ function renderOrders() {
                 <strong>${money(item.paidAmount ?? (Number(item.unitPrice) * Number(item.orderedQuantity)))} P</strong>
                 ${
                   available > 0 && ["PAID", "PREPARING"].includes(order.fulfillmentStatus)
-                    ? `<button class="mini-button" type="button" data-product-cancel="${escapeHtml(item.productId)}" data-product-name="${escapeHtml(item.productName)}" data-max-quantity="${available}">부분 취소</button>`
+                    ? `<button class="mini-button" type="button" data-order-item-cancel="${escapeHtml(item.id)}" data-product-name="${escapeHtml(item.productName)}" data-max-quantity="${available}">부분 취소</button>`
                     : ""
                 }
                 ${available > 0 && order.fulfillmentStatus === "DELIVERED" ? `<button class="mini-button" type="button" data-return-order="${escapeHtml(order.id)}" data-return-item="${escapeHtml(item.id)}" data-return-name="${escapeHtml(item.productName)}" data-return-max="${available}">반품 신청</button>` : ""}
@@ -1226,14 +1318,54 @@ function switchView(view, updateHash = true) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-async function loadProductStocks(products) {
-  const stocksByProductId = new Map();
-  for (let index = 0; index < products.length; index += 100) {
-    const productIds = products.slice(index, index + 100).map((product) => product.id);
-    const stocks = await shopApi.stocks(productIds);
-    stocks.forEach((stock) => stocksByProductId.set(stock.productId, stock));
+async function loadStocksById(stockItemIds) {
+  const stocksById = new Map();
+  for (let index = 0; index < stockItemIds.length; index += 100) {
+    const ids = stockItemIds.slice(index, index + 100);
+    const stocks = await shopApi.stocks(ids);
+    stocks.forEach((stock) => stocksById.set(stock.productId, stock));
   }
-  return stocksByProductId;
+  return stocksById;
+}
+
+async function loadProductAvailability(products) {
+  const variantEntries = await Promise.all(products.map(async (product) => {
+    const loaded = await shopApi.productVariants(product.id);
+    const active = loaded.filter((variant) => variant.status === "ACTIVE");
+    const allVariants = active.length
+      ? active
+      : [{
+          id: product.id,
+          productId: product.id,
+          sku: `DEFAULT-${product.id}`,
+          optionName: null,
+          optionValue: null,
+          price: product.price,
+          status: "ACTIVE",
+        }];
+    const configuredOptions = allVariants.filter((variant) => Boolean(variant.optionValue));
+    // 상품 생성 시 만들어지는 DEFAULT SKU는 기존 API 호환용이다. 실제 옵션 SKU가 있으면
+    // 고객에게 기본 SKU를 별도 선택지로 노출하지 않고 구성된 옵션만 판매한다.
+    const customerVariants = configuredOptions.length ? configuredOptions : allVariants;
+    return [product.id, { allVariants, customerVariants }];
+  }));
+  const variantsByProductId = new Map(variantEntries);
+  const stockItemIds = [...new Set(
+    variantEntries.flatMap(([, group]) => group.allVariants.map((variant) => variant.id)),
+  )];
+  const stocksById = await loadStocksById(stockItemIds);
+
+  return new Map(products.map((product) => {
+    const variants = (variantsByProductId.get(product.id)?.customerVariants || []).map((variant) => ({
+      ...variant,
+      stock: stocksById.get(variant.id) || null,
+    }));
+    return [product.id, {
+      variants,
+      availability: aggregateVariantAvailability(variants),
+      defaultStock: stocksById.get(product.id) || null,
+    }];
+  }));
 }
 
 async function loadCategories() {
@@ -1278,16 +1410,22 @@ async function loadProducts({ append = false } = {}) {
     }
     page ||= await shopApi.products({ page: targetPage, size: PRODUCT_PAGE_SIZE, ...state.productFilters });
     const products = page.content || [];
-    let stocksByProductId = new Map();
+    let availabilityByProductId = new Map();
     try {
-      stocksByProductId = await loadProductStocks(products);
+      availabilityByProductId = await loadProductAvailability(products);
     } catch (error) {
       state.stocksError = error;
     }
-    const loadedProducts = products.map((product) => ({
-      ...product,
-      stock: stocksByProductId.get(product.id) || null,
-    }));
+    const loadedProducts = products.map((product) => {
+      const availability = availabilityByProductId.get(product.id);
+      return {
+        ...product,
+        variants: availability?.variants || [],
+        availability: availability?.availability || null,
+        // 관리자 재고 편집은 하위 호환용 기본 SKU 재고를 계속 사용한다.
+        stock: availability?.defaultStock || null,
+      };
+    });
     const combined = append ? [...state.products, ...loadedProducts] : loadedProducts;
     state.products = [...new Map(combined.map((product) => [product.id, product])).values()];
     state.productPage = Number(page.page ?? targetPage);
@@ -1311,15 +1449,20 @@ async function loadProducts({ append = false } = {}) {
 
 async function loadCart({ quiet = false } = {}) {
   if (!isCustomer() || state.cartLoading) return;
+  const request = captureAuthenticatedRequest();
   state.cartLoading = true;
   state.cartError = null;
   renderCart();
   try {
-    state.cart = await shopApi.cart();
+    const cart = await shopApi.cart();
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    state.cart = cart;
   } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.cartError = error;
     if (!quiet || error?.status === 401) showApiError(error, "장바구니를 불러오지 못했습니다.");
   } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.cartLoading = false;
     renderCart();
   }
@@ -1327,15 +1470,20 @@ async function loadCart({ quiet = false } = {}) {
 
 async function loadAddresses({ quiet = false } = {}) {
   if (!isCustomer() || state.addressesLoading) return;
+  const request = captureAuthenticatedRequest();
   state.addressesLoading = true;
   state.addressesError = null;
   renderAddresses();
   try {
-    state.addresses = await shopApi.addresses();
+    const addresses = await shopApi.addresses();
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    state.addresses = addresses;
   } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.addressesError = error;
     if (!quiet || error?.status === 401) showApiError(error, "배송지를 불러오지 못했습니다.");
   } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.addressesLoading = false;
     renderAddresses();
   }
@@ -1343,42 +1491,60 @@ async function loadAddresses({ quiet = false } = {}) {
 
 async function loadWishlist({ quiet = false } = {}) {
   if (!isCustomer()) return;
+  const request = captureAuthenticatedRequest();
   try {
-    state.wishlist = await shopApi.wishlist();
+    const wishlist = await shopApi.wishlist();
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    state.wishlist = wishlist;
   } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     if (!quiet) showApiError(error, "관심 상품을 불러오지 못했습니다.");
   } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     renderWishlist();
   }
 }
 
 async function loadStockAlerts({ quiet = false } = {}) {
   if (!isCustomer()) return;
+  const request = captureAuthenticatedRequest();
   try {
     const page = await shopApi.stockAlerts();
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.stockAlerts = page.content || [];
   } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     if (!quiet) showApiError(error, "재입고 알림을 불러오지 못했습니다.");
   } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     renderStockAlerts();
   }
 }
 
 async function openReviews(product) {
   if (!product) return;
+  const requestSequence = ++reviewRequestSequence;
+  const requestGeneration = authGeneration;
+  const reviewingAsCustomer = isCustomer();
   elements.reviewDialog.dataset.productId = product.id;
   $("#review-product-name").textContent = product.name;
   elements.reviewList.innerHTML = '<div class="empty-inline">리뷰를 불러오는 중입니다.</div>';
-  elements.reviewForm.classList.toggle("is-hidden", !isCustomer());
+  elements.reviewForm.classList.toggle("is-hidden", !reviewingAsCustomer);
   state.myReview = null;
   openDialog(elements.reviewDialog);
   try {
     const requests = [shopApi.productReviews(product.id)];
-    if (isCustomer()) requests.push(shopApi.myReview(product.id).catch((error) => {
+    if (reviewingAsCustomer) requests.push(shopApi.myReview(product.id).catch((error) => {
       if (error?.status === 404) return null;
       throw error;
     }));
     const [page, mine] = await Promise.all(requests);
+    if (
+      requestSequence !== reviewRequestSequence ||
+      requestGeneration !== authGeneration ||
+      !elements.reviewDialog.open ||
+      elements.reviewDialog.dataset.productId !== product.id
+    ) return;
     state.reviews = page.content || [];
     state.myReview = mine || null;
     elements.reviewForm.elements.rating.value = String(mine?.rating || 5);
@@ -1388,6 +1554,12 @@ async function openReviews(product) {
       ? state.reviews.map((review) => `<article class="address-card"><div><strong>${"★".repeat(Number(review.rating))}${"☆".repeat(5 - Number(review.rating))}</strong><span>${escapeHtml(review.comment || "내용 없는 리뷰")}</span><small>${dateTime(review.updatedAt)}</small></div></article>`).join("")
       : '<div class="empty-inline">아직 등록된 리뷰가 없습니다.</div>';
   } catch (error) {
+    if (
+      requestSequence !== reviewRequestSequence ||
+      requestGeneration !== authGeneration ||
+      !elements.reviewDialog.open ||
+      elements.reviewDialog.dataset.productId !== product.id
+    ) return;
     elements.reviewList.innerHTML = `<div class="error-state compact"><p>${escapeHtml(error.message)}</p></div>`;
   }
 }
@@ -1422,6 +1594,7 @@ async function loadOrders({ append = false } = {}) {
     return;
   }
   if (append && state.orderPage + 1 >= state.orderTotalPages) return;
+  const request = captureAuthenticatedRequest();
 
   const targetPage = append ? state.orderPage + 1 : 0;
   if (!append) {
@@ -1435,6 +1608,7 @@ async function loadOrders({ append = false } = {}) {
   renderOrders();
   try {
     const page = await shopApi.orders(targetPage, ORDER_PAGE_SIZE);
+    if (!isCurrentAuthenticatedRequest(request)) return;
     const loadedOrders = page.content || [];
     const combined = append ? [...state.orders, ...loadedOrders] : loadedOrders;
     state.orders = [...new Map(combined.map((order) => [order.id, order])).values()];
@@ -1442,6 +1616,7 @@ async function loadOrders({ append = false } = {}) {
     state.orderTotalPages = Number(page.totalPages || 0);
     state.orderTotal = Number(page.totalElements ?? state.orders.length);
   } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     if (append) {
       showApiError(error, "다음 주문을 불러오지 못했습니다.");
     } else {
@@ -1449,6 +1624,7 @@ async function loadOrders({ append = false } = {}) {
       if (error?.status === 401) showApiError(error);
     }
   } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.ordersLoading = false;
     renderOrders();
     if (ordersReloadQueued) {
@@ -1465,6 +1641,7 @@ async function loadTransactions({ append = false } = {}) {
     return;
   }
   if (append && state.transactionPage + 1 >= state.transactionTotalPages) return;
+  const request = captureAuthenticatedRequest();
   const targetPage = append ? state.transactionPage + 1 : 0;
   if (!append) {
     state.transactions = [];
@@ -1480,6 +1657,7 @@ async function loadTransactions({ append = false } = {}) {
       shopApi.wallet(),
       shopApi.walletTransactions(targetPage, TRANSACTION_PAGE_SIZE),
     ]);
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.wallet = wallet;
     const loaded = page.content || [];
     const combined = append ? [...state.transactions, ...loaded] : loaded;
@@ -1489,9 +1667,11 @@ async function loadTransactions({ append = false } = {}) {
     state.transactionTotal = Number(page.totalElements ?? state.transactions.length);
     renderCustomer();
   } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     if (append) showApiError(error, "다음 포인트 내역을 불러오지 못했습니다.");
     else state.transactionsError = error;
   } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.transactionsLoading = false;
     renderTransactions();
     if (transactionsReloadQueued) {
@@ -1508,6 +1688,7 @@ async function loadMembers({ append = false } = {}) {
     return;
   }
   if (append && state.memberPage + 1 >= state.memberTotalPages) return;
+  const request = captureAuthenticatedRequest();
 
   const targetPage = append ? state.memberPage + 1 : 0;
   if (!append) {
@@ -1521,6 +1702,7 @@ async function loadMembers({ append = false } = {}) {
   renderMembers();
   try {
     const page = await shopApi.members(targetPage, MEMBER_PAGE_SIZE);
+    if (!isCurrentAuthenticatedRequest(request)) return;
     const loadedMembers = page.content || [];
     const combined = append ? [...state.members, ...loadedMembers] : loadedMembers;
     state.members = [...new Map(combined.map((member) => [member.memberId, member])).values()];
@@ -1528,6 +1710,7 @@ async function loadMembers({ append = false } = {}) {
     state.memberTotalPages = Number(page.totalPages || 0);
     state.memberTotal = Number(page.totalElements ?? state.members.length);
   } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     if (append) {
       showApiError(error, "다음 고객을 불러오지 못했습니다.");
     } else {
@@ -1535,6 +1718,7 @@ async function loadMembers({ append = false } = {}) {
       if (error?.status === 401) showApiError(error);
     }
   } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.membersLoading = false;
     renderMembers();
     if (membersReloadQueued) {
@@ -1551,6 +1735,7 @@ async function loadAdminOrders({ append = false } = {}) {
     return;
   }
   if (append && state.adminOrderPage + 1 >= state.adminOrderTotalPages) return;
+  const request = captureAuthenticatedRequest();
   const targetPage = append ? state.adminOrderPage + 1 : 0;
   if (!append) {
     state.adminOrders = [];
@@ -1563,6 +1748,7 @@ async function loadAdminOrders({ append = false } = {}) {
   renderAdminOrders();
   try {
     const page = await shopApi.adminOrders(targetPage, ADMIN_ORDER_PAGE_SIZE);
+    if (!isCurrentAuthenticatedRequest(request)) return;
     const loaded = page.content || [];
     const combined = append ? [...state.adminOrders, ...loaded] : loaded;
     state.adminOrders = [...new Map(combined.map((order) => [order.id, order])).values()];
@@ -1570,9 +1756,11 @@ async function loadAdminOrders({ append = false } = {}) {
     state.adminOrderTotalPages = Number(page.totalPages || 0);
     state.adminOrderTotal = Number(page.totalElements ?? state.adminOrders.length);
   } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     if (append) showApiError(error, "다음 관리자 주문을 불러오지 못했습니다.");
     else state.adminOrdersError = error;
   } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
     state.adminOrdersLoading = false;
     renderAdminOrders();
     if (adminOrdersReloadQueued) {
@@ -1584,16 +1772,34 @@ async function loadAdminOrders({ append = false } = {}) {
 
 async function loadReturns() {
   if (!isCustomer()) return;
-  try { state.returns = (await shopApi.returns()).content || []; }
-  catch (error) { showApiError(error, "반품 내역을 불러오지 못했습니다."); }
-  finally { renderReturns(); }
+  const request = captureAuthenticatedRequest();
+  try {
+    const page = await shopApi.returns();
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    state.returns = page.content || [];
+  } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    showApiError(error, "반품 내역을 불러오지 못했습니다.");
+  } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    renderReturns();
+  }
 }
 
 async function loadAdminReturns() {
   if (!isAdmin()) return;
-  try { state.adminReturns = (await shopApi.adminReturns()).content || []; }
-  catch (error) { showApiError(error, "관리자 반품 내역을 불러오지 못했습니다."); }
-  finally { renderReturns(); }
+  const request = captureAuthenticatedRequest();
+  try {
+    const page = await shopApi.adminReturns();
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    state.adminReturns = page.content || [];
+  } catch (error) {
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    showApiError(error, "관리자 반품 내역을 불러오지 못했습니다.");
+  } finally {
+    if (!isCurrentAuthenticatedRequest(request)) return;
+    renderReturns();
+  }
 }
 
 async function restoreSession() {
@@ -1689,6 +1895,24 @@ function productById(productId) {
   return state.products.find((product) => product.id === productId);
 }
 
+function selectedVariantForCardAction(control, product) {
+  const variants = product?.variants || [];
+  const select = control.closest(".product-card")?.querySelector("[data-product-variant]");
+  const selectedId = select?.value || (productHasSelectableOptions(product) ? "" : variants[0]?.id);
+  if (!selectedId) {
+    showToast("상품 옵션을 선택해 주세요", "원하는 옵션을 고른 뒤 다시 진행해 주세요.", "error");
+    select?.focus();
+    return null;
+  }
+  const variant = variants.find((candidate) => candidate.id === selectedId);
+  if (!isVariantOrderable(variant)) {
+    showToast("선택한 옵션은 품절되었습니다", "다른 옵션을 선택해 주세요.", "error");
+    select?.focus();
+    return null;
+  }
+  return variant;
+}
+
 function refreshOrderCommand() {
   elements.orderDialog.dataset.commandKey = createCommandId();
 }
@@ -1706,7 +1930,7 @@ async function completeFakePayment(order, testCardNumber) {
   return { ...order, status: "PAID", fulfillmentStatus: "PAID" };
 }
 
-async function openOrder(product) {
+async function openOrder(product, requestedVariant = null) {
   if (!isCustomer()) {
     if (isAdmin()) {
       showToast("관리자 계정에서는 주문할 수 없습니다", "일반 회원 계정으로 로그인해 주세요.", "error");
@@ -1716,10 +1940,10 @@ async function openOrder(product) {
     return;
   }
 
-  if (!product?.stock?.orderable) {
+  if (!product?.availability?.orderable) {
     showToast(
       "현재 주문할 수 없는 상품입니다",
-      stockStatusLabel(product?.stock),
+      productStockLabel(product),
       "error",
     );
     return;
@@ -1727,28 +1951,42 @@ async function openOrder(product) {
 
   const form = $("#order-form");
   form.elements.productId.value = product.id;
-  let variants;
-  try {
-    variants = await shopApi.productVariants(product.id);
-  } catch (error) {
-    showApiError(error, "상품 옵션을 불러오지 못했습니다.");
+  const variants = product.variants || [];
+  const selected = requestedVariant || (
+    productHasSelectableOptions(product) ? null : variants.find(isVariantOrderable)
+  );
+  if (!selected) {
+    showToast("상품 옵션을 선택해 주세요", "원하는 옵션을 고른 뒤 다시 진행해 주세요.", "error");
     return;
   }
   const variantSelect = form.elements.variantId;
-  variantSelect.innerHTML = variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${Number(variant.price)}">${escapeHtml(variant.optionValue || "기본 옵션")} · ${money(variant.price)} P</option>`).join("");
-  $("#order-variant-field").classList.toggle("is-hidden", variants.length <= 1);
-  const selected = variants[0];
-  const selectedStock = selected?.id === product.id ? product.stock : await shopApi.stock(selected.id);
-  const maxOrderQuantity = Math.max(1, Number(selectedStock?.maxOrderQuantity || 1));
+  const hasOptions = productHasSelectableOptions(product);
+  variantSelect.innerHTML = `${hasOptions ? '<option value="">옵션을 선택해 주세요</option>' : ""}${variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${Number(variant.price)}" ${isVariantOrderable(variant) ? "" : "disabled"}>${escapeHtml(variant.optionValue || "기본 옵션")} · ${money(variant.price)} P${isVariantOrderable(variant) ? "" : " · 품절"}</option>`).join("")}`;
+  variantSelect.value = selected.id;
+  $("#order-variant-field").classList.toggle("is-hidden", !hasOptions);
+  let selectedStock;
+  try {
+    selectedStock = await shopApi.stock(selected.id);
+  } catch (error) {
+    showApiError(error, "옵션 재고를 확인하지 못했습니다.");
+    return;
+  }
+  const maxOrderQuantity = Number(selectedStock?.maxOrderQuantity || 0);
+  if (selectedStock?.orderable !== true || maxOrderQuantity < 1) {
+    showToast("선택한 옵션은 품절되었습니다", "재고를 새로 확인한 뒤 다른 옵션을 선택해 주세요.", "error");
+    await loadProducts();
+    return;
+  }
   form.elements.quantity.value = 1;
   form.elements.couponCode.value = "";
   form.elements.pointAmount.value = "";
   form.elements.testCardNumber.value = "4242-4242-4242-4242";
   form.elements.quantity.max = maxOrderQuantity;
+  form.querySelector('button[type="submit"]').disabled = false;
   $("#order-quantity-label").textContent = `주문 수량 · 최대 ${maxOrderQuantity}개`;
-  form.dataset.unitPrice = selected?.price ?? product.price;
+  form.dataset.unitPrice = selected.price;
   $("#order-product-name").textContent = product.name;
-  $("#order-product-price").textContent = points(selected?.price ?? product.price);
+  $("#order-product-price").textContent = points(selected.price);
   const imageUrl = safeImageUrl(product.imageUrl);
   $("#order-product-visual").innerHTML = imageUrl
     ? `<img src="${escapeHtml(imageUrl)}" alt="" />`
@@ -1770,13 +2008,10 @@ function refreshCancelCommand() {
   elements.cancelDialog.dataset.commandKey = createCommandId();
 }
 
-function openCancel({ productId, productName, maxQuantity }) {
+function openCancel({ orderItemId, productName, maxQuantity }) {
   const form = $("#cancel-form");
-  const purchasedQuantity = state.customer?.products?.find(
-    (product) => product.productId === productId,
-  )?.quantity;
-  const maximum = Math.max(1, Number(purchasedQuantity || maxQuantity || 1));
-  form.elements.productId.value = productId;
+  const maximum = Math.max(1, Number(maxQuantity || 1));
+  form.elements.orderItemId.value = orderItemId;
   form.elements.quantity.value = 1;
   form.elements.quantity.max = maximum;
   $("#cancel-product-name").textContent = productName;
@@ -2015,7 +2250,15 @@ function bindProducts() {
     const edit = event.target.closest("[data-product-edit]");
     const remove = event.target.closest("[data-product-delete]");
 
-    if (buy) await openOrder(productById(buy.dataset.productBuy));
+    if (buy) {
+      const product = productById(buy.dataset.productBuy);
+      if (!isCustomer()) {
+        await openOrder(product);
+      } else {
+        const variant = selectedVariantForCardAction(buy, product);
+        if (variant) await openOrder(product, variant);
+      }
+    }
     if (reviews) await openReviews(productById(reviews.dataset.productReviews));
     if (wishlist) {
       try {
@@ -2043,9 +2286,11 @@ function bindProducts() {
         return;
       }
       const product = productById(cart.dataset.productCart);
+      const variant = selectedVariantForCardAction(cart, product);
+      if (!variant) return;
       try {
         state.cart = await withLoading("장바구니에 담고 있습니다", () =>
-          shopApi.addCartItem(product.id, 1),
+          shopApi.addCartItem(product.id, 1, variant.id),
         );
         renderCart();
         showToast("장바구니에 담았습니다", product.name);
@@ -2275,10 +2520,23 @@ function bindForms() {
   });
   orderForm.elements.variantId.addEventListener("change", async () => {
     const selected = orderForm.elements.variantId.selectedOptions[0];
-    if (!selected) return;
+    const submit = orderForm.querySelector('button[type="submit"]');
+    if (!selected?.value) {
+      submit.disabled = true;
+      return;
+    }
     try {
       const stock = await shopApi.stock(selected.value);
-      const max = Math.max(1, Number(stock.maxOrderQuantity || 1));
+      const max = Number(stock.maxOrderQuantity || 0);
+      if (stock.orderable !== true || max < 1) {
+        selected.disabled = true;
+        orderForm.elements.variantId.value = "";
+        submit.disabled = true;
+        $("#order-quantity-label").textContent = "주문 수량 · 선택한 옵션 품절";
+        showToast("선택한 옵션은 품절되었습니다", "다른 옵션을 선택해 주세요.", "error");
+        return;
+      }
+      submit.disabled = false;
       orderForm.elements.quantity.max = max;
       orderForm.elements.quantity.value = Math.min(Number(orderForm.elements.quantity.value || 1), max);
       orderForm.dataset.unitPrice = selected.dataset.price;
@@ -2323,12 +2581,12 @@ function bindForms() {
   cancelForm.elements.quantity.addEventListener("input", refreshCancelCommand);
   cancelForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const productId = cancelForm.elements.productId.value;
+    const orderItemId = cancelForm.elements.orderItemId.value;
     const quantity = Number(cancelForm.elements.quantity.value);
     const commandKey = elements.cancelDialog.dataset.commandKey;
     try {
       const cancellation = await withLoading("취소 수량과 환급 포인트를 계산하고 있습니다", () =>
-        shopApi.cancel(productId, quantity, commandKey),
+        shopApi.cancel(orderItemId, quantity, commandKey),
       );
       closeDialog(elements.cancelDialog);
       await Promise.all([loadCustomer({ quiet: false }), loadOrders(), loadProducts()]);
@@ -2500,12 +2758,18 @@ function bindForms() {
   elements.reviewForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const productId = elements.reviewDialog.dataset.productId;
+    const requestGeneration = authGeneration;
     try {
       await withLoading("리뷰를 저장하고 있습니다", () => shopApi.writeReview(
         productId,
         Number(elements.reviewForm.elements.rating.value),
         elements.reviewForm.elements.comment.value.trim(),
       ));
+      if (
+        requestGeneration !== authGeneration ||
+        !elements.reviewDialog.open ||
+        elements.reviewDialog.dataset.productId !== productId
+      ) return;
       await openReviews(productById(productId));
       showToast("리뷰를 저장했습니다");
     } catch (error) {
@@ -2514,9 +2778,15 @@ function bindForms() {
   });
   $("#delete-review-button").addEventListener("click", async () => {
     const productId = elements.reviewDialog.dataset.productId;
+    const requestGeneration = authGeneration;
     if (!window.confirm("작성한 리뷰를 삭제할까요?")) return;
     try {
       await shopApi.deleteReview(productId);
+      if (
+        requestGeneration !== authGeneration ||
+        !elements.reviewDialog.open ||
+        elements.reviewDialog.dataset.productId !== productId
+      ) return;
       await openReviews(productById(productId));
       showToast("리뷰를 삭제했습니다");
     } catch (error) {
@@ -2578,10 +2848,10 @@ function bindAccountActions() {
       openDialog(elements.returnDialog);
       return;
     }
-    const button = event.target.closest("[data-product-cancel]");
+    const button = event.target.closest("[data-order-item-cancel]");
     if (!button) return;
     openCancel({
-      productId: button.dataset.productCancel,
+      orderItemId: button.dataset.orderItemCancel,
       productName: button.dataset.productName,
       maxQuantity: button.dataset.maxQuantity,
     });
