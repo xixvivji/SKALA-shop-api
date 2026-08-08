@@ -11,6 +11,42 @@
 - 운영 API health: <https://api-3-39-64-119.sslip.io/actuator/health>
 - Swagger UI: <https://api-3-39-64-119.sslip.io/swagger-ui/index.html>
 
+## Docker Hub 공개 이미지로 실행
+
+소스를 빌드하지 않고 Docker Hub의 공개 이미지
+[`xixii/skala-shop-api:demo`](https://hub.docker.com/r/xixii/skala-shop-api)와
+PostgreSQL을 로컬에서 실행할 수 있습니다. 저장소 루트에서 다음 한 명령을 실행합니다.
+
+```bash
+docker compose -f compose.demo.yml up -d --wait
+```
+
+Docker Hub 로그인과 로컬 Java·Gradle 설치는 필요하지 않습니다. 실행 조건은 Docker
+Engine과 `--wait`를 지원하는 Docker Compose v2 plugin, 사용 가능한 `localhost:8080`
+포트입니다. 공개 Backend 이미지는 **`linux/amd64`와 `linux/arm64`를 함께
+지원**하므로 Intel·AMD64 환경과 Apple Silicon·ARM64 환경에서 각각 네이티브로
+실행할 수 있습니다.
+
+| 용도 | 주소 |
+| --- | --- |
+| API | <http://localhost:8080> |
+| Swagger UI | <http://localhost:8080/swagger-ui.html> |
+| OpenAPI JSON | <http://localhost:8080/v3/api-docs> |
+| Health | <http://localhost:8080/actuator/health> |
+
+최초 실행 시 Flyway가 스키마만 생성하며 **관리자, 회원, 카테고리, 상품과 주문
+데이터는 만들지 않습니다.** 관리자나 예제 상품이 필요하면
+[`.env.demo.example`](.env.demo.example)을 `.env.demo`로 복사한 뒤 관리자 bootstrap
+값을 직접 설정합니다. 관리자가 한 번 생성되면 bootstrap을 다시 끄고, 필요할 때만
+Node.js 22로 카탈로그 seed 도구를 실행합니다. 전체 절차는
+[공개 Docker 데모 안내](deploy/README.md#공개-docker-데모)에 정리했습니다.
+
+[`compose.demo.yml`](compose.demo.yml)은 API를 `127.0.0.1`에만 바인딩하고 PostgreSQL
+포트를 호스트에 공개하지 않습니다. 공개 이미지와 데모 Compose에는 AWS 자격 증명,
+운영 RDS 정보, 운영 JWT secret, 관리자 비밀번호 같은 운영 비밀값이 포함되어 있지
+않습니다. 대신 localhost 전용으로 알려진 데모 기본값을 사용하므로 운영 배포나 외부
+공개 서버에는 사용하지 마세요.
+
 ## 주요 기능
 
 ### 고객
@@ -94,7 +130,9 @@ Kafka와 Elasticsearch는 별도 EC2에서 실행하고 애플리케이션 보�
 ├── deploy/                             # EC2 Compose, Nginx, Certbot, 배포·롤백
 ├── docs/                               # 아키텍처, API 사용법과 테스트 전략
 ├── .github/workflows/                  # CI, 운영 배포, 운영 smoke
+├── compose.demo.yml                    # 공개 Docker Hub 이미지 기반 로컬 데모
 ├── compose.local.yml                   # 로컬 PostgreSQL
+├── .env.demo.example                   # 선택적인 데모 관리자·환경 설정 예시
 └── Dockerfile                          # 운영 Backend 이미지
 ```
 
@@ -239,8 +277,11 @@ feature/* → develop → main → production
 - `main`: 운영 배포 기준
 - `hotfix/*`: 운영 긴급 수정
 
-`main` 병합 후 GitHub Actions가 테스트를 다시 실행하고 Docker Hub에 digest 기반
-이미지를 게시합니다. GitHub OIDC로 AWS의 단기 권한을 얻은 뒤 SSM으로 EC2에 필요한
+`main` 병합 후 GitHub Actions가 테스트를 다시 실행하고 Docker Hub에 commit SHA
+태그를 게시합니다. Docker Hub에서 로그아웃한 상태로 새 digest를 다시 받아 데모
+Compose의 Health와 OpenAPI를 확인하고, 검증을 통과한 digest만 공개 데모용 `demo`
+태그로 승격합니다. 운영 배포는 가변 태그가 아닌 이미지 digest를 고정합니다. GitHub
+OIDC로 AWS의 단기 권한을 얻은 뒤 SSM으로 EC2에 필요한
 배포 파일만 전송합니다. Candidate health와 Nginx 검사가 모두 통과한 뒤 current로
 승격하며 실패하면 known-good 릴리스로 복구합니다.
 

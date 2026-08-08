@@ -18,6 +18,99 @@
 무중단 배포는 목표가 아닙니다. Backend 교체 중 짧은 API 중단을 허용하는 대신,
 배포 실패 시 이전 정상 image와 Nginx 구성을 함께 복구합니다.
 
+## 공개 Docker 데모
+
+AWS 운영 구성과 별개로, 외부 사용자가 공개 Backend 이미지를 로컬에서 확인할 수
+있도록 저장소 루트에 [`compose.demo.yml`](../compose.demo.yml)을 제공합니다. Docker
+Hub 로그인이나 소스 빌드 없이 다음 한 명령으로 Backend와 PostgreSQL을 시작합니다.
+
+```bash
+docker compose -f compose.demo.yml up -d --wait
+```
+
+### 요구사항과 주소
+
+- Docker Engine과 `--wait`를 지원하는 Docker Compose v2 plugin
+- 사용 가능한 `localhost:8080` 포트
+- 카탈로그 seed를 선택한 경우에만 Node.js 22 이상
+- 공개 Backend 이미지는 **`linux/amd64`와 `linux/arm64`를 함께 게시**하므로
+  Intel·AMD64와 Apple Silicon·ARM64 환경에서 각각 네이티브로 실행할 수 있습니다.
+
+| 용도 | 주소 |
+| --- | --- |
+| API | <http://localhost:8080> |
+| Swagger UI | <http://localhost:8080/swagger-ui.html> |
+| OpenAPI JSON | <http://localhost:8080/v3/api-docs> |
+| Health | <http://localhost:8080/actuator/health> |
+
+Backend만 `127.0.0.1:8080`에 바인딩하며 PostgreSQL 포트는 호스트에 공개하지
+않습니다. `xixii/skala-shop-api:demo` 태그는 최신 데모를 가리키는 가변 별칭입니다.
+운영 배포는 이 태그를 사용하지 않고 기존 배포 절차대로 commit SHA로 게시된 이미지의
+digest를 고정합니다. `main` 배포 워크플로는 SHA 이미지를 게시한 뒤 Docker Hub에서
+로그아웃하고 새 digest를 다시 pull해 Health와 OpenAPI를 검사합니다. 공개 접근과 실행
+검증을 모두 통과한 digest만 `demo` 태그로 승격합니다.
+
+### 초기 데이터와 선택적 관리자·seed
+
+최초 실행 시 Flyway가 14개 스키마와 27개 테이블을 만들지만, DB에는 관리자, 회원,
+카테고리, 상품, 재고와 주문 데이터가 없습니다. 관리자 기능과 예제 카탈로그가
+필요하지 않다면 기본 상태 그대로 사용하면 됩니다.
+
+관리자를 만들 때만 예제 파일을 복사하고 `.env.demo`의 관리자 bootstrap 세 값을
+설정합니다. 비밀번호는 12자 이상 72 UTF-8 byte 이하여야 합니다.
+
+```bash
+cp .env.demo.example .env.demo
+```
+
+```dotenv
+DEMO_BOOTSTRAP_ADMIN_ENABLED=true
+DEMO_BOOTSTRAP_ADMIN_LOGIN_ID=demo-admin
+DEMO_BOOTSTRAP_ADMIN_PASSWORD=replace-with-12-to-72-byte-demo-password
+```
+
+설정한 환경 파일로 Backend를 다시 만들면 관리자가 한 번 생성됩니다.
+
+```bash
+docker compose --env-file .env.demo -f compose.demo.yml \
+  up -d --wait --force-recreate backend
+```
+
+생성 직후 `DEMO_BOOTSTRAP_ADMIN_ENABLED=false`로 바꾸고 ID·비밀번호 값을 지운 다음
+같은 명령을 다시 실행해 bootstrap을 꺼야 합니다. 이후 기본 카탈로그가 필요할 때만
+저장소 루트에서 다음 도구를 실행합니다. 예시의 비밀번호는 shell history에 직접
+입력하지 말고 현재 터미널에 안전하게 주입합니다.
+
+```bash
+: "${SKALA_ADMIN_PASSWORD:?set SKALA_ADMIN_PASSWORD in the current shell first}"
+SKALA_API_BASE_URL=http://localhost:8080 \
+SKALA_ADMIN_ID=demo-admin \
+SKALA_ADMIN_PASSWORD="$SKALA_ADMIN_PASSWORD" \
+node deploy/tools/bootstrap-catalog.mjs \
+  --seed=deploy/seed/catalog.example.json \
+  --confirm-origin=http://localhost:8080
+```
+
+카테고리·상품·SKU가 이미 있으면 seed 도구가 건너뛰므로 같은 파일은 다시 실행할 수
+있습니다. 데모 DB까지 완전히 지우려면 다음 명령을 사용합니다. 이 명령은
+`demo-postgres-data` volume과 그 안의 모든 데이터를 삭제합니다.
+
+```bash
+docker compose -f compose.demo.yml down -v
+```
+
+### 데모 보안 경계
+
+공개 이미지와 데모 Compose에는 `.env.app`, AWS 자격 증명, RDS 접속 정보, 운영 JWT
+secret, Docker Hub credential, 관리자 계정이나 운영 seed가 포함되지 않습니다.
+Compose 기본 DB 비밀번호와 JWT secret은 localhost 시연을 위한 알려진 값이며 운영
+비밀값이 아닙니다. 다른 사람과 공유하는 PC에서는 [`.env.demo.example`](../.env.demo.example)을
+기준으로 별도의 데모 전용 값을 설정하고, 운영 비밀값은 재사용하지 마세요.
+
+이 구성은 local profile을 사용하고 Redis·Kafka·Elasticsearch·Nginx·TLS를 포함하지
+않습니다. 운영 또는 인터넷 공개 용도가 아니며, 실제 AWS 배포에는 아래의 RDS,
+`.env.app`, digest 고정, Nginx·Certbot과 OIDC·SSM 절차를 사용합니다.
+
 ## 1. 배포 구조
 
 ```mermaid
