@@ -4,7 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       run_mutating_e2e:
-        description: "임시 고객을 만들어 주문·취소·탈퇴까지 실제 운영 API에서 확인합니다"
+        description: "임시 고객으로 가입·결제·배송·반품·환불 전체 흐름을 확인합니다"
+        required: true
+        default: false
+        type: boolean
+      load_catalog:
+        description: "카테고리·상품·옵션 SKU·재고 운영 데이터를 중복 없이 적재합니다"
         required: true
         default: false
         type: boolean
@@ -33,7 +38,7 @@ jobs:
 
   live-e2e:
     if: ${{ inputs.run_mutating_e2e }}
-    needs: public-smoke
+    needs: catalog-bootstrap
     name: Live customer journey
     runs-on: ubuntu-latest
     environment: production
@@ -58,3 +63,33 @@ jobs:
           SKALA_ADMIN_ID: ${{ secrets.PRODUCTION_ADMIN_ID }}
           SKALA_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_ADMIN_PASSWORD }}
         run: npm run test:e2e:live
+
+      - name: Verify payment, shipping and return lifecycle
+        env:
+          SKALA_API_BASE_URL: ${{ vars.PRODUCTION_API_ORIGIN }}
+          SKALA_ADMIN_ID: ${{ secrets.PRODUCTION_ADMIN_ID }}
+          SKALA_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_ADMIN_PASSWORD }}
+        run: >-
+          node deploy/tools/verify-commerce-flow.mjs
+          --confirm-origin=${{ vars.PRODUCTION_API_ORIGIN }}
+
+  catalog-bootstrap:
+    needs: public-smoke
+    name: Production catalog
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: Load categories, products, variants and stock
+        if: ${{ inputs.load_catalog }}
+        env:
+          SKALA_API_BASE_URL: ${{ vars.PRODUCTION_API_ORIGIN }}
+          SKALA_ADMIN_ID: ${{ secrets.PRODUCTION_ADMIN_ID }}
+          SKALA_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_ADMIN_PASSWORD }}
+        run: >-
+          node deploy/tools/bootstrap-catalog.mjs
+          --seed=deploy/seed/catalog.example.json
+          --confirm-origin=${{ vars.PRODUCTION_API_ORIGIN }}

@@ -99,7 +99,7 @@ E2E_BASE_URL=https://skala-shop-bice.vercel.app \
 npm --prefix frontend run test:e2e:live
 ```
 
-실제 Vercel, EC2 API와 RDS를 사용해 다음 흐름을 확인합니다.
+실제 Vercel, EC2 API와 RDS를 사용해 브라우저 고객 흐름을 확인합니다.
 
 ```text
 임시 회원가입
@@ -124,6 +124,20 @@ LIVE_E2E_ENABLED=true \
 E2E_BASE_URL=https://skala-shop-bice.vercel.app \
 npm --prefix frontend run test:e2e:live
 ```
+
+`Production smoke` workflow의 mutating E2E는 같은 관리자 비밀값을 사용해 다음
+운영 상태 전이를 추가 검증합니다.
+
+```text
+회원가입 → 로그인 → 장바구니 → 포인트 0원 사용 주문
+→ 테스트 카드 결제 승인
+→ 상품 준비 → 배송 중 → 배송 완료
+→ 반품 접수 → 회수 → 검수 → 승인 → 카드 환불
+→ 고객 반품 내역 확인 → 임시 고객 비활성화
+```
+
+`load_catalog` 입력을 함께 선택하면 카테고리·상품·옵션 SKU·옵션별 재고를 먼저
+중복 없이 적재합니다.
 
 ## 공개 smoke
 

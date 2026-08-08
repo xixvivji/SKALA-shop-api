@@ -83,7 +83,7 @@ export async function issueCsrfToken(force = false) {
       }
       throw new ApiError({
         code: "NETWORK_ERROR",
-        message: "백엔드에 연결할 수 없습니다. API 주소와 서버 상태를 확인해 주세요.",
+        message: "잠시 연결이 원활하지 않습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.",
       });
     })
     .finally(() => {
@@ -148,7 +148,7 @@ async function request(
     }
     throw new ApiError({
       code: "NETWORK_ERROR",
-      message: "백엔드에 연결할 수 없습니다. API 주소와 CORS 설정을 확인해 주세요.",
+      message: "잠시 연결이 원활하지 않습니다. 잠시 후 다시 시도해 주세요.",
     });
   }
 

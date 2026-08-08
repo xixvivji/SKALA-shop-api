@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="SKALA Shop 백엔드의 회원, 상품, 주문, 포인트 기능을 시연하는 프론트엔드"
+      content="일상을 더 선명하게 만드는 감각적인 라이프스타일 셀렉트숍, SKALA Market"
     />
     <meta name="theme-color" content="#15172b" />
     <title>SKALA Market</title>
@@ -25,14 +25,14 @@
         <span class="brand-mark" aria-hidden="true">S</span>
         <span class="brand-copy">
           <strong>SKALA</strong>
-          <small>POINT MARKET</small>
+          <small>SELECT MARKET</small>
         </span>
       </a>
 
       <nav class="primary-nav" aria-label="주요 메뉴">
-        <button class="nav-link is-active" type="button" data-view="shop" aria-current="page">Shop</button>
-        <button class="nav-link" type="button" data-view="orders">Orders</button>
-        <button class="nav-link" type="button" data-view="account">My</button>
+        <button class="nav-link is-active" type="button" data-view="shop" aria-current="page">쇼핑</button>
+        <button class="nav-link" type="button" data-view="orders">주문 내역</button>
+        <button class="nav-link" type="button" data-view="account">마이</button>
         <button class="nav-link is-hidden" type="button" data-view="admin" id="admin-nav">
           Admin
         </button>
@@ -40,7 +40,7 @@
 
       <div class="header-actions">
         <button class="cart-button is-hidden" type="button" id="cart-button" aria-label="장바구니 열기">
-          <span aria-hidden="true">Bag</span>
+          <span aria-hidden="true">장바구니</span>
           <strong id="cart-count">0</strong>
         </button>
         <button class="button button-dark" type="button" id="auth-button">로그인</button>
@@ -48,7 +48,7 @@
           <span class="avatar" id="profile-avatar">S</span>
           <span class="profile-copy">
             <strong id="profile-name">고객</strong>
-            <small id="profile-role">CUSTOMER</small>
+            <small id="profile-role">회원</small>
           </span>
         </button>
       </div>
@@ -58,14 +58,14 @@
       <section class="view is-active" id="shop-view" data-view-panel="shop">
         <div class="hero-shell">
           <div class="hero-copy">
-            <p class="eyebrow">The point-first lifestyle store</p>
+            <p class="eyebrow">Curated for everyday moments</p>
             <h1>
-              취향은 선명하게,<br />
-              <span>결제는 포인트로.</span>
+              매일의 취향을,<br />
+              <span>더 선명하게.</span>
             </h1>
             <p class="hero-description">
-              오늘 필요한 물건을 가볍게 담고 포인트로 바로 만나보세요.<br />
-              주문과 배송, 취소와 환급까지 한곳에서 자연스럽게 이어집니다.
+              오래 곁에 두고 싶은 디지털·패션·리빙 아이템을 한곳에서 만나보세요.<br />
+              상품 선택부터 배송과 반품까지 편안하게 이어집니다.
             </p>
             <div class="hero-actions">
               <button class="button button-accent" type="button" id="hero-start-button">
@@ -78,21 +78,28 @@
             <div class="showcase-orbit orbit-one"></div>
             <div class="showcase-orbit orbit-two"></div>
             <article class="showcase-card">
-              <div class="showcase-card-head"><span>SKALA POINT</span><span>MEMBER 01</span></div>
-              <strong>1,000,000 <small>P</small></strong>
-              <p>가입 즉시 시작되는 나만의 포인트 쇼핑</p>
+              <div class="showcase-card-head"><span>SKALA MEMBERSHIP</span><span>CURATED 01</span></div>
+              <strong>NEW SEASON</strong>
+              <p>오늘의 취향을 위한 새로운 셀렉션</p>
               <div class="showcase-meter"><i></i></div>
             </article>
-            <div class="showcase-chip chip-delivery"><b>01</b><span>빠른 주문<br /><small>한 번에 결제</small></span></div>
-            <div class="showcase-chip chip-refund"><b>↗</b><span>간편한 취소<br /><small>포인트 즉시 환급</small></span></div>
+            <div class="showcase-chip chip-delivery"><b>01</b><span>간편한 주문<br /><small>옵션부터 배송지까지</small></span></div>
+            <div class="showcase-chip chip-refund"><b>↗</b><span>안심 쇼핑<br /><small>주문 취소·반품 지원</small></span></div>
           </div>
         </div>
+
+        <section class="feature-strip" aria-label="쇼핑 혜택">
+          <article><span class="feature-index">01</span><div><strong>취향을 담은 셀렉션</strong><small>엄선한 디지털·패션·리빙 상품</small></div></article>
+          <article><span class="feature-index">02</span><div><strong>옵션별 재고 확인</strong><small>원하는 색상과 구성을 정확하게</small></div></article>
+          <article><span class="feature-index">03</span><div><strong>주문부터 배송까지</strong><small>진행 상태를 한눈에 확인</small></div></article>
+          <article><span class="feature-index">04</span><div><strong>편리한 반품 접수</strong><small>배송 완료 상품도 간편하게</small></div></article>
+        </section>
 
         <section class="content-section product-section" aria-labelledby="products-title">
           <div class="section-heading">
             <div>
               <p class="eyebrow">Today’s selection</p>
-              <h2 id="products-title">지금 만나는 상품</h2>
+              <h2 id="products-title">오늘의 셀렉션</h2>
             </div>
             <div class="section-tools">
               <label class="search-field">
@@ -142,9 +149,9 @@
       <section class="view" id="orders-view" data-view-panel="orders" aria-labelledby="orders-title">
         <div class="page-intro page-intro-orders">
           <div>
-            <p class="eyebrow">Order timeline</p>
-            <h1 id="orders-title">주문이 남긴 기록</h1>
-            <p>주문 당시 가격과 취소 내역이 그대로 보존됩니다.</p>
+            <p class="eyebrow">Order & delivery</p>
+            <h1 id="orders-title">주문·배송 조회</h1>
+            <p>주문한 상품의 결제와 배송 상태를 확인하세요.</p>
           </div>
           <div class="intro-stat">
             <small>TOTAL ORDERS</small>
@@ -154,29 +161,26 @@
 
         <div class="login-gate" id="orders-login-gate">
           <span class="gate-mark" aria-hidden="true">↳</span>
-          <h2>로그인하면 주문 흐름을 확인할 수 있어요</h2>
-            <p>상품 주문과 부분 취소 내역을 한곳에서 확인할 수 있습니다.</p>
+          <h2>로그인하고 주문 내역을 확인하세요</h2>
+          <p>배송 현황과 취소·반품 진행 상태를 한곳에서 확인할 수 있어요.</p>
           <button class="button button-dark" type="button" data-open-auth>로그인하기</button>
         </div>
 
         <div class="orders-layout is-hidden" id="orders-content">
           <div class="orders-main">
             <div class="order-list" id="order-list"></div>
-            <section class="admin-table-section"><div class="section-heading compact-heading"><div><p class="eyebrow">Returns</p><h2>내 반품</h2></div></div><div class="admin-order-list" id="return-list"></div></section>
+            <section class="admin-table-section"><div class="section-heading compact-heading"><div><p class="eyebrow">Returns</p><h2>반품 내역</h2></div></div><div class="admin-order-list" id="return-list"></div></section>
             <div class="list-pagination">
               <button class="button button-outline is-hidden" type="button" id="order-load-more" aria-controls="order-list">
                 주문 더보기
               </button>
             </div>
           </div>
-          <aside class="order-guide">
-            <p class="eyebrow">Cancellation rule</p>
-            <h3>부분 취소는<br />최신 주문부터</h3>
-            <p>
-              취소 API는 상품과 수량을 기준으로 처리합니다. 같은 상품을 여러 번 샀다면
-              최신 주문의 남은 수량부터 차감됩니다.
-            </p>
-            <div class="guide-chip">안전한 중복 주문 방지</div>
+          <aside class="order-guide order-help">
+            <p class="eyebrow">Need help?</p>
+            <h3>주문 변경이<br />필요하신가요?</h3>
+            <p>배송 준비 전 상품은 주문 내역에서 수량을 선택해 취소할 수 있어요. 배송 완료 후에는 반품을 신청해 주세요.</p>
+            <div class="guide-chip">취소·반품 진행 상태 확인</div>
           </aside>
         </div>
       </section>
@@ -186,14 +190,14 @@
           <div>
             <p class="eyebrow">Your membership</p>
             <h1 id="account-title">내 마켓 정보</h1>
-            <p>현재 로그인한 계정과 포인트 지갑을 확인합니다.</p>
+            <p>회원 정보와 배송지, 관심 상품과 포인트 내역을 관리하세요.</p>
           </div>
         </div>
 
         <div class="login-gate" id="account-login-gate">
           <span class="gate-mark" aria-hidden="true">◎</span>
-          <h2>아직 게스트로 둘러보고 있어요</h2>
-          <p>가입하면 1,000,000 포인트가 지급되고 바로 주문할 수 있습니다.</p>
+          <h2>회원만의 쇼핑을 시작해 보세요</h2>
+          <p>배송지 저장, 관심 상품, 주문 조회 등 편리한 기능을 이용할 수 있어요.</p>
           <button class="button button-accent" type="button" data-open-auth data-auth-tab="signup">
             회원가입하기
           </button>
@@ -203,7 +207,7 @@
           <article class="membership-card">
             <div class="membership-top">
               <span>SKALA<br />MEMBER</span>
-              <small id="member-role">CUSTOMER</small>
+              <small id="member-role">MEMBER</small>
             </div>
             <div class="membership-name">
               <small>MEMBER NAME</small>
@@ -274,7 +278,7 @@
 
             <article class="panel danger-panel">
               <div class="panel-heading">
-                <div><small>ACCOUNT</small><h2>세션과 계정</h2></div>
+                <div><small>ACCOUNT</small><h2>계정 관리</h2></div>
                 <span class="panel-number">03</span>
               </div>
               <div class="danger-actions">
@@ -291,7 +295,7 @@
           <div>
             <p class="eyebrow">Operations desk</p>
             <h1 id="admin-title">관리자 콘솔</h1>
-            <p>역할 기반 권한으로 상품과 고객 현황을 관리합니다.</p>
+            <p>상품과 재고, 고객 주문과 반품 현황을 한곳에서 관리합니다.</p>
           </div>
           <div class="admin-intro-actions">
             <button class="button admin-logout-button" type="button" id="admin-logout-button">
@@ -315,7 +319,7 @@
             <span>현재 조회된 고객</span>
           </article>
           <article class="admin-stat-card dark-card">
-            <small>ACCESS CONTROL</small>
+            <small>TOTAL ORDERS</small>
             <strong id="admin-order-count">0</strong>
             <span>전체 주문</span>
           </article>
@@ -358,10 +362,23 @@
       </section>
     </main>
 
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <div><strong>SKALA MARKET</strong><p>매일의 취향을 위한 라이프스타일 셀렉션</p></div>
+      </div>
+      <div class="footer-links" aria-label="고객 안내">
+        <span>안전한 결제</span>
+        <span>주문·배송 조회</span>
+        <span>취소·반품 지원</span>
+      </div>
+      <small>© 2026 SKALA Market. All rights reserved.</small>
+    </footer>
+
     <nav class="mobile-nav" aria-label="모바일 메뉴">
-      <button class="is-active" type="button" data-view="shop" aria-current="page"><span>⌂</span>Shop</button>
-      <button type="button" data-view="orders"><span>▤</span>Orders</button>
-      <button type="button" data-view="account"><span>◎</span>My</button>
+      <button class="is-active" type="button" data-view="shop" aria-current="page"><span>⌂</span>쇼핑</button>
+      <button type="button" data-view="orders"><span>▤</span>주문</button>
+      <button type="button" data-view="account"><span>◎</span>마이</button>
       <button class="is-hidden" type="button" data-view="admin" id="mobile-admin-nav"><span>◇</span>Admin</button>
     </nav>
 
@@ -370,12 +387,12 @@
       <div class="auth-aside">
         <span class="brand-mark large-mark" aria-hidden="true">S</span>
         <p class="eyebrow">Welcome to SKALA</p>
-        <h2 id="auth-dialog-title">포인트 쇼핑을<br />지금 시작하세요.</h2>
-        <p>가입 즉시 1,000,000 포인트가 지급됩니다.</p>
+        <h2 id="auth-dialog-title">나만의 쇼핑을<br />지금 시작하세요.</h2>
+        <p>한 번의 가입으로 편리한 쇼핑 기능을 이용할 수 있어요.</p>
         <div class="auth-benefits">
-          <span>✓ 안전하게 유지되는 로그인</span>
-          <span>✓ 주문 중복 실행 방지</span>
-          <span>✓ 포인트 잔액 바로 반영</span>
+          <span>✓ 관심 상품과 배송지 저장</span>
+          <span>✓ 주문·배송 상태 한눈에 확인</span>
+          <span>✓ 편리한 취소와 반품 접수</span>
         </div>
       </div>
       <div class="auth-form-shell">
@@ -432,7 +449,7 @@
 
         <form id="password-reset-form" class="auth-form is-hidden" data-auth-panel="reset" role="tabpanel" aria-labelledby="auth-tab-reset" hidden>
           <div class="form-heading"><small>RESET PASSWORD</small><h3>비밀번호를 다시 설정해요</h3></div>
-          <p class="form-notice">데모용 기능입니다. 고객 ID와 현재 계정에 등록된 이름이 모두 일치해야 합니다.</p>
+          <p class="form-notice">가입한 아이디와 이름을 확인한 뒤 새 비밀번호를 설정합니다.</p>
           <label><span>고객 ID</span><input name="customerId" minlength="3" maxlength="50" pattern="[A-Za-z0-9_-]+" autocomplete="username" required placeholder="가입한 고객 ID" /></label>
           <label><span>고객 이름</span><input name="customerName" maxlength="100" autocomplete="name" required placeholder="현재 등록된 고객 이름" /></label>
           <label>
@@ -452,7 +469,7 @@
       <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
       <div class="modal-product-visual" id="order-product-visual"><span>S</span></div>
       <div class="compact-modal-body">
-        <p class="eyebrow">Point checkout</p>
+        <p class="eyebrow">Quick checkout</p>
         <h2 id="order-product-name">상품 주문</h2>
         <p class="modal-price" id="order-product-price">0 P</p>
         <form id="order-form" class="stack-form">
@@ -468,7 +485,7 @@
           </label>
           <label><span>쿠폰 코드 (선택)</span><input name="couponCode" maxlength="50" placeholder="WELCOME10" /></label>
           <label><span>사용 포인트 (비우면 전액)</span><input name="pointAmount" type="number" min="0" step="0.01" placeholder="0" /></label>
-          <label><span>Fake PG 테스트 카드</span><input name="testCardNumber" inputmode="numeric" value="4242-4242-4242-4242" required /></label>
+          <label><span>카드 번호</span><input name="testCardNumber" inputmode="numeric" autocomplete="cc-number" value="4242-4242-4242-4242" required /><small class="field-help">현재는 안전한 테스트 결제로 진행됩니다.</small></label>
           <div class="checkout-total"><span>주문 금액</span><strong id="order-total">0 P</strong></div>
           <button class="button button-accent button-block" type="submit">주문하기</button>
         </form>
@@ -479,13 +496,13 @@
       <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
       <div class="cancel-symbol" aria-hidden="true">↩</div>
       <div class="compact-modal-body">
-        <p class="eyebrow">Partial cancellation</p>
-        <h2 id="cancel-product-name">상품 부분 취소</h2>
-        <p class="modal-note">같은 상품의 최신 주문부터 취소 수량이 차감됩니다.</p>
+        <p class="eyebrow">Order cancellation</p>
+        <h2 id="cancel-product-name">상품 취소</h2>
+        <p class="modal-note">취소할 수량을 선택해 주세요. 처리된 금액은 결제 수단으로 환불됩니다.</p>
         <form id="cancel-form" class="stack-form">
           <input type="hidden" name="productId" />
           <label><span>취소 수량</span><input name="quantity" type="number" min="1" value="1" required /></label>
-          <button class="button button-dark button-block" type="submit">취소하고 포인트 환급받기</button>
+          <button class="button button-dark button-block" type="submit">선택 수량 취소하기</button>
         </form>
       </div>
     </dialog>
@@ -499,7 +516,7 @@
           <input type="hidden" name="orderId" /><input type="hidden" name="orderItemId" />
           <label><span>반품 수량</span><input name="quantity" type="number" min="1" required /></label>
           <label><span>반품 사유</span><select name="reason" required><option value="CHANGE_OF_MIND">단순 변심</option><option value="SIZE_MISMATCH">사이즈 불일치</option><option value="DAMAGED">배송 중 파손</option><option value="DEFECTIVE">상품 불량</option><option value="WRONG_ITEM">오배송</option><option value="OTHER">기타</option></select></label>
-          <label><span>증빙 이미지 HTTPS URL (선택)</span><input name="evidenceImageUrl" type="url" maxlength="1000" placeholder="https://..." /></label>
+          <label><span>상품 상태 이미지 주소 (선택)</span><input name="evidenceImageUrl" type="url" maxlength="1000" placeholder="https://..." /><small class="field-help">파손이나 불량 상품은 확인 가능한 이미지 주소를 남겨 주세요.</small></label>
           <button class="button button-dark button-block" type="submit">반품 신청하기</button>
         </form>
       </div>
@@ -575,7 +592,7 @@
         <div class="checkout-address-preview" id="checkout-address-preview"></div>
         <label><span>쿠폰 코드 (선택)</span><input name="couponCode" maxlength="50" placeholder="WELCOME10" /></label>
         <label><span>사용 포인트 (비우면 전액)</span><input name="pointAmount" type="number" min="0" step="0.01" placeholder="0" /></label>
-        <label><span>Fake PG 테스트 카드</span><input name="testCardNumber" inputmode="numeric" value="4242-4242-4242-4242" required /></label>
+        <label><span>카드 번호</span><input name="testCardNumber" inputmode="numeric" autocomplete="cc-number" value="4242-4242-4242-4242" required /><small class="field-help">현재는 안전한 테스트 결제로 진행됩니다.</small></label>
         <div class="checkout-total"><span>주문 금액</span><strong id="checkout-total">0 P</strong></div>
         <button class="button button-accent button-block" type="submit">전체 주문하기</button>
       </form>

@@ -145,6 +145,18 @@ test.beforeEach(async ({ page }) => {
   await mockShopApi(page);
 });
 
+test("고객 화면은 내부 구현 설명 없이 쇼핑 안내만 제공한다", async ({ page }) => {
+  await page.goto("/");
+  const body = page.locator("body");
+  await expect(page.getByRole("heading", { name: "매일의 취향을, 더 선명하게." })).toBeVisible();
+  await expect(body).not.toContainText("취소 API");
+  await expect(body).not.toContainText("최신 주문부터");
+  await expect(body).not.toContainText("Fake PG");
+  await expect(body).not.toContainText("JWT");
+  await expect(body).toContainText("주문 변경이");
+  await expect(body).toContainText("필요하신가요?");
+});
+
 test("회원가입부터 장바구니 배송지 주문과 포인트 조회까지 동작한다", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("E2E 키보드")).toBeVisible();
@@ -173,14 +185,14 @@ test("회원가입부터 장바구니 배송지 주문과 포인트 조회까지
   await page.getByRole("button", { name: "배송지 저장", exact: true }).click();
   await expect(page.locator("#address-list")).toContainText("서울 강남구");
 
-  await page.getByRole("button", { name: "Shop" }).first().click();
+  await page.getByRole("button", { name: "쇼핑" }).first().click();
   await page.getByRole("button", { name: "장바구니 열기" }).click();
   await page.getByRole("button", { name: "주문하기" }).click();
   await page.getByRole("button", { name: "전체 주문하기" }).click();
   await expect(page.locator("#order-list")).toContainText("ORD-E2E-001");
   await expect(page.locator("#order-list")).toContainText("결제 완료");
 
-  await page.getByRole("button", { name: "My" }).first().click();
+  await page.getByRole("button", { name: "마이" }).first().click();
   await expect(page.locator("#transaction-list")).toContainText("가입 포인트");
   await expect(page.locator("#transaction-list")).toContainText("-25,000 P");
 });

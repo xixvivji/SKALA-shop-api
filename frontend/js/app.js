@@ -394,7 +394,7 @@ function showApiError(error, fallback = "요청을 처리하지 못했습니다.
     409: "현재 상태와 충돌해 처리하지 못했습니다.",
     429: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
   }[error?.status];
-  showToast(error?.message || statusMessage || fallback, detail || error?.code || "", "error");
+  showToast(error?.message || statusMessage || fallback, detail, "error");
 }
 
 async function withLoading(message, task) {
@@ -513,7 +513,7 @@ function renderSession() {
 
   if (authenticated) {
     elements.profileName.textContent = displayName;
-    elements.profileRole.textContent = state.session.role;
+    elements.profileRole.textContent = admin ? "관리자" : "회원";
     elements.profileAvatar.textContent = initials(displayName);
     elements.profileButton.setAttribute(
       "aria-label",
@@ -537,7 +537,7 @@ function renderSession() {
 function renderCustomer() {
   const customer = state.customer;
   if (!customer || !isCustomer()) {
-    elements.memberRole.textContent = "CUSTOMER";
+    elements.memberRole.textContent = "MEMBER";
     elements.memberName.textContent = "-";
     elements.memberId.textContent = "-";
     elements.memberBalance.textContent = "0 P";
@@ -546,7 +546,7 @@ function renderCustomer() {
     return;
   }
 
-  elements.memberRole.textContent = customer.role;
+  elements.memberRole.textContent = "MEMBER";
   elements.memberName.textContent = customer.name || customer.customerId;
   elements.memberId.textContent = customer.customerId;
   elements.memberBalance.textContent = points(state.wallet?.balance ?? customer.customerPoint);
@@ -662,7 +662,7 @@ function renderProducts() {
       ? moreProductsAvailable
         ? "현재 불러온 상품에는 없습니다. 상품 더보기로 검색 범위를 넓혀보세요."
         : "다른 검색어로 다시 찾아보세요."
-      : "관리자 계정으로 로그인하면 첫 상품을 등록할 수 있습니다.";
+      : "새로운 상품을 준비하고 있습니다. 잠시 후 다시 방문해 주세요.";
     elements.productGrid.innerHTML = `
       <div class="empty-state">
         <span aria-hidden="true">◇</span>
@@ -700,7 +700,7 @@ function renderProducts() {
       return `
         <article class="product-card">
           <div class="product-visual tone-${tone}${imageUrl ? " has-image" : ""}">
-            ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(initials(product.name))}</span>`}
+            ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" />` : `<span>${escapeHtml(initials(product.name))}</span>`}
             <small class="product-badge stock-${state.stocksError ? "unavailable" : stockStatusClass(stock)}">${escapeHtml(stockLabel)}</small>
           </div>
           <div class="product-body">
@@ -742,6 +742,20 @@ function nextFulfillmentStatus(status) {
   return { PAID: "PREPARING", PREPARING: "SHIPPED", SHIPPED: "DELIVERED" }[status] || null;
 }
 
+function fulfillmentProgress(status) {
+  const steps = [
+    ["PAID", "결제 완료"],
+    ["PREPARING", "상품 준비"],
+    ["SHIPPED", "배송 중"],
+    ["DELIVERED", "배송 완료"],
+  ];
+  const currentIndex = Math.max(0, steps.findIndex(([value]) => value === status));
+  return `<ol class="delivery-progress" aria-label="배송 진행 상태">${steps.map(([value, label], index) => `
+    <li class="${index <= currentIndex ? "is-complete" : ""}${index === currentIndex ? " is-current" : ""}" ${index === currentIndex ? 'aria-current="step"' : ""}>
+      <span aria-hidden="true">${index < currentIndex ? "✓" : index + 1}</span><small>${label}</small>
+    </li>`).join("")}</ol>`;
+}
+
 function renderOrders() {
   elements.orderList.setAttribute("aria-busy", String(state.ordersLoading));
   elements.orderCount.textContent = String(state.orderTotal);
@@ -779,7 +793,7 @@ function renderOrders() {
       <div class="empty-state">
         <span aria-hidden="true">↳</span>
         <h3>첫 주문을 기다리고 있어요</h3>
-        <p>Shop에서 상품을 선택하면 주문과 포인트 차감 결과가 여기에 기록됩니다.</p>
+        <p>마음에 드는 상품을 장바구니에 담아 첫 주문을 시작해 보세요.</p>
       </div>
     `;
     return;
@@ -795,7 +809,7 @@ function renderOrders() {
               <span class="order-item-thumb">${escapeHtml(initials(item.productName))}</span>
               <span class="order-item-copy">
                 <strong>${escapeHtml(item.productName)}</strong>
-                <span>${money(item.unitPrice)} P · 주문 ${item.orderedQuantity}개 · 취소 ${item.canceledQuantity}개</span>
+                <span>${money(item.unitPrice)} P · ${item.orderedQuantity}개${Number(item.canceledQuantity) > 0 ? ` · 취소 ${item.canceledQuantity}개` : ""}</span>
               </span>
               <span class="order-item-actions">
                 <strong>${money(item.paidAmount ?? (Number(item.unitPrice) * Number(item.orderedQuantity)))} P</strong>
@@ -816,6 +830,7 @@ function renderOrders() {
             <span class="order-number"><small>${dateTime(order.orderedAt)}</small><strong>${escapeHtml(order.orderNumber)}</strong></span>
             <span class="order-status ${String(order.status).toLowerCase().replaceAll("_", "-")}">${escapeHtml(orderStatus(order.status))} · ${escapeHtml(fulfillmentStatus(order.fulfillmentStatus))}</span>
           </header>
+          ${fulfillmentProgress(order.fulfillmentStatus)}
           <div>${items}</div>
           ${
             order.shippingAddress
@@ -825,9 +840,9 @@ function renderOrders() {
           ${order.usedCouponCode ? `<div class="order-shipping"><strong>쿠폰</strong><span>${escapeHtml(order.usedCouponCode)} · ${points(order.discountAmount)} 할인</span></div>` : ""}
           ${(order.trackingCarrier || order.trackingNumber || order.estimatedDeliveryAt) ? `<div class="order-shipping"><strong>배송 추적</strong><span>${escapeHtml(order.trackingCarrier || "택배사 미정")} · ${escapeHtml(order.trackingNumber || "운송장 미등록")}</span>${order.trackingUrl ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener noreferrer">배송 조회</a>` : ""}${order.estimatedDeliveryAt ? `<small>예상 배송 ${dateTime(order.estimatedDeliveryAt)}</small>` : ""}</div>` : ""}
           <footer class="order-summary">
-            <div><small>ORDER TOTAL</small><strong>${points(order.totalAmount)}</strong></div>
-            <div><small>CANCELED</small><strong>${points(order.canceledAmount)}</strong></div>
-            <div><small>BALANCE AFTER</small><strong>${points(order.remainingPoints)}</strong></div>
+            <div><small>결제 금액</small><strong>${points(order.totalAmount)}</strong></div>
+            <div><small>취소 금액</small><strong>${points(order.canceledAmount)}</strong></div>
+            <div><small>남은 포인트</small><strong>${points(order.remainingPoints)}</strong></div>
           </footer>
         </article>
       `;
@@ -944,7 +959,7 @@ function renderCart() {
     return;
   }
   if (!items.length) {
-    elements.cartList.innerHTML = '<div class="empty-state"><span>Bag</span><h3>장바구니가 비어 있어요</h3><p>상품 카드의 담기 버튼으로 원하는 상품을 모아보세요.</p></div>';
+    elements.cartList.innerHTML = '<div class="empty-state"><span>Bag</span><h3>장바구니가 비어 있어요</h3><p>마음에 드는 상품을 담아 한 번에 주문해 보세요.</p></div>';
     return;
   }
 
@@ -1168,7 +1183,7 @@ function renderAdminOrders() {
 
 function switchView(view, updateHash = true) {
   if (view === "admin" && !isAdmin()) {
-    showToast("관리자 전용 화면입니다", "ADMIN 역할로 로그인해 주세요.", "error");
+    showToast("관리자 전용 화면입니다", "관리자 계정으로 로그인해 주세요.", "error");
     view = "shop";
   }
 
@@ -1683,7 +1698,7 @@ async function completeFakePayment(order, testCardNumber) {
   const payment = await shopApi.preparePayment(order.id, "CARD");
   const approved = await shopApi.approveFakePayment(payment.id, testCardNumber);
   if (approved.status !== "PAID") {
-    const error = new Error(approved.failureMessage || "모의 결제가 승인되지 않았습니다.");
+    const error = new Error(approved.failureMessage || "카드 결제가 승인되지 않았습니다.");
     error.code = approved.failureCode || "PAYMENT_DECLINED";
     error.status = 409;
     throw error;
@@ -1694,7 +1709,7 @@ async function completeFakePayment(order, testCardNumber) {
 async function openOrder(product) {
   if (!isCustomer()) {
     if (isAdmin()) {
-      showToast("관리자는 주문할 수 없습니다", "CUSTOMER 계정으로 로그인해 주세요.", "error");
+      showToast("관리자 계정에서는 주문할 수 없습니다", "일반 회원 계정으로 로그인해 주세요.", "error");
     } else {
       openAuth("login");
     }
@@ -2288,7 +2303,7 @@ function bindForms() {
       const pendingOrder = await withLoading("주문과 결제를 준비하고 있습니다", () =>
         shopApi.order(productId, quantity, couponCode, pointAmount, commandKey, variantId),
       );
-      const order = await withLoading("Fake PG 결제를 승인하고 있습니다", () =>
+      const order = await withLoading("결제를 확인하고 있습니다", () =>
         completeFakePayment(pendingOrder, orderForm.elements.testCardNumber.value),
       );
       closeDialog(elements.orderDialog);
@@ -2461,7 +2476,7 @@ function bindForms() {
           commandKey,
         ),
       );
-      await withLoading("Fake PG 결제를 승인하고 있습니다", () =>
+      await withLoading("결제를 확인하고 있습니다", () =>
         completeFakePayment(order, elements.checkoutForm.elements.testCardNumber.value),
       );
       try {
@@ -2535,7 +2550,7 @@ function bindAccountActions() {
   $("#admin-logout-button").addEventListener("click", logout);
 
   $("#deactivate-button").addEventListener("click", async () => {
-    if (!window.confirm("회원 탈퇴 후에는 기존 JWT도 즉시 사용할 수 없습니다. 정말 탈퇴할까요?")) {
+    if (!window.confirm("탈퇴하면 현재 계정을 다시 이용할 수 없습니다. 정말 탈퇴할까요?")) {
       return;
     }
     invalidatePendingSessionRestore();
