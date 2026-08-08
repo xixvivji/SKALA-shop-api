@@ -9,6 +9,7 @@ import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.OrderItemView;
 import com.skala.shopping.order.OrderLineCommand;
 import com.skala.shopping.order.OrderPlaced;
+import com.skala.shopping.order.OrderPaymentRefundRequested;
 import com.skala.shopping.order.OrderStatusHistoryView;
 import com.skala.shopping.order.OrderView;
 import com.skala.shopping.order.PurchasedProductView;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
@@ -61,6 +63,7 @@ public class OrderApplicationService implements OrderApi {
     private final StockManager stockManager;
     private final CouponManager couponManager;
     private final ApplicationEventPublisher eventPublisher;
+    private final OrderRequestLock requestLock;
     private final Clock clock = Clock.systemUTC();
 
     OrderApplicationService(
@@ -73,7 +76,8 @@ public class OrderApplicationService implements OrderApi {
             PointManager pointManager,
             StockManager stockManager,
             CouponManager couponManager,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            OrderRequestLock requestLock
     ) {
         this.orderRepository = orderRepository;
         this.itemRepository = itemRepository;
@@ -85,20 +89,7 @@ public class OrderApplicationService implements OrderApi {
         this.stockManager = stockManager;
         this.couponManager = couponManager;
         this.eventPublisher = eventPublisher;
-    }
-
-    @Override
-    @Transactional
-    public OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId) {
-        return placeOrder(memberId, List.of(new OrderLineCommand(productId, quantity)), null, commandId, null);
-    }
-
-    @Override
-    @Transactional
-    public OrderView placeOrder(UUID memberId, UUID productId, int quantity,
-                               UUID commandId, String couponCode) {
-        return placeOrder(memberId, List.of(new OrderLineCommand(productId, quantity)), null,
-                commandId, couponCode);
+        this.requestLock = requestLock;
     }
 
     @Override
@@ -126,14 +117,18 @@ public class OrderApplicationService implements OrderApi {
         String normalizedCoupon = normalizeText(couponCode);
         String fingerprint = OrderCommandFingerprint.order(
                 memberId, normalizedItems, shippingAddress, normalizedCoupon, pointAmount);
+        String legacyFingerprint = OrderCommandFingerprint.legacyOrder(
+                memberId, normalizedItems, shippingAddress, normalizedCoupon, pointAmount);
+        requestLock.acquire(memberId, commandId);
         return orderRepository.findByMemberIdAndRequestId(memberId, commandId)
-                .map(order -> replayOrder(order, fingerprint))
+                .map(order -> replayOrder(order, fingerprint, legacyFingerprint))
                 .orElseGet(() -> createOrder(
                         memberId,
                         normalizedItems,
                         shippingAddress,
                         commandId,
                         fingerprint,
+                        legacyFingerprint,
                         normalizedCoupon,
                         pointAmount
                 ));
@@ -183,15 +178,15 @@ public class OrderApplicationService implements OrderApi {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public ReturnableOrderItemView getReturnableItem(UUID memberId, UUID orderId, UUID orderItemId) {
-        ShopOrder order = orderRepository.findByIdAndMemberId(orderId, memberId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문을 찾을 수 없습니다."));
+        // 반품 요청 생성과 정산이 같은 주문 항목 수량을 동시에 예약하지 못하도록
+        // 주문 -> 주문 항목 순서로 잠급니다. Returns 모듈의 트랜잭션에도 이 잠금이 이어집니다.
+        ShopOrder order = lockedMemberOrder(memberId, orderId);
         if (order.fulfillmentStatus() != FulfillmentStatus.DELIVERED) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송 완료 주문만 반품할 수 있습니다.");
         }
-        OrderItem item = itemRepository.findById(orderItemId)
-                .filter(candidate -> candidate.orderId().equals(orderId))
+        OrderItem item = itemRepository.findByIdAndOrderIdForUpdate(orderItemId, orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문 항목을 찾을 수 없습니다."));
         BigDecimal pointRatio = order.totalAmount().signum() == 0 ? BigDecimal.ZERO
                 : order.pointUsedAmount().divide(order.totalAmount(), 8, RoundingMode.DOWN);
@@ -237,15 +232,58 @@ public class OrderApplicationService implements OrderApi {
     ) {
         requirePositiveQuantity(quantity);
         String fingerprint = OrderCommandFingerprint.cancellation(memberId, productId, quantity);
+        requestLock.acquire(memberId, commandId);
         return cancellationRepository.findByMemberIdAndCommandId(memberId, commandId)
                 .map(cancellation -> replayCancellation(cancellation, fingerprint))
-                .orElseGet(() -> executeCancellation(
-                        memberId,
-                        productId,
-                        quantity,
-                        commandId,
-                        fingerprint
-                ));
+                .orElseGet(() -> {
+                    List<OrderItemTarget> candidates = itemRepository
+                            .findCancelableTargets(memberId, productId);
+                    long variants = candidates.stream()
+                            .map(OrderItemTarget::variantId).distinct().count();
+                    if (variants > 1) {
+                        throw new BusinessException(
+                                ErrorCode.INVALID_PARAMETER,
+                                "옵션 상품은 주문 항목 ID로 취소해야 합니다."
+                        );
+                    }
+                    return executeCancellation(
+                            memberId,
+                            candidates,
+                            productId,
+                            quantity,
+                            commandId,
+                            fingerprint
+                    );
+                });
+    }
+
+    @Override
+    @Transactional
+    public CancellationView cancelOrderItem(
+            UUID memberId,
+            UUID orderItemId,
+            int quantity,
+            UUID commandId
+    ) {
+        requirePositiveQuantity(quantity);
+        String fingerprint = OrderCommandFingerprint.itemCancellation(
+                memberId, orderItemId, quantity);
+        requestLock.acquire(memberId, commandId);
+        return cancellationRepository.findByMemberIdAndCommandId(memberId, commandId)
+                .map(cancellation -> replayCancellation(cancellation, fingerprint))
+                .orElseGet(() -> {
+                    OrderItemTarget item = itemRepository.findOwnedTarget(orderItemId, memberId)
+                            .orElseThrow(() -> new BusinessException(
+                                    ErrorCode.DATA_NOT_FOUND, "주문 항목을 찾을 수 없습니다."));
+                    return executeCancellation(
+                            memberId,
+                            List.of(item),
+                            item.productId(),
+                            quantity,
+                            commandId,
+                            fingerprint
+                    );
+                });
     }
 
     @Override
@@ -396,6 +434,7 @@ public class OrderApplicationService implements OrderApi {
             ShippingAddressCommand shippingAddress,
             UUID commandId,
             String fingerprint,
+            String legacyFingerprint,
             String couponCode,
             BigDecimal requestedPointAmount
     ) {
@@ -429,7 +468,7 @@ public class OrderApplicationService implements OrderApi {
         // 이 시점에 재확인해야 중복 재고 차감과 주문 UNIQUE 충돌을 피할 수 있다.
         var concurrentReplay = orderRepository.findByMemberIdAndRequestId(memberId, commandId);
         if (concurrentReplay.isPresent()) {
-            return replayOrder(concurrentReplay.get(), fingerprint);
+            return replayOrder(concurrentReplay.get(), fingerprint, legacyFingerprint);
         }
         for (OrderLineCommand line : lines) {
             stockManager.reserve(line.getVariantId(), line.getQuantity(), orderId);
@@ -470,14 +509,11 @@ public class OrderApplicationService implements OrderApi {
                         .stream().map(OrderItem::toView).toList()
         );
         eventPublisher.publishEvent(new OrderPlaced(orderId, memberId, finalAmount, now));
-        if (shippingAddress != null) {
-            ShippingAddressView savedAddress = orderShippingAddressRepositorySave(
-                    order.id(),
-                    shippingAddress
-            );
-            return view.withShippingAddress(savedAddress);
-        }
-        return view;
+        ShippingAddressView savedAddress = orderShippingAddressRepositorySave(
+                order.id(),
+                shippingAddress
+        );
+        return view.withShippingAddress(savedAddress);
     }
 
     /**
@@ -522,57 +558,90 @@ public class OrderApplicationService implements OrderApi {
 
     private CancellationView executeCancellation(
             UUID memberId,
+            List<OrderItemTarget> orderItems,
             UUID productId,
             int quantity,
             UUID commandId,
             String fingerprint
     ) {
-        List<OrderItem> items = itemRepository.findCancelableItems(memberId, productId);
         var replay = cancellationRepository.findByMemberIdAndCommandId(memberId, commandId);
         if (replay.isPresent()) {
             return replayCancellation(replay.get(), fingerprint);
-        }
-        int available = items.stream().mapToInt(OrderItem::availableQuantity).sum();
-        if (available < quantity) {
-            throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
         }
 
         UUID cancellationId = UUID.randomUUID();
         int remaining = quantity;
         BigDecimal refund = BigDecimal.ZERO;
+        BigDecimal pointRefund = BigDecimal.ZERO;
+        Map<UUID, BigDecimal> paymentRefundByOrder = new LinkedHashMap<>();
         Map<UUID, Integer> releasedByVariant = new LinkedHashMap<>();
         var now = clock.instant();
-        for (OrderItem item : items) {
+        for (OrderItemTarget target : orderItems) {
             if (remaining == 0) {
                 break;
             }
+            ShopOrder order = orderRepository.findByIdForUpdate(target.orderId())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY));
+            if (!order.memberId().equals(memberId)) {
+                throw new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문 항목을 찾을 수 없습니다.");
+            }
+            OrderItem item = itemRepository.findByIdAndOrderIdForUpdate(target.itemId(), order.id())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY));
+            if (!item.productId().equals(productId)) {
+                throw new BusinessException(ErrorCode.DATA_NOT_FOUND, "주문 항목을 찾을 수 없습니다.");
+            }
             int canceled = Math.min(remaining, item.availableQuantity());
-            BigDecimal itemRefund = item.cancel(canceled);
-            ShopOrder order = orderRepository.findByIdForUpdate(item.orderId())
-                    .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND));
+            if (canceled == 0) {
+                continue;
+            }
             if (!order.isCancelable()) {
                 throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송이 시작된 주문은 취소할 수 없습니다.");
             }
+            BigDecimal canceledBefore = order.canceledAmount();
+            BigDecimal itemRefund = item.cancel(canceled);
             boolean orderFullyCanceled = itemRepository
                     .findAllByOrderIdOrderByLineNumberAsc(order.id())
                     .stream()
                     .allMatch(orderItem -> orderItem.availableQuantity() == 0);
+            BigDecimal itemPointRefund = pointRefundDelta(
+                    order, canceledBefore, itemRefund, orderFullyCanceled);
+            BigDecimal itemPaymentRefund = itemRefund.subtract(itemPointRefund);
             order.applyCancellation(itemRefund, orderFullyCanceled, now);
             refund = refund.add(itemRefund);
+            pointRefund = pointRefund.add(itemPointRefund);
+            if (itemPaymentRefund.signum() > 0) {
+                paymentRefundByOrder.merge(order.id(), itemPaymentRefund, BigDecimal::add);
+            }
             releasedByVariant.merge(item.variantId(), canceled, Integer::sum);
             remaining -= canceled;
         }
 
-        BigDecimal remainingPoints = refund.signum() == 0
+        if (remaining > 0) {
+            throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
+        }
+
+        paymentRefundByOrder.forEach((orderId, amount) -> eventPublisher.publishEvent(
+                new OrderPaymentRefundRequested(
+                        memberId,
+                        orderId,
+                        amount,
+                        derivedCommandId(commandId, "PAYMENT", orderId)
+                )
+        ));
+
+        BigDecimal remainingPoints = pointRefund.signum() == 0
                 ? pointManager.balance(memberId)
-                : pointManager.credit(memberId, refund, cancellationId, commandId);
+                : pointManager.credit(memberId, pointRefund, cancellationId, commandId);
         var concurrentReplay = cancellationRepository
                 .findByMemberIdAndCommandId(memberId, commandId);
         if (concurrentReplay.isPresent()) {
             return replayCancellation(concurrentReplay.get(), fingerprint);
         }
-        releasedByVariant.forEach((variantId, releasedQuantity) ->
-                stockManager.release(variantId, releasedQuantity, cancellationId));
+        releasedByVariant.forEach((variantId, releasedQuantity) -> stockManager.release(
+                variantId,
+                releasedQuantity,
+                derivedCommandId(commandId, "STOCK", variantId)
+        ));
         OrderCancellation cancellation = cancellationRepository.save(new OrderCancellation(
                 cancellationId,
                 commandId,
@@ -587,8 +656,48 @@ public class OrderApplicationService implements OrderApi {
         return toCancellationView(cancellation);
     }
 
-    private OrderView replayOrder(ShopOrder order, String fingerprint) {
-        if (!order.hasFingerprint(fingerprint)) {
+    private BigDecimal pointRefundDelta(
+            ShopOrder order,
+            BigDecimal canceledBefore,
+            BigDecimal newRefund,
+            boolean fullyCanceled
+    ) {
+        BigDecimal before = proportionalPointRefund(order, canceledBefore, false);
+        BigDecimal after = proportionalPointRefund(
+                order, canceledBefore.add(newRefund), fullyCanceled);
+        return after.subtract(before);
+    }
+
+    private BigDecimal proportionalPointRefund(
+            ShopOrder order,
+            BigDecimal cumulativeRefund,
+            boolean fullyCanceled
+    ) {
+        if (order.pointUsedAmount().signum() == 0 || cumulativeRefund.signum() == 0) {
+            return BigDecimal.ZERO.setScale(2);
+        }
+        if (fullyCanceled) {
+            return order.pointUsedAmount();
+        }
+        return order.pointUsedAmount()
+                .multiply(cumulativeRefund)
+                .divide(order.totalAmount(), 2, RoundingMode.DOWN);
+    }
+
+    private UUID derivedCommandId(UUID commandId, String purpose, UUID aggregateId) {
+        return UUID.nameUUIDFromBytes(
+                (commandId + ":" + purpose + ":" + aggregateId)
+                        .getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    private OrderView replayOrder(
+            ShopOrder order,
+            String fingerprint,
+            String legacyFingerprint
+    ) {
+        if (!OrderCommandFingerprint.matchesOrder(
+                order.requestFingerprint(), fingerprint, legacyFingerprint)) {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT);
         }
         return toCreationView(order);
@@ -642,7 +751,9 @@ public class OrderApplicationService implements OrderApi {
     }
 
     private void validateShippingAddress(ShippingAddressCommand address) {
-        if (address == null) return;
+        if (address == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송지를 입력해야 합니다.");
+        }
         if (isBlank(address.getRecipientName()) || isBlank(address.getPhoneNumber())
                 || isBlank(address.getPostalCode()) || isBlank(address.getAddressLine1())) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송지 필수 항목을 입력해야 합니다.");

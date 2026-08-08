@@ -50,6 +50,7 @@ class InventoryController {
     @GetMapping("/{productId}/stock")
     @Operation(
             summary = "상품 재고 조회",
+            description = "상품 ID로 현재 가용 재고와 판매 가능 상태를 조회합니다.",
             responses = {
                     @ApiResponse(
                             responseCode = "200",
@@ -68,7 +69,7 @@ class InventoryController {
     }
 
     @GetMapping("/stocks")
-    @Operation(summary = "여러 상품 재고 일괄 조회")
+    @Operation(summary = "여러 상품 재고 일괄 조회", description = "최대 100개 상품의 현재 재고를 한 번에 조회합니다.")
     List<StockResponse> getStocks(
             @RequestParam
             @NotEmpty
@@ -137,6 +138,7 @@ class InventoryController {
     @PostMapping("/{productId}/stock/adjustments")
     @Operation(
             summary = "상품 재고 조정",
+            description = "관리자가 멱등성 키와 조정 사유를 사용해 상품 재고를 증감합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")},
             responses = {
                     @ApiResponse(
@@ -184,7 +186,8 @@ class InventoryController {
     }
 
     @GetMapping("/{productId}/stock/movements")
-    @Operation(summary="상품 재고 변경 이력", security={@SecurityRequirement(name="cookieAuth")})
+    @Operation(summary = "상품 재고 변경 이력", description = "관리자가 상품의 재고 변경 원장을 최신순으로 조회합니다.",
+            security = {@SecurityRequirement(name = "cookieAuth")})
     PageResponse<StockMovementView> getMovements(@PathVariable UUID productId,
             @RequestParam(defaultValue="0") @Min(0) int page,
             @RequestParam(defaultValue="20") @Min(1) @Max(100) int size){

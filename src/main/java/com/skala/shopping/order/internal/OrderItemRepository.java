@@ -25,9 +25,23 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
     java.util.Optional<OrderItem> findByIdAndOrderIdForUpdate(
             @Param("itemId") UUID itemId, @Param("orderId") UUID orderId);
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-            select item
+            select new com.skala.shopping.order.internal.OrderItemTarget(
+                item.id, item.orderId, item.productId, item.variantId
+            )
+            from OrderItem item
+            join ShopOrder shopOrder on shopOrder.id = item.orderId
+            where item.id = :itemId and shopOrder.memberId = :memberId
+            """)
+    java.util.Optional<OrderItemTarget> findOwnedTarget(
+            @Param("itemId") UUID itemId,
+            @Param("memberId") UUID memberId
+    );
+
+    @Query("""
+            select new com.skala.shopping.order.internal.OrderItemTarget(
+                item.id, item.orderId, item.productId, item.variantId
+            )
             from OrderItem item
             join ShopOrder shopOrder on shopOrder.id = item.orderId
             where shopOrder.memberId = :memberId
@@ -37,7 +51,7 @@ interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
               and item.canceledQuantity < item.orderedQuantity
             order by shopOrder.orderedAt desc, shopOrder.id desc, item.id asc
             """)
-    List<OrderItem> findCancelableItems(
+    List<OrderItemTarget> findCancelableTargets(
             @Param("memberId") UUID memberId,
             @Param("productId") UUID productId
     );

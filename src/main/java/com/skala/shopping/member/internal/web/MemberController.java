@@ -52,7 +52,7 @@ class MemberController {
     }
 
     @GetMapping("/list")
-    @Operation(summary = "고객 목록 조회")
+    @Operation(summary = "고객 목록 조회", description = "관리자가 전체 고객의 프로필과 상태를 페이지 조회합니다.")
     PageResponse<MemberProfileResponse> getMembers(
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
@@ -61,7 +61,7 @@ class MemberController {
     }
 
     @PutMapping("/me")
-    @Operation(summary = "내 이름 변경")
+    @Operation(summary = "내 이름 변경", description = "로그인한 고객의 표시 이름을 변경합니다.")
     MemberProfileResponse updateMe(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody UpdateMemberRequest request

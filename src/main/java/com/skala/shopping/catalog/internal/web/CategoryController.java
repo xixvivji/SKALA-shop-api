@@ -36,13 +36,13 @@ class CategoryController {
     }
 
     @GetMapping
-    @Operation(summary = "카테고리 목록 조회")
+    @Operation(summary = "카테고리 목록 조회", description = "상품 분류에 사용하는 전체 카테고리를 조회합니다.")
     List<CategoryView> list() {
         return service.getCategories();
     }
 
     @PostMapping
-    @Operation(summary = "카테고리 등록", security = @SecurityRequirement(name = "cookieAuth"))
+    @Operation(summary = "카테고리 등록", description = "관리자가 새로운 상품 카테고리를 등록합니다.", security = @SecurityRequirement(name = "cookieAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "등록된 카테고리"),
             @ApiResponse(responseCode = "400", description = "입력값 오류",
@@ -59,7 +59,7 @@ class CategoryController {
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "카테고리 수정", security = @SecurityRequirement(name = "cookieAuth"))
+    @Operation(summary = "카테고리 수정", description = "관리자가 기존 카테고리 정보를 수정합니다.", security = @SecurityRequirement(name = "cookieAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "수정된 카테고리"),
             @ApiResponse(responseCode = "400", description = "카테고리 ID 또는 입력값 오류",
@@ -81,7 +81,7 @@ class CategoryController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "카테고리 삭제", security = @SecurityRequirement(name = "cookieAuth"))
+    @Operation(summary = "카테고리 삭제", description = "관리자가 상품에 사용되지 않는 카테고리를 삭제합니다.", security = @SecurityRequirement(name = "cookieAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "카테고리 삭제 완료"),
             @ApiResponse(responseCode = "400", description = "카테고리 ID 오류",

@@ -44,7 +44,7 @@ class ProductController {
     }
 
     @GetMapping({"", "/list"})
-    @Operation(summary = "상품 목록 조회")
+    @Operation(summary = "상품 목록 조회", description = "검색·카테고리·가격·정렬 조건으로 상품 목록을 페이지 조회합니다.")
     PageResponse<ProductResponse> getProducts(
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size,
@@ -58,19 +58,19 @@ class ProductController {
     }
 
     @GetMapping("/{productId}")
-    @Operation(summary = "상품 단건 조회")
+    @Operation(summary = "상품 단건 조회", description = "상품 ID로 판매 정보와 카테고리를 상세 조회합니다.")
     ProductResponse getProduct(@PathVariable UUID productId) {
         return ProductResponse.from(service.getProduct(productId));
     }
 
     @GetMapping("/{productId}/variants")
-    @Operation(summary = "상품 옵션 목록 조회")
+    @Operation(summary = "상품 옵션 목록 조회", description = "상품에 등록된 색상·사이즈별 SKU 옵션을 조회합니다.")
     List<ProductVariantResponse> getVariants(@PathVariable UUID productId) {
         return service.getVariants(productId).stream().map(ProductVariantResponse::new).toList();
     }
 
     @PostMapping("/{productId}/variants")
-    @Operation(summary = "상품 옵션 등록", security = {@SecurityRequirement(name = "cookieAuth")})
+    @Operation(summary = "상품 옵션 등록", description = "관리자가 상품에 새로운 SKU 옵션을 등록합니다.", security = {@SecurityRequirement(name = "cookieAuth")})
     ResponseEntity<ProductVariantResponse> createVariant(
             @PathVariable UUID productId,
             @Valid @RequestBody CreateProductVariantRequest request
@@ -83,7 +83,7 @@ class ProductController {
     }
 
     @DeleteMapping("/{productId}/variants/{variantId}")
-    @Operation(summary = "상품 옵션 삭제", security = {@SecurityRequirement(name = "cookieAuth")})
+    @Operation(summary = "상품 옵션 삭제", description = "관리자가 사용하지 않는 상품 SKU 옵션을 삭제합니다.", security = {@SecurityRequirement(name = "cookieAuth")})
     ResponseEntity<Void> deleteVariant(@PathVariable UUID productId, @PathVariable UUID variantId) {
         service.deleteVariant(productId, variantId);
         return ResponseEntity.noContent().build();
@@ -92,6 +92,7 @@ class ProductController {
     @PostMapping
     @Operation(
             summary = "상품 등록",
+            description = "관리자가 상품 기본 정보와 초기 판매 상태를 등록합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")},
             responses = {
                     @ApiResponse(
@@ -136,6 +137,7 @@ class ProductController {
     @PutMapping("/{productId}")
     @Operation(
             summary = "상품 수정",
+            description = "관리자가 기존 상품의 이름, 가격, 이미지와 판매 정보를 수정합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")},
             responses = {
                     @ApiResponse(
@@ -185,6 +187,7 @@ class ProductController {
     @DeleteMapping("/{productId}")
     @Operation(
             summary = "상품 삭제",
+            description = "관리자가 판매하지 않는 상품과 연결된 재고를 삭제합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")},
             responses = {
                     @ApiResponse(responseCode = "204", description = "상품 삭제 완료"),

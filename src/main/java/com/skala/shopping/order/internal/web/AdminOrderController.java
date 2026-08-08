@@ -49,7 +49,7 @@ class AdminOrderController {
     }
 
     @GetMapping
-    @Operation(summary = "전체 주문 조회")
+    @Operation(summary = "전체 주문 조회", description = "관리자가 모든 고객의 주문을 최신순으로 페이지 조회합니다.")
     @ApiResponse(responseCode = "400", description = "페이지 요청값 오류",
             content = @Content(schema = @Schema(implementation = ApiError.class)))
     PageResponse<OrderResponse> orders(
@@ -60,7 +60,7 @@ class AdminOrderController {
     }
 
     @PutMapping("/{orderId}/fulfillment")
-    @Operation(summary = "배송 상태 변경")
+    @Operation(summary = "배송 상태 변경", description = "관리자가 주문의 배송 상태와 운송장 정보를 변경합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "400", description = "주문 ID 또는 배송 상태 전이 오류",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),
@@ -84,7 +84,7 @@ class AdminOrderController {
     }
 
     @GetMapping("/{orderId}/history")
-    @Operation(summary = "배송 상태 변경 이력")
+    @Operation(summary = "배송 상태 변경 이력", description = "주문의 배송 상태 변경 기록을 시간순으로 조회합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "400", description = "주문 ID 오류",
                     content = @Content(schema = @Schema(implementation = ApiError.class))),

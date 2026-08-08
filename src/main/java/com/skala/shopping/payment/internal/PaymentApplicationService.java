@@ -11,6 +11,9 @@ import com.skala.shopping.payment.internal.domain.Payment;
 import com.skala.shopping.payment.internal.domain.PaymentRefund;
 import com.skala.shopping.payment.internal.domain.PaymentWebhookEvent;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.util.Locale;
@@ -65,13 +68,19 @@ class PaymentApplicationService implements PaymentApi {
     public PaymentView approve(UUID memberId, UUID paymentId, String cardNumber, UUID commandId) {
         requireIds(memberId, paymentId, commandId);
         Payment payment = lockedOwnedPayment(memberId, paymentId);
-        if (payment.wasApprovedBy(commandId)) return payment.toView();
-        String masked = mask(cardNumber);
-        payment.beginApproval(commandId, masked, clock.instant());
-        FakeGatewayResult result = gateway.approve(payment.id(), payment.toView().getRequestedAmount(), cardNumber);
+        String normalizedCard = normalizeCardNumber(cardNumber);
+        String approvalFingerprint = approvalFingerprint(normalizedCard);
+        if (payment.isApprovalReplay(commandId, approvalFingerprint)) {
+            return payment.approvalReplayView();
+        }
+        String masked = mask(normalizedCard);
+        payment.beginApproval(commandId, approvalFingerprint, masked, clock.instant());
+        FakeGatewayResult result = gateway.approve(
+                payment.id(), payment.toView().getRequestedAmount(), normalizedCard);
         if (!result.approved()) {
             payment.fail(result.failureCode(), result.failureMessage(), clock.instant());
             orderApi.failExternalPayment(memberId, payment.orderId(), payment.id());
+            payment.captureApprovalResult();
             meterRegistry.counter("shopping.payment.results", "result", "failed",
                     "code", result.failureCode()).increment();
             return payment.toView();
@@ -86,6 +95,7 @@ class PaymentApplicationService implements PaymentApi {
             orderApi.failExternalPayment(memberId, payment.orderId(), payment.id());
             meterRegistry.counter("shopping.payment.results", "result", "compensated").increment();
         }
+        payment.captureApprovalResult();
         return payment.toView();
     }
 
@@ -152,7 +162,7 @@ class PaymentApplicationService implements PaymentApi {
         Payment payment = repository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "결제를 찾을 수 없습니다."));
         PaymentView view = payment.toView();
-        if ("PAID".equals(view.getStatus()) || "PARTIALLY_REFUNDED".equals(view.getStatus())) {
+        if ("PAID".equals(view.getStatus())) {
             orderApi.confirmExternalPayment(payment.memberId(), payment.orderId(), paymentId);
         }
         meterRegistry.counter("shopping.payment.reconciliations", "status", view.getStatus()).increment();
@@ -201,9 +211,28 @@ class PaymentApplicationService implements PaymentApi {
     }
 
     private String mask(String cardNumber) {
+        return cardNumber.substring(0, 4) + "-****-****-" + cardNumber.substring(12);
+    }
+
+    private String normalizeCardNumber(String cardNumber) {
         String normalized = cardNumber == null ? "" : cardNumber.replaceAll("[^0-9]", "");
-        if (normalized.length() != 16) throw new BusinessException(ErrorCode.INVALID_PARAMETER, "16자리 테스트 카드 번호를 입력해야 합니다.");
-        return normalized.substring(0, 4) + "-****-****-" + normalized.substring(12);
+        if (normalized.length() != 16) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "16자리 테스트 카드 번호를 입력해야 합니다."
+            );
+        }
+        return normalized;
+    }
+
+    private String approvalFingerprint(String normalizedCard) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(normalizedCard.getBytes(StandardCharsets.UTF_8));
+            return "v1:" + java.util.HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256을 사용할 수 없습니다.", exception);
+        }
     }
 
     private void requireIds(UUID... ids) {

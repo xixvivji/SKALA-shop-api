@@ -47,13 +47,13 @@ class WishlistController {
     }
 
     @GetMapping
-    @Operation(summary = "위시리스트 조회")
+    @Operation(summary = "위시리스트 조회", description = "로그인한 고객이 관심 상품으로 저장한 목록을 조회합니다.")
     List<WishlistItemView> get(@AuthenticationPrincipal Jwt jwt) {
         return wishlistApi.getWishlist(memberId(jwt));
     }
 
     @PostMapping
-    @Operation(summary = "위시리스트에 상품 추가")
+    @Operation(summary = "위시리스트에 상품 추가", description = "선택한 상품을 내 위시리스트에 추가합니다.")
     WishlistItemView add(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody WishlistItemRequest request
@@ -63,7 +63,7 @@ class WishlistController {
 
     @DeleteMapping("/{productId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "위시리스트에서 상품 삭제")
+    @Operation(summary = "위시리스트에서 상품 삭제", description = "선택한 상품을 내 위시리스트에서 삭제합니다.")
     void remove(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID productId

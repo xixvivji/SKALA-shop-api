@@ -12,6 +12,8 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -21,7 +23,7 @@ public class ReturnRequest {
     @Column(name="command_id", nullable=false, unique=true) private UUID commandId;
     @Column(name="member_id", nullable=false) private UUID memberId;
     @Column(name="order_id", nullable=false) private UUID orderId;
-    @Column(name="order_item_id", nullable=false, unique=true) private UUID orderItemId;
+    @Column(name="order_item_id", nullable=false) private UUID orderItemId;
     @Column(name="product_id", nullable=false) private UUID productId;
     @Column(name="product_name", nullable=false, length=200) private String productName;
     @Column(nullable=false) private int quantity;
@@ -53,7 +55,8 @@ public class ReturnRequest {
         this.evidenceImageUrl=evidenceImageUrl; status=ReturnStatus.REQUESTED;
         this.grossRefundAmount=grossRefundAmount; this.shippingFee=shippingFee;
         this.refundAmount=refundAmount; this.pointRefundAmount=pointRefundAmount;
-        this.paymentRefundAmount=paymentRefundAmount; requestedAt=now; updatedAt=now;
+        this.paymentRefundAmount=paymentRefundAmount;
+        requestedAt=databaseTimestamp(now); updatedAt=requestedAt;
     }
     public UUID id(){return id;} public UUID memberId(){return memberId;}
     public UUID orderId(){return orderId;} public UUID orderItemId(){return orderItemId;}
@@ -62,15 +65,17 @@ public class ReturnRequest {
     public BigDecimal paymentRefundAmount(){return paymentRefundAmount;}
     public ReturnStatus status(){return status;}
     public boolean matches(UUID expectedMember, UUID expectedOrder, UUID expectedItem,
-                           int expectedQuantity, String expectedReason) {
+                           int expectedQuantity, String expectedReason, String expectedEvidenceUrl) {
         return memberId.equals(expectedMember) && orderId.equals(expectedOrder)
                 && orderItemId.equals(expectedItem) && quantity==expectedQuantity
-                && reason.equals(expectedReason);
+                && reason.equals(expectedReason)
+                && Objects.equals(evidenceImageUrl, expectedEvidenceUrl);
     }
     public void transition(ReturnStatus next, UUID adminId, String note, Instant now) {
         if (!status.canTransitionTo(next))
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "허용되지 않는 반품 상태 변경입니다.");
-        status=next; processedBy=adminId; adminNote=normalize(note); updatedAt=now;
+        status=next; processedBy=adminId; adminNote=normalize(note);
+        updatedAt=databaseTimestamp(now);
     }
     public void complete(BigDecimal balance, UUID adminId, String note, Instant now) {
         transition(ReturnStatus.REFUNDED, adminId, note, now); balanceAfter=balance;
@@ -79,5 +84,15 @@ public class ReturnRequest {
             quantity,reason,evidenceImageUrl,status.name(),grossRefundAmount,shippingFee,
             refundAmount,pointRefundAmount,paymentRefundAmount,balanceAfter,adminNote,
             requestedAt,updatedAt);}
+    public ReturnView toView(ReturnStatus resultStatus, BigDecimal resultBalanceAfter,
+                             String resultAdminNote, Instant resultUpdatedAt) {
+        return new ReturnView(id,orderId,orderItemId,productId,productName,
+                quantity,reason,evidenceImageUrl,resultStatus.name(),grossRefundAmount,shippingFee,
+                refundAmount,pointRefundAmount,paymentRefundAmount,resultBalanceAfter,resultAdminNote,
+                requestedAt,resultUpdatedAt);
+    }
     private String normalize(String value){return value==null||value.isBlank()?null:value.trim();}
+    private static Instant databaseTimestamp(Instant timestamp) {
+        return timestamp.truncatedTo(ChronoUnit.MICROS);
+    }
 }

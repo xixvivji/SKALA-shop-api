@@ -57,4 +57,33 @@ class ShopOrderTests {
 
         assertEquals(ErrorCode.INVALID_PARAMETER, exception.errorCode());
     }
+
+    @Test
+    void blocksFulfillmentAndTrackingAfterFullCancellation() {
+        ShopOrder order = new ShopOrder(
+                UUID.randomUUID(), UUID.randomUUID(), "fingerprint",
+                "SKALA-20260805-ABCDEF123456", UUID.randomUUID(),
+                new BigDecimal("10000.00"), new BigDecimal("990000.00"), Instant.now());
+        order.applyCancellation(new BigDecimal("10000.00"), true, Instant.now());
+
+        assertThrows(BusinessException.class,
+                () -> order.transitionFulfillment(FulfillmentStatus.PREPARING, Instant.now()));
+        assertThrows(BusinessException.class,
+                () -> order.applyTracking("택배", "TRACK-1", null, null, Instant.now()));
+    }
+
+    @Test
+    void blocksFulfillmentWhileExternalPaymentIsPending() {
+        ShopOrder order = new ShopOrder(
+                UUID.randomUUID(), UUID.randomUUID(), "fingerprint",
+                "SKALA-20260805-ABCDEF654321", UUID.randomUUID(),
+                new BigDecimal("10000.00"), new BigDecimal("10000.00"),
+                BigDecimal.ZERO, null, BigDecimal.ZERO, new BigDecimal("10000.00"),
+                new BigDecimal("1000000.00"), Instant.now());
+
+        assertThrows(BusinessException.class,
+                () -> order.transitionFulfillment(FulfillmentStatus.PAID, Instant.now()));
+        assertThrows(BusinessException.class,
+                () -> order.applyTracking("택배", "TRACK-2", null, null, Instant.now()));
+    }
 }
