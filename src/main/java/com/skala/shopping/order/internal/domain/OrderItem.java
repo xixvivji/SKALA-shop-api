@@ -96,6 +96,8 @@ public class OrderItem {
         return orderId;
     }
 
+    public UUID id() { return id; }
+
     public UUID productId() {
         return productId;
     }
@@ -112,16 +114,33 @@ public class OrderItem {
         return orderedQuantity - canceledQuantity;
     }
 
+    public BigDecimal refundableAmount(int quantity) {
+        if (quantity <= 0 || quantity > availableQuantity()) {
+            throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
+        }
+        int quantityAfter = canceledQuantity + quantity;
+        return quantityAfter == orderedQuantity
+                ? paidAmount.subtract(refundedAmount)
+                : paidAmount.multiply(BigDecimal.valueOf(quantity))
+                        .divide(BigDecimal.valueOf(orderedQuantity), 2, RoundingMode.DOWN);
+    }
+
+    public void returnQuantity(int quantity, BigDecimal actualRefund) {
+        BigDecimal maximum = refundableAmount(quantity);
+        if (actualRefund == null || actualRefund.signum() < 0
+                || actualRefund.compareTo(maximum) > 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "반품 환불액이 허용 범위를 벗어났습니다.");
+        }
+        canceledQuantity += quantity;
+        refundedAmount = refundedAmount.add(actualRefund);
+    }
+
     public BigDecimal cancel(int quantity) {
         if (quantity <= 0 || quantity > availableQuantity()) {
             throw new BusinessException(ErrorCode.INSUFFICIENT_QUANTITY);
         }
-        int quantityAfterCancellation = canceledQuantity + quantity;
-        BigDecimal refund = quantityAfterCancellation == orderedQuantity
-                ? paidAmount.subtract(refundedAmount)
-                : paidAmount.multiply(BigDecimal.valueOf(quantity))
-                        .divide(BigDecimal.valueOf(orderedQuantity), 2, RoundingMode.DOWN);
-        canceledQuantity = quantityAfterCancellation;
+        BigDecimal refund = refundableAmount(quantity);
+        canceledQuantity += quantity;
         refundedAmount = refundedAmount.add(refund);
         return refund;
     }

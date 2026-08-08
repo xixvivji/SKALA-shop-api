@@ -36,6 +36,12 @@ public interface OrderApi {
 
     OrderView failExternalPayment(UUID memberId, UUID orderId, UUID paymentId);
 
+    ReturnableOrderItemView getReturnableItem(UUID memberId, UUID orderId, UUID orderItemId);
+
+    ReturnSettlementView settleReturn(UUID memberId, UUID orderId, UUID orderItemId,
+                                      int quantity, BigDecimal refundAmount,
+                                      BigDecimal pointRefundAmount, UUID commandId);
+
     OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
                          ShippingAddressCommand shippingAddress, UUID commandId);
 

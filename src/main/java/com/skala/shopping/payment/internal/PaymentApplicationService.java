@@ -140,6 +140,14 @@ class PaymentApplicationService implements PaymentApi {
 
     @Override
     @Transactional
+    public PaymentView refundByOrder(UUID memberId, UUID orderId, BigDecimal amount, UUID commandId) {
+        Payment payment = repository.findByMemberIdAndOrderId(memberId, orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "결제를 찾을 수 없습니다."));
+        return refund(payment.id(), amount, commandId);
+    }
+
+    @Override
+    @Transactional
     public PaymentView reconcile(UUID paymentId) {
         Payment payment = repository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "결제를 찾을 수 없습니다."));

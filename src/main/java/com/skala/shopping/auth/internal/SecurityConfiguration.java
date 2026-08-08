@@ -126,6 +126,7 @@ class SecurityConfiguration {
                         .requestMatchers("/api/categories/**").hasRole("ADMIN")
                         .requestMatchers("/api/orders/**").hasRole("CUSTOMER")
                         .requestMatchers("/api/payments/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/returns/**").hasRole("CUSTOMER")
                         .requestMatchers("/api/cart/**", "/api/wallet/**").hasRole("CUSTOMER")
                         .requestMatchers(HttpMethod.GET, "/api/stock-alerts/**").hasRole("CUSTOMER")
                         .requestMatchers(HttpMethod.POST, "/api/stock-alerts/**").hasRole("CUSTOMER")

@@ -40,6 +40,7 @@ const state = {
   orderTotalPages: 0,
   ordersLoading: false,
   ordersError: null,
+  returns: [],
   wallet: null,
   transactions: [],
   transactionTotal: 0,
@@ -59,6 +60,7 @@ const state = {
   adminOrderTotalPages: 0,
   adminOrdersLoading: false,
   adminOrdersError: null,
+  adminReturns: [],
 };
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
@@ -99,6 +101,9 @@ const elements = {
   reviewForm: $("#review-form"),
   orderDialog: $("#order-dialog"),
   cancelDialog: $("#cancel-dialog"),
+  returnDialog: $("#return-dialog"),
+  returnList: $("#return-list"),
+  adminReturnList: $("#admin-return-list"),
   productDialog: $("#product-dialog"),
   stockDialog: $("#stock-dialog"),
   ordersLoginGate: $("#orders-login-gate"),
@@ -795,10 +800,11 @@ function renderOrders() {
               <span class="order-item-actions">
                 <strong>${money(item.paidAmount ?? (Number(item.unitPrice) * Number(item.orderedQuantity)))} P</strong>
                 ${
-                  available > 0
+                  available > 0 && ["PAID", "PREPARING"].includes(order.fulfillmentStatus)
                     ? `<button class="mini-button" type="button" data-product-cancel="${escapeHtml(item.productId)}" data-product-name="${escapeHtml(item.productName)}" data-max-quantity="${available}">부분 취소</button>`
                     : ""
                 }
+                ${available > 0 && order.fulfillmentStatus === "DELIVERED" ? `<button class="mini-button" type="button" data-return-order="${escapeHtml(order.id)}" data-return-item="${escapeHtml(item.id)}" data-return-name="${escapeHtml(item.productName)}" data-return-max="${available}">반품 신청</button>` : ""}
               </span>
             </div>
           `;
@@ -827,6 +833,29 @@ function renderOrders() {
       `;
     })
     .join("");
+}
+
+function returnStatusLabel(status) {
+  return { REQUESTED: "접수", COLLECTING: "회수 중", INSPECTING: "검수 중",
+    APPROVED: "승인", REJECTED: "거절", REFUNDED: "환불 완료" }[status] || status;
+}
+
+function renderReturns() {
+  if (elements.returnList) {
+    elements.returnList.innerHTML = state.returns.length ? state.returns.map((item) => `
+      <article class="admin-order-card"><header><div><small>${dateTime(item.requestedAt)}</small><strong>${escapeHtml(item.productName)}</strong></div><span class="status-chip">${escapeHtml(returnStatusLabel(item.status))}</span></header>
+      <p>${escapeHtml(item.reason)} · ${item.quantity}개</p><small>예상 환불 ${points(item.refundAmount)} · 배송비 ${points(item.shippingFee)}</small>
+      ${item.adminNote ? `<small>${escapeHtml(item.adminNote)}</small>` : ""}</article>`).join("")
+      : '<div class="empty-inline">반품 신청 내역이 없습니다.</div>';
+  }
+  if (!elements.adminReturnList) return;
+  const next = { REQUESTED: "COLLECTING", COLLECTING: "INSPECTING", INSPECTING: "APPROVED", APPROVED: "REFUNDED" };
+  elements.adminReturnList.innerHTML = state.adminReturns.length ? state.adminReturns.map((item) => `
+    <article class="admin-order-card"><header><div><small>${escapeHtml(item.orderId)}</small><strong>${escapeHtml(item.productName)} × ${item.quantity}</strong></div><span class="status-chip">${escapeHtml(returnStatusLabel(item.status))}</span></header>
+    <p>${escapeHtml(item.reason)} · 환불 ${points(item.refundAmount)}</p><footer>
+    ${next[item.status] ? `<button class="button button-dark" type="button" data-return-transition="${escapeHtml(item.id)}" data-return-status="${next[item.status]}">${escapeHtml(returnStatusLabel(next[item.status]))} 처리</button>` : ""}
+    ${item.status === "INSPECTING" ? `<button class="mini-button" type="button" data-return-transition="${escapeHtml(item.id)}" data-return-status="REJECTED">거절</button>` : ""}</footer></article>`).join("")
+    : '<div class="empty-inline">접수된 반품이 없습니다.</div>';
 }
 
 function renderMembers() {
@@ -1161,7 +1190,10 @@ function switchView(view, updateHash = true) {
     }
   });
 
-  if (view === "orders" && isCustomer()) loadOrders();
+  if (view === "orders" && isCustomer()) {
+    loadOrders();
+    loadReturns();
+  }
   if (view === "account" && isCustomer()) {
     loadCustomer();
     loadAddresses();
@@ -1170,6 +1202,7 @@ function switchView(view, updateHash = true) {
   if (view === "admin" && isAdmin()) {
     loadMembers();
     loadAdminOrders();
+    loadAdminReturns();
   }
 
   if (updateHash) {
@@ -1526,6 +1559,20 @@ async function loadAdminOrders({ append = false } = {}) {
       loadAdminOrders();
     }
   }
+}
+
+async function loadReturns() {
+  if (!isCustomer()) return;
+  try { state.returns = (await shopApi.returns()).content || []; }
+  catch (error) { showApiError(error, "반품 내역을 불러오지 못했습니다."); }
+  finally { renderReturns(); }
+}
+
+async function loadAdminReturns() {
+  if (!isAdmin()) return;
+  try { state.adminReturns = (await shopApi.adminReturns()).content || []; }
+  catch (error) { showApiError(error, "관리자 반품 내역을 불러오지 못했습니다."); }
+  finally { renderReturns(); }
 }
 
 async function restoreSession() {
@@ -2466,6 +2513,19 @@ function bindAccountActions() {
   });
 
   elements.orderList.addEventListener("click", (event) => {
+    const returnButton = event.target.closest("[data-return-order]");
+    if (returnButton) {
+      const form = $("#return-form");
+      form.reset();
+      form.elements.orderId.value = returnButton.dataset.returnOrder;
+      form.elements.orderItemId.value = returnButton.dataset.returnItem;
+      form.elements.quantity.value = 1;
+      form.elements.quantity.max = returnButton.dataset.returnMax;
+      $("#return-product-name").textContent = `${returnButton.dataset.returnName} 반품`;
+      elements.returnDialog.dataset.commandKey = createCommandId();
+      openDialog(elements.returnDialog);
+      return;
+    }
     const button = event.target.closest("[data-product-cancel]");
     if (!button) return;
     openCancel({
@@ -2473,6 +2533,25 @@ function bindAccountActions() {
       productName: button.dataset.productName,
       maxQuantity: button.dataset.maxQuantity,
     });
+  });
+
+  $("#return-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = {
+      orderId: form.elements.orderId.value,
+      orderItemId: form.elements.orderItemId.value,
+      quantity: Number(form.elements.quantity.value),
+      reason: form.elements.reason.value,
+      evidenceImageUrl: form.elements.evidenceImageUrl.value.trim() || null,
+    };
+    try {
+      await withLoading("반품 요청을 접수하고 있습니다", () =>
+        shopApi.requestReturn(payload, elements.returnDialog.dataset.commandKey));
+      closeDialog(elements.returnDialog);
+      await loadReturns();
+      showToast("반품 신청을 접수했습니다", "관리자 회수·검수 후 환불됩니다.");
+    } catch (error) { showApiError(error, "반품 신청에 실패했습니다."); }
   });
 
   elements.orderLoadMore.addEventListener("click", () =>
@@ -2511,6 +2590,7 @@ function bindAccountActions() {
     loadTransactions({ append: true }),
   );
   $("#refresh-admin-orders-button").addEventListener("click", () => loadAdminOrders());
+  $("#refresh-admin-returns-button").addEventListener("click", () => loadAdminReturns());
   elements.adminOrderLoadMore.addEventListener("click", () =>
     loadAdminOrders({ append: true }),
   );
@@ -2556,6 +2636,18 @@ function bindAccountActions() {
         panel.textContent = error?.message || "변경 이력을 불러오지 못했습니다.";
       }
     }
+  });
+  elements.adminReturnList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-return-transition]");
+    if (!button) return;
+    const status = button.dataset.returnStatus;
+    if (!window.confirm(`반품 상태를 '${returnStatusLabel(status)}'(으)로 변경할까요?`)) return;
+    try {
+      await withLoading("반품 상태와 환불을 처리하고 있습니다", () =>
+        shopApi.updateReturnStatus(button.dataset.returnTransition, status, "관리자 처리"));
+      await Promise.all([loadAdminReturns(), loadAdminOrders()]);
+      showToast("반품 상태를 변경했습니다", returnStatusLabel(status));
+    } catch (error) { showApiError(error, "반품 상태를 변경하지 못했습니다."); }
   });
 }
 

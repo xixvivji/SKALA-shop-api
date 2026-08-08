@@ -12,6 +12,7 @@ public interface PaymentApi {
     PageResponse<PaymentView> getMine(UUID memberId, int page, int size);
     PageResponse<PaymentView> getAll(int page, int size);
     PaymentView refund(UUID paymentId, BigDecimal amount, UUID commandId);
+    PaymentView refundByOrder(UUID memberId, UUID orderId, BigDecimal amount, UUID commandId);
     PaymentView reconcile(UUID paymentId);
     PaymentView processWebhook(UUID eventId, UUID paymentId, String eventType);
 }

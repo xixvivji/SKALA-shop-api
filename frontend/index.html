@@ -162,6 +162,7 @@
         <div class="orders-layout is-hidden" id="orders-content">
           <div class="orders-main">
             <div class="order-list" id="order-list"></div>
+            <section class="admin-table-section"><div class="section-heading compact-heading"><div><p class="eyebrow">Returns</p><h2>내 반품</h2></div></div><div class="admin-order-list" id="return-list"></div></section>
             <div class="list-pagination">
               <button class="button button-outline is-hidden" type="button" id="order-load-more" aria-controls="order-list">
                 주문 더보기
@@ -350,6 +351,10 @@
             <button class="button button-outline is-hidden" type="button" id="admin-order-load-more" aria-controls="admin-order-list">주문 더보기</button>
           </div>
         </section>
+        <section class="admin-table-section" aria-labelledby="admin-returns-title">
+          <div class="section-heading compact-heading"><div><p class="eyebrow">Return desk</p><h2 id="admin-returns-title">반품·환불 관리</h2></div><button class="text-button" type="button" id="refresh-admin-returns-button">새로고침 ↻</button></div>
+          <div class="admin-order-list" id="admin-return-list"></div>
+        </section>
       </section>
     </main>
 
@@ -480,6 +485,21 @@
           <input type="hidden" name="productId" />
           <label><span>취소 수량</span><input name="quantity" type="number" min="1" value="1" required /></label>
           <button class="button button-dark button-block" type="submit">취소하고 포인트 환급받기</button>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog class="modal compact-modal" id="return-dialog" aria-labelledby="return-product-name">
+      <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
+      <div class="compact-modal-body">
+        <p class="eyebrow">Delivered return</p><h2 id="return-product-name">반품 신청</h2>
+        <p class="modal-note">단순 변심·사이즈 불일치는 반품 배송비 3,000원이 차감됩니다.</p>
+        <form id="return-form" class="stack-form">
+          <input type="hidden" name="orderId" /><input type="hidden" name="orderItemId" />
+          <label><span>반품 수량</span><input name="quantity" type="number" min="1" required /></label>
+          <label><span>반품 사유</span><select name="reason" required><option value="CHANGE_OF_MIND">단순 변심</option><option value="SIZE_MISMATCH">사이즈 불일치</option><option value="DAMAGED">배송 중 파손</option><option value="DEFECTIVE">상품 불량</option><option value="WRONG_ITEM">오배송</option><option value="OTHER">기타</option></select></label>
+          <label><span>증빙 이미지 HTTPS URL (선택)</span><input name="evidenceImageUrl" type="url" maxlength="1000" placeholder="https://..." /></label>
+          <button class="button button-dark button-block" type="submit">반품 신청하기</button>
         </form>
       </div>
     </dialog>
