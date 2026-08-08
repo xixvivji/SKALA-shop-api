@@ -4,6 +4,7 @@ import com.skala.shopping.common.BusinessException;
 import com.skala.shopping.common.ApiError;
 import com.skala.shopping.common.ErrorCode;
 import com.skala.shopping.common.PageResponse;
+import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.internal.web.dto.request.CancelOrderRequest;
 import com.skala.shopping.order.internal.web.dto.request.CreateOrderRequest;
@@ -144,8 +145,9 @@ class OrderController {
 
     @PostMapping("/cancellations")
     @Operation(
-            summary = "상품 부분 취소",
-            description = "상품 ID와 수량을 기준으로 취소하며, 같은 상품의 취소 가능 수량을 최신 주문부터 차감합니다.",
+            summary = "주문 항목 부분 취소",
+            description = "주문 조회 응답의 orderItemId와 수량을 기준으로 정확한 SKU를 취소합니다. "
+                    + "productId 입력은 이전 단순상품 API 호환용입니다.",
             responses = {
                     @ApiResponse(
                             responseCode = "200",
@@ -173,12 +175,12 @@ class OrderController {
             @RequestHeader(name = "X-Idempotency-Key") UUID commandId,
             @Valid @RequestBody CancelOrderRequest request
     ) {
-        return CancellationResponse.from(orderApi.cancelProduct(
-                memberId(jwt),
-                request.getProductId(),
-                request.getQuantity(),
-                commandId
-        ));
+        CancellationView cancellation = request.getOrderItemId() != null
+                ? orderApi.cancelOrderItem(
+                        memberId(jwt), request.getOrderItemId(), request.getQuantity(), commandId)
+                : orderApi.cancelProduct(
+                        memberId(jwt), request.getProductId(), request.getQuantity(), commandId);
+        return CancellationResponse.from(cancellation);
     }
 
     private UUID memberId(Jwt jwt) {

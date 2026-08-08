@@ -12,6 +12,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -21,7 +22,7 @@ public class ReturnRequest {
     @Column(name="command_id", nullable=false, unique=true) private UUID commandId;
     @Column(name="member_id", nullable=false) private UUID memberId;
     @Column(name="order_id", nullable=false) private UUID orderId;
-    @Column(name="order_item_id", nullable=false, unique=true) private UUID orderItemId;
+    @Column(name="order_item_id", nullable=false) private UUID orderItemId;
     @Column(name="product_id", nullable=false) private UUID productId;
     @Column(name="product_name", nullable=false, length=200) private String productName;
     @Column(nullable=false) private int quantity;
@@ -62,10 +63,11 @@ public class ReturnRequest {
     public BigDecimal paymentRefundAmount(){return paymentRefundAmount;}
     public ReturnStatus status(){return status;}
     public boolean matches(UUID expectedMember, UUID expectedOrder, UUID expectedItem,
-                           int expectedQuantity, String expectedReason) {
+                           int expectedQuantity, String expectedReason, String expectedEvidenceUrl) {
         return memberId.equals(expectedMember) && orderId.equals(expectedOrder)
                 && orderItemId.equals(expectedItem) && quantity==expectedQuantity
-                && reason.equals(expectedReason);
+                && reason.equals(expectedReason)
+                && Objects.equals(evidenceImageUrl, expectedEvidenceUrl);
     }
     public void transition(ReturnStatus next, UUID adminId, String note, Instant now) {
         if (!status.canTransitionTo(next))
@@ -79,5 +81,12 @@ public class ReturnRequest {
             quantity,reason,evidenceImageUrl,status.name(),grossRefundAmount,shippingFee,
             refundAmount,pointRefundAmount,paymentRefundAmount,balanceAfter,adminNote,
             requestedAt,updatedAt);}
+    public ReturnView toView(ReturnStatus resultStatus, BigDecimal resultBalanceAfter,
+                             String resultAdminNote, Instant resultUpdatedAt) {
+        return new ReturnView(id,orderId,orderItemId,productId,productName,
+                quantity,reason,evidenceImageUrl,resultStatus.name(),grossRefundAmount,shippingFee,
+                refundAmount,pointRefundAmount,paymentRefundAmount,resultBalanceAfter,resultAdminNote,
+                requestedAt,resultUpdatedAt);
+    }
     private String normalize(String value){return value==null||value.isBlank()?null:value.trim();}
 }

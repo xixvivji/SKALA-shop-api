@@ -60,6 +60,12 @@ public interface OrderApi {
      */
     CancellationView cancelProduct(UUID memberId, UUID productId, int quantity, UUID commandId);
 
+    /**
+     * Cancels a quantity from one exact order line. New clients should use this operation so that
+     * another SKU of the same product can never be selected accidentally.
+     */
+    CancellationView cancelOrderItem(UUID memberId, UUID orderItemId, int quantity, UUID commandId);
+
     OrderView getOrder(UUID memberId, UUID orderId);
 
     PageResponse<OrderView> getOrders(UUID memberId, int page, int size);

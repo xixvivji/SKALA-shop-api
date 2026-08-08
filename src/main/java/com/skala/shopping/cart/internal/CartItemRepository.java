@@ -12,4 +12,5 @@ interface CartItemRepository extends JpaRepository<CartItem, UUID> {
     long countByMemberId(UUID memberId);
     void deleteAllByMemberId(UUID memberId);
     void deleteAllByProductId(UUID productId);
+    void deleteAllByVariantId(UUID variantId);
 }

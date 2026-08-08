@@ -175,9 +175,7 @@ public class ShopOrder {
         return orderedAt;
     }
 
-    public boolean hasFingerprint(String fingerprint) {
-        return requestFingerprint.equals(fingerprint);
-    }
+    public String requestFingerprint() { return requestFingerprint; }
 
     public FulfillmentStatus fulfillmentStatus() { return fulfillmentStatus; }
 
@@ -203,6 +201,8 @@ public class ShopOrder {
 
     public BigDecimal paymentAmount() { return paymentAmount; }
 
+    public BigDecimal canceledAmount() { return canceledAmount; }
+
     public boolean isPaymentPending() { return status == OrderStatus.PAYMENT_PENDING; }
 
     public void confirmPayment(Instant now) {
@@ -226,6 +226,7 @@ public class ShopOrder {
     }
 
     public void transitionFulfillment(FulfillmentStatus next, Instant now) {
+        requireActiveFulfillment();
         if (!fulfillmentStatus.canTransitionTo(next)) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "허용되지 않는 배송 상태 변경입니다.");
         }
@@ -240,6 +241,7 @@ public class ShopOrder {
             Instant estimatedDeliveryAt,
             Instant now
     ) {
+        requireActiveFulfillment();
         if (carrier != null) {
             this.trackingCarrier = normalizeTrackingField(carrier);
         }
@@ -255,12 +257,24 @@ public class ShopOrder {
         this.updatedAt = databaseTimestamp(now);
     }
 
-    public boolean isCancelable() { return fulfillmentStatus.isCancelable(); }
+    public boolean isCancelable() {
+        return (status == OrderStatus.PAID || status == OrderStatus.PARTIALLY_CANCELED)
+                && fulfillmentStatus.isCancelable();
+    }
 
     public void applyCancellation(BigDecimal amount, boolean fullyCanceled, Instant now) {
         canceledAmount = canceledAmount.add(amount);
         status = fullyCanceled ? OrderStatus.CANCELED : OrderStatus.PARTIALLY_CANCELED;
         updatedAt = databaseTimestamp(now);
+    }
+
+    private void requireActiveFulfillment() {
+        if (status != OrderStatus.PAID && status != OrderStatus.PARTIALLY_CANCELED) {
+            throw new BusinessException(
+                    ErrorCode.INVALID_PARAMETER,
+                    "결제가 완료된 활성 주문만 배송 상태나 운송장 정보를 변경할 수 있습니다."
+            );
+        }
     }
 
     public OrderView toView(List<OrderItemView> items) {
