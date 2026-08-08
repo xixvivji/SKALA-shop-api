@@ -46,7 +46,7 @@ test.describe("@live 실제 배포 환경", () => {
     await page.locator("#address-form [name=addressLine2]").fill("운영 점검용");
     await page.getByRole("button", { name: "배송지 저장", exact: true }).click();
 
-    await page.getByRole("button", { name: "Shop" }).first().click();
+    await page.getByRole("button", { name: "쇼핑" }).first().click();
     await page.getByRole("button", { name: "장바구니 열기" }).click();
     await page.getByRole("button", { name: "주문하기" }).click();
     await page.getByRole("button", { name: "전체 주문하기" }).click();
@@ -58,7 +58,7 @@ test.describe("@live 실제 배포 환경", () => {
     await page.locator("#cancel-form button[type=submit]").click();
     await expect(page.locator("#order-list")).toContainText("취소 완료");
 
-    await page.getByRole("button", { name: "My" }).first().click();
+    await page.getByRole("button", { name: "마이" }).first().click();
     await expect(page.locator("#transaction-list")).toContainText("취소 환급");
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#deactivate-button").click();
