@@ -25,6 +25,7 @@ class OutboxEvent {
         retryCount=0; nextAttemptAt=now; occurredAt=now;
     }
     UUID id(){return id;} String eventType(){return eventType;} String payload(){return payload;}
+    UUID aggregateId(){return aggregateId;}
     void published(Instant now){status=OutboxStatus.PUBLISHED; publishedAt=now; lastError=null;}
     void failed(String message, Instant now){retryCount++; lastError=message == null ? "unknown" : message.substring(0,Math.min(1000,message.length()));
         if(retryCount>=10){status=OutboxStatus.DEAD;} else {nextAttemptAt=now.plusSeconds(Math.min(300,1L<<Math.min(retryCount,8)));}}
