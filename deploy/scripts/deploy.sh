@@ -99,7 +99,10 @@ trap 'exit 130' INT TERM HUP
 
 DEPLOY_STARTED=1
 compose_for "$CANDIDATE_RELEASE" config --quiet
-compose_for "$CANDIDATE_RELEASE" pull backend
+# prod profile은 인증 세션과 요청 제한에 Redis를 사용합니다. 새 Compose에 Redis가
+# 처음 추가되는 배포에서도 backend보다 먼저 생성하고 health가 통과할 때까지 기다립니다.
+compose_for "$CANDIDATE_RELEASE" pull backend redis
+compose_for "$CANDIDATE_RELEASE" up -d --wait redis
 compose_for "$CANDIDATE_RELEASE" up -d --no-deps backend
 
 if ! wait_for_backend "$CANDIDATE_RELEASE"; then

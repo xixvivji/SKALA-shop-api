@@ -181,6 +181,11 @@ printf '%s\n' \
     '        ;;' \
     '    up)' \
     '        case " $* " in' \
+    '            *" redis "*)' \
+    '                record "UP_REDIS $release_id"' \
+    '                ;;' \
+    '        esac' \
+    '        case " $* " in' \
     '            *" backend "*)' \
     '                record "UP_BACKEND $release_id"' \
     '                printf "%s\n" "$release_id" > "$SIM_STATE/active-backend"' \
@@ -259,6 +264,7 @@ assert_metadata_release "$TEST_ROOT/state/known-good.env" release-a "successful 
 assert_equal release-b "$(cat "$SIM_STATE/active-backend")" "active backend after deployment"
 assert_equal release-b "$(cat "$SIM_STATE/active-edge")" "active edge after deployment"
 [ ! -f "$TEST_ROOT/state/candidate.env" ] || fail "candidate metadata was not cleaned"
+assert_log_order "UP_REDIS release-b" "UP_BACKEND release-b"
 assert_log_order "INSPECT release-b" "NGINX_TEST release-b"
 assert_log_order "NGINX_TEST release-b" "UP_EDGE release-b"
 
