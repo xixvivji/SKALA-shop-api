@@ -59,6 +59,9 @@ management:
         http.server.requests: true
 
 shopping:
+  outbox:
+    relay-enabled: ${OUTBOX_RELAY_ENABLED:false}
+    poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
   observability:
     correlation-header: X-Correlation-ID
 
@@ -74,8 +77,12 @@ shopping:
       issuer: ${JWT_ISSUER:skala-shop-api}
       secret: ${JWT_SECRET:local-development-secret-must-be-at-least-32-bytes}
       access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:1h}
+      refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:14d}
+    refresh-token:
+      store: ${REFRESH_TOKEN_STORE:memory}
     cookie:
       name: bff-access
+      refresh-name: bff-refresh
       secure: ${JWT_COOKIE_SECURE:false}
       same-site: ${JWT_COOKIE_SAME_SITE:Lax}
     cors:
@@ -87,6 +94,7 @@ shopping:
     rate-limit:
       # 단일 EC2 인스턴스용 인메모리 제한입니다. 다중 인스턴스 전환 시 공유 저장소 구현이 필요합니다.
       enabled: ${AUTH_RATE_LIMIT_ENABLED:true}
+      store: ${AUTH_RATE_LIMIT_STORE:memory}
       # 서로 다른 IP·계정 키가 과도하게 쌓이면 새 키 요청을 429로 차단합니다.
       max-tracked-keys: ${AUTH_RATE_LIMIT_MAX_TRACKED_KEYS:50000}
       login:

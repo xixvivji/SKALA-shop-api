@@ -76,8 +76,9 @@ class AuthController {
         rateLimitApi.checkLogin(servletRequest.getRemoteAddr(), request.getCustomerId());
         var result = service.login(request.getCustomerId(), request.getCustomerPassword());
         var cookie = authenticationCookieApi.issueAccessTokenCookie(result.getAccessToken());
+        var refreshCookie = authenticationCookieApi.issueRefreshTokenCookie(result.getRefreshToken());
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .header(HttpHeaders.SET_COOKIE, cookie.toString(), refreshCookie.toString())
                 .body(new LoginResponse(
                         result.getMemberId(),
                         result.getLoginId(),
@@ -98,10 +99,26 @@ class AuthController {
                     )
             }
     )
-    ResponseEntity<Void> logout() {
+    ResponseEntity<Void> logout(HttpServletRequest request) {
+        return logoutSession(request);
+    }
+
+    @PostMapping("/refresh")
+    @Operation(summary = "액세스 토큰 갱신", description = "일회용 리프레시 토큰을 회전하고 새 JWT 쿠키를 발급합니다.")
+    ResponseEntity<LoginResponse> refresh(HttpServletRequest request) {
+        var result=service.refresh(authenticationCookieApi.readRefreshToken(request));
+        return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE,
+                authenticationCookieApi.issueAccessTokenCookie(result.getAccessToken()).toString(),
+                authenticationCookieApi.issueRefreshTokenCookie(result.getRefreshToken()).toString())
+                .body(new LoginResponse(result.getMemberId(),result.getLoginId(),result.getRole(),result.getExpiresAt()));
+    }
+
+    private ResponseEntity<Void> logoutSession(HttpServletRequest request) {
+        if(request!=null)service.revokeRefreshToken(authenticationCookieApi.readRefreshToken(request));
         var cookie = authenticationCookieApi.expireAccessTokenCookie();
         return ResponseEntity.noContent()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .header(HttpHeaders.SET_COOKIE, cookie.toString(),
+                        authenticationCookieApi.expireRefreshTokenCookie().toString())
                 .build();
     }
 }

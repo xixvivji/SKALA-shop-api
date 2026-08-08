@@ -69,6 +69,7 @@ public class SecurityProperties {
         private String issuer;
         private String secret;
         private Duration accessTokenTtl;
+        private Duration refreshTokenTtl = Duration.ofDays(14);
 
         public Jwt() {
         }
@@ -96,6 +97,8 @@ public class SecurityProperties {
         public void setAccessTokenTtl(Duration accessTokenTtl) {
             this.accessTokenTtl = accessTokenTtl;
         }
+        public Duration getRefreshTokenTtl() { return refreshTokenTtl; }
+        public void setRefreshTokenTtl(Duration refreshTokenTtl) { this.refreshTokenTtl = refreshTokenTtl; }
     }
 
     public static class Cookie {
@@ -103,6 +106,7 @@ public class SecurityProperties {
         private String name;
         private boolean secure;
         private String sameSite;
+        private String refreshName = "bff-refresh";
 
         public Cookie() {
         }
@@ -130,6 +134,8 @@ public class SecurityProperties {
         public void setSameSite(String sameSite) {
             this.sameSite = sameSite;
         }
+        public String getRefreshName() { return refreshName; }
+        public void setRefreshName(String refreshName) { this.refreshName = refreshName; }
     }
 
     public static class Cors {
@@ -185,6 +191,7 @@ public class SecurityProperties {
     public static class RateLimit {
 
         private boolean enabled = true;
+        private String store = "memory";
 
         @Min(2)
         private int maxTrackedKeys = 50_000;
@@ -211,6 +218,9 @@ public class SecurityProperties {
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
         }
+
+        public String getStore() { return store; }
+        public void setStore(String store) { this.store = store; }
 
         public int getMaxTrackedKeys() {
             return maxTrackedKeys;

@@ -8,6 +8,7 @@ import com.skala.shopping.order.CancellationView;
 import com.skala.shopping.order.OrderApi;
 import com.skala.shopping.order.OrderItemView;
 import com.skala.shopping.order.OrderLineCommand;
+import com.skala.shopping.order.OrderPlaced;
 import com.skala.shopping.order.OrderStatusHistoryView;
 import com.skala.shopping.order.OrderView;
 import com.skala.shopping.order.PurchasedProductView;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,6 +60,7 @@ public class OrderApplicationService implements OrderApi {
     private final PointManager pointManager;
     private final StockManager stockManager;
     private final CouponManager couponManager;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock = Clock.systemUTC();
 
     OrderApplicationService(
@@ -69,7 +72,8 @@ public class OrderApplicationService implements OrderApi {
             ProductReader productReader,
             PointManager pointManager,
             StockManager stockManager,
-            CouponManager couponManager
+            CouponManager couponManager,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.orderRepository = orderRepository;
         this.itemRepository = itemRepository;
@@ -80,6 +84,7 @@ public class OrderApplicationService implements OrderApi {
         this.pointManager = pointManager;
         this.stockManager = stockManager;
         this.couponManager = couponManager;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -464,6 +469,7 @@ public class OrderApplicationService implements OrderApi {
                 itemRepository.findAllByOrderIdOrderByLineNumberAsc(orderId)
                         .stream().map(OrderItem::toView).toList()
         );
+        eventPublisher.publishEvent(new OrderPlaced(orderId, memberId, finalAmount, now));
         if (shippingAddress != null) {
             ShippingAddressView savedAddress = orderShippingAddressRepositorySave(
                     order.id(),

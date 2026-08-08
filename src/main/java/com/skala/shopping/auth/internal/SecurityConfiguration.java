@@ -107,6 +107,7 @@ class SecurityConfiguration {
                                 HttpMethod.POST,
                                 "/api/customers",
                                 "/api/customers/login",
+                                "/api/customers/refresh",
                                 "/api/customers/logout",
                                 "/api/customers/password/reset"
                         ).permitAll()

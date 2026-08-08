@@ -1666,6 +1666,44 @@ class ShoppingJourneyIntegrationTests {
     }
 
     @Test
+    void storesProductAndOrderEventsInTransactionalOutbox() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID productId = createProduct(admin, unique("outbox-product"), "9000", 3);
+        CustomerSession customer = registerAndLogin("outbox-customer");
+        performOrder(customer.authCookie, productId, 1, UUID.randomUUID())
+                .andExpect(status().isCreated());
+
+        Integer productEvents = jdbcTemplate.queryForObject(
+                "select count(*) from outbox.outbox_events where aggregate_type='PRODUCT' and aggregate_id=?",
+                Integer.class, productId);
+        Integer orderEvents = jdbcTemplate.queryForObject(
+                "select count(*) from outbox.outbox_events where aggregate_type='ORDER'", Integer.class);
+        assertTrue(productEvents != null && productEvents >= 1);
+        assertTrue(orderEvents != null && orderEvents >= 1);
+    }
+
+    @Test
+    void rotatesOneTimeRefreshTokenAndRejectsReplay() throws Exception {
+        String customerId=unique("refresh-customer");
+        mockMvc.perform(post("/api/customers").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody(customerId))).andExpect(status().isCreated());
+        MvcResult login=mockMvc.perform(post("/api/customers/login").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(loginBody(customerId,"pw123456")))
+                .andExpect(status().isOk()).andReturn();
+        Cookie refresh=login.getResponse().getCookie("bff-refresh");
+        assertNotNull(refresh);
+
+        MvcResult rotated=mockMvc.perform(post("/api/customers/refresh").with(csrf()).cookie(copy(refresh)))
+                .andExpect(status().isOk()).andReturn();
+        Cookie next=rotated.getResponse().getCookie("bff-refresh");
+        assertNotNull(next);
+        assertNotEquals(refresh.getValue(),next.getValue());
+
+        mockMvc.perform(post("/api/customers/refresh").with(csrf()).cookie(copy(refresh)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void supportsCartSavedAddressMultiItemOrderFulfillmentAndLedgers() throws Exception {
         Cookie admin = loginAdmin();
         UUID first = createProduct(admin, unique("multi-first"), "10000", 10);
