@@ -1,7 +1,7 @@
 # API 사용 가이드
 
-이 문서는 프론트엔드 개발자가 SKALA Shop API를 처음 연결할 때 필요한 공통 규칙을
-설명합니다. 전체 스키마와 상태 코드별 응답은 Swagger UI가 최종 기준입니다.
+SKALA Shop API의 인증, 요청·응답, 오류, 멱등성과 주요 경로를 설명합니다. 전체
+스키마와 상태 코드별 응답은 Swagger UI가 최종 기준입니다.
 
 - 로컬 Swagger: <http://localhost:8080/swagger-ui.html>
 - 운영 Swagger: <https://api-3-39-64-119.sslip.io/swagger-ui/index.html>
@@ -22,7 +22,7 @@ fetch("/api/products?page=0&size=12", {
 
 ## 2. Request DTO와 Response DTO
 
-- Request DTO: 프론트가 보낸 JSON을 Controller의 `@RequestBody`가 받는 객체
+- Request DTO: 클라이언트가 보낸 JSON을 Controller의 `@RequestBody`가 받는 객체
 - Response DTO: Service 처리 결과를 Controller가 JSON으로 돌려주는 객체
 - View/Command: 모듈 사이에서 사용하는 공개 Java 계약
 - Entity: DB 저장 모델이며 HTTP로 직접 노출하지 않음
@@ -202,7 +202,7 @@ await fetch("/api/orders", {
 
 각 endpoint의 정확한 Request/Response DTO, 예시와 상태 코드는 Swagger에서
 확인합니다. `/api/customers/order`, `/api/customers/cancel`,
-`/api/products/list`는 초기 교육용 프론트와의 호환을 위해 유지하는 경로입니다.
+`/api/products/list`는 이전 API 계약과의 호환을 위해 유지하는 경로입니다.
 
 ## 9. 입력 제한
 
@@ -237,9 +237,3 @@ Fake PG가 필요한 주문은 `PAYMENT_PENDING`으로 생성한 뒤 결제를 �
 배송 전 취소는 기존 주문 취소 API를 사용합니다. 배송 완료 후에는 주문 항목별로
 반품을 신청하고 관리자가 회수·검수·승인 또는 거절 상태를 변경합니다. 최종
 `REFUNDED`에서 결제 수단별 환불과 재고 복원이 완료됩니다.
-
-## 11. 비밀번호 재설정 주의
-
-현재 재설정 API는 교육용 요구사항에 맞춰 고객 ID와 현재 이름을 확인합니다. 두
-값은 강한 본인 인증 수단이 아닙니다. 공개 상용 서비스에서는 이메일·휴대전화
-소유 확인, 짧은 만료 시간의 일회용 토큰과 재사용 방지를 추가해야 합니다.

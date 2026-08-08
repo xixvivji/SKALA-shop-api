@@ -130,9 +130,6 @@ id, name, price, status, categoryId, description, imageUrl, stock
 - 고객 ID 저장은 localStorage를 사용하지만 비밀번호와 JWT는 저장하지 않습니다.
 - JWT는 HttpOnly 쿠키이므로 JavaScript가 직접 읽지 않습니다.
 
-현재 비밀번호 재설정은 고객 ID와 등록 이름을 확인하는 교육용 흐름입니다. 상용
-서비스에서는 이메일·휴대전화 일회용 인증으로 교체해야 합니다.
-
 ## 빌드와 정적 검사
 
 ```bash

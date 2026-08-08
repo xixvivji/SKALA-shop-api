@@ -104,9 +104,14 @@ bash deploy/scripts/deploy-platform-via-ssm.sh \
 
 스크립트는 Compose 파일을 SSM Run Command로 전달하고 이미지 pull, 기동과 health
 확인까지 수행합니다. Kafka cluster ID와 데이터 volume은 재배포에서도 유지합니다.
-Elasticsearch 호스트에는 `vm.max_map_count=262144`를 영구 적용합니다. 현재 구성은
-학습·소규모 운영을 위한 single node이므로 broker/검색 노드 장애 시 자동 failover는
-제공하지 않습니다.
+Elasticsearch 호스트에는 `vm.max_map_count=262144`를 영구 적용합니다. Kafka와
+Elasticsearch는 각각 single node로 구성되어 broker 또는 검색 노드 장애 시 자동
+failover를 제공하지 않습니다.
+
+현재 Backend의 Outbox Relay는 Kafka에 이벤트를 발행하지만 Kafka Consumer는
+구성되어 있지 않습니다. Elasticsearch 색인은 Backend 내부 트랜잭션 이벤트가 직접
+처리합니다. 독립 Search Service를 추가할 경우 해당 서비스가 Kafka Consumer와
+Elasticsearch 색인을 담당합니다.
 
 현재 운영 private endpoint:
 
@@ -245,6 +250,20 @@ node deploy/tools/bootstrap-catalog.mjs \
   --confirm-origin=https://api.example.com
 ```
 
+쇼케이스 카탈로그는 `deploy/seed/catalog.showcase.json`에 분리되어 있습니다. 기본 seed와
+함께 적재하면 기존 운영 상품을 포함해 약 30개의 상품을 구성할 수 있습니다. 구매 인증
+리뷰 시연 데이터는 비밀번호를 저장하거나 출력하지 않는 다음 명령으로 한 번만 생성합니다.
+
+```bash
+SKALA_API_BASE_URL=https://api.example.com \
+node deploy/tools/seed-demo-reviews.mjs \
+  --confirm-origin=https://api.example.com
+```
+
+이 명령은 무작위 자격 증명을 사용하는 시연 회원 6명과 결제 완료 주문, 리뷰 12개를
+운영 데이터로 남깁니다. 반복 실행하면 회원과 리뷰가 추가되므로 초기 구성 시 한 번만
+실행합니다.
+
 `--confirm-origin`은 실수로 다른 서버의 데이터를 변경하지 않도록 API Origin과
 정확히 같아야 합니다. 작업 후 도구가 관리자 세션을 로그아웃합니다.
 
@@ -327,8 +346,8 @@ PRODUCTION_ADMIN_ID
 PRODUCTION_ADMIN_PASSWORD
 ```
 
-이 값은 수동 live E2E의 관리자 읽기 검사에만 사용합니다. 설정하지 않아도 고객
-live E2E와 일반 배포에는 영향이 없습니다.
+이 값은 운영 카탈로그 적재, 관리자 화면 확인과 결제·배송·반품 전체 흐름 검증에
+사용합니다. 일반 애플리케이션 배포에는 사용하지 않습니다.
 
 ## 9. CI/CD 흐름
 
@@ -426,7 +445,7 @@ Vercel 기본 구성은 같은 Origin `/api` proxy를 사용합니다. API를 �
 Origin에서 호출한다면 Spring의 `CORS_ALLOWED_ORIGINS`와 Nginx의
 `FRONTEND_ORIGIN`을 정확히 맞춰야 합니다.
 
-Nginx와 애플리케이션은 로그인·회원가입·교육용 비밀번호 재설정에 요청 제한을
+Nginx와 애플리케이션은 로그인·회원가입·비밀번호 재설정에 요청 제한을
 적용합니다. local profile은 인메모리, prod profile은 같은 Compose의 Redis에 IP·계정
 카운터를 저장합니다. ALB/CDN을 앞에 추가하면 trusted proxy와 real IP 설정을 먼저
 구성해야 올바른 client IP 기준으로 제한할 수 있습니다.
