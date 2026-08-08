@@ -10,7 +10,7 @@ SKALA Shop은 하나의 Spring Boot 프로세스와 PostgreSQL을 사용합니�
 - 초기에는 한 애플리케이션으로 빠르게 개발·운영합니다.
 - 주문·재고·포인트를 하나의 로컬 트랜잭션으로 안전하게 처리합니다.
 - 모듈 간 직접 결합을 제한해 코드 규모가 커져도 책임을 찾기 쉽게 합니다.
-- 트래픽과 장애 격리가 실제로 필요해진 모듈만 나중에 서비스로 분리합니다.
+- 모듈 간 호출은 공개 API와 이벤트를 통해 이루어집니다.
 
 현재 구조는 “폴더만 나눈 모놀리스”가 아닙니다. Spring Modulith 테스트가 패키지
 의존을 검사하고, 각 모듈이 자신의 테이블과 Repository를 소유합니다.
@@ -253,63 +253,37 @@ fingerprint에는 회원, 정렬된 상품·수량과 배송지가 포함됩니�
 - 멱등 재생에는 최초 결과 스냅샷을 보존해 이후 상태와 섞이지 않게 합니다.
 - 상품·회원·주문·원장 페이지는 동률에서 누락되지 않도록 `id` 보조 정렬을 둡니다.
 
-현재 목록은 offset pagination입니다. 데이터가 커지면 주문과 원장부터
-`(createdAt, id)` cursor/keyset pagination으로 바꿀 수 있습니다.
+목록 API는 안정적인 보조 정렬을 포함한 offset pagination을 사용합니다.
 
 ## 8. Outbox, Kafka와 검색
 
-Catalog와 Inventory는 모듈 간 상태 변경 이벤트를 발행합니다.
+Catalog와 Inventory는 애플리케이션 내부 상태 변경 이벤트를 발행합니다.
 
 - `ProductCreated`: 같은 트랜잭션에서 초기 재고 생성
 - `ProductDeleted`: 재고 비활성화와 해당 상품 장바구니 항목 정리
 - `StockReplenished`: 재고가 0에서 양수로 바뀔 때 대기 중 구독을 알림 완료로 변경
 - `ProductSearchChanged`: Elasticsearch 상품 색인 갱신
 
-DB 변경과 외부 메시지 발행 사이의 유실을 막기 위해 같은 트랜잭션에서
-`outbox.outbox_events`를 저장합니다. Relay는 `PENDING` 이벤트를 Kafka로 발행하고
-성공 시 `PUBLISHED`, 반복 실패 시 `DEAD`로 기록합니다. 같은 aggregate ID를 Kafka
-key로 사용해 partition 안의 순서를 유지합니다. 로컬에서는 logging publisher를
-사용할 수 있습니다.
+`OrderPlaced`, `ProductCreated`, `StockReplenished`는 원본 데이터 변경과 같은
+트랜잭션에서 `outbox.outbox_events`에 저장됩니다. Relay는 `PENDING` 이벤트를
+Kafka로 발행하고 성공 시 `PUBLISHED`, 반복 실패 시 `DEAD`로 기록합니다. 같은
+aggregate ID를 Kafka key로 사용해 partition 안의 순서를 유지합니다. 로컬에서는
+logging publisher를 사용할 수 있습니다.
 
 상품 검색은 Elasticsearch를 우선 사용하되 연결 실패 시 PostgreSQL 검색으로
-폴백합니다. Kafka와 Elasticsearch는 별도 EC2에 있지만 검색 Java 코드는 아직
-모듈러 모놀리스 안에 있으므로, 이것만으로 MSA 분리가 끝난 것은 아닙니다.
+폴백합니다. 현재 `ProductSearchChanged`는 트랜잭션 commit 이후 모듈러 모놀리스
+내부 listener가 Elasticsearch에 직접 반영합니다. Kafka Consumer는 아직 없으므로
+Kafka는 Outbox 발행·재시도·실패 보존 경로만 담당합니다.
 
-## 9. MSA 전환 순서
+### Search Service 분리 방향
 
-### 1단계: Search 또는 Cart
+선택적으로 Search 모듈을 독립 서비스로 분리할 수 있습니다. 기존 회원·주문·결제·
+재고 ERD와 RDS는 유지하고, 상품 변경 이벤트만 Outbox와 Kafka를 통해 전달합니다.
+Search Service는 Kafka Consumer, 검색 API와 Elasticsearch 색인 책임을 가지며 별도
+Docker 이미지와 프로세스로 배포합니다. 나머지 도메인은 현재 모듈러 모놀리스에
+유지합니다. 이 구성은 현재 배포에는 적용되어 있지 않습니다.
 
-Search는 독립 Elasticsearch projection과 재색인 경로가 있어 첫 추출 대상으로
-적합합니다. Outbox Kafka topic을 소비하는 별도 프로세스로 옮긴 뒤 현재 공개 검색
-API를 원격 호출 또는 edge routing으로 전환합니다.
-
-Cart는 주문 원자 트랜잭션에 직접 참여하지 않아 다음 분리 후보입니다.
-저장소를 옮기고 Catalog/Inventory 공개 조회를 HTTP 클라이언트로 바꿉니다.
-
-Catalog를 분리할 때 `CatalogApi`의 로컬 구현을 원격 어댑터로 교체합니다. 주문에
-상품명·단가 스냅샷이 있어 과거 주문 조회는 Catalog 장애에 의존하지 않습니다.
-
-### 2단계: Auth와 Member
-
-Auth를 별도 서비스로 옮기고 HMAC 공유 키를 비대칭 서명·JWKS 방식으로 바꿉니다.
-Member를 옮겨도 Order가 소유한 배송지 스냅샷은 그대로 둡니다.
-
-### 3단계: Wallet
-
-Wallet부터 로컬 DB 트랜잭션을 사용할 수 없습니다. Outbox, 메시지 브로커, Saga,
-보상 처리, 재시도, Dead Letter Queue와 분산 추적을 먼저 준비합니다.
-
-### 4단계: Inventory
-
-원격 재고 예약에는 주문 `PENDING`, 예약 만료와 포인트 실패 시 재고 해제 같은
-보상 흐름이 필요합니다. 다중 상품 부분 성공도 복구할 수 있어야 합니다.
-
-### 5단계: Order
-
-Order는 전체 구매 흐름의 조정자이므로 마지막에 분리합니다. 서비스 이동보다
-Saga 상태, Outbox relay, 재처리 운영 도구와 관측 가능성을 먼저 완성합니다.
-
-## 10. Flyway 변경 규칙
+## 9. Flyway 변경 규칙
 
 - 적용된 마이그레이션은 수정·삭제하지 않고 새 버전을 추가합니다.
 - 새 마이그레이션은 가능하면 한 모듈의 테이블만 변경합니다.
