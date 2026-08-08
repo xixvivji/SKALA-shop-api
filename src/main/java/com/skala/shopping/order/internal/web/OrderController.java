@@ -72,7 +72,7 @@ class OrderController {
                     ),
                     @ApiResponse(
                             responseCode = "400",
-                            description = "잘못된 요청 또는 멱등성 키",
+                            description = "상품·배송지 입력 오류 또는 잘못된 멱등성 키",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
                     ),
                     @ApiResponse(
@@ -101,7 +101,7 @@ class OrderController {
                     memberId(jwt),
                     java.util.List.of(new com.skala.shopping.order.OrderLineCommand(
                             request.getProductId(), request.getQuantity())),
-                    request.getShippingAddress() == null ? null : request.getShippingAddress().toCommand(),
+                    request.getShippingAddress().toCommand(),
                     commandId,
                     request.getCouponCode(),
                     request.getPointAmount()));
@@ -109,7 +109,7 @@ class OrderController {
         return OrderResponse.from(orderApi.placeOrder(
                 memberId(jwt),
                 request.getItems().stream().map(item -> item.toCommand()).toList(),
-                request.getShippingAddress() == null ? null : request.getShippingAddress().toCommand(),
+                request.getShippingAddress().toCommand(),
                 commandId,
                 request.getCouponCode(),
                 request.getPointAmount()));

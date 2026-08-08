@@ -41,7 +41,7 @@
 - 포인트 차감, 재고 예약과 주문 저장의 단일 트랜잭션
 - 결제 원장, PG 거래 ID, 승인·환불 멱등성과 Fake PG 중복 웹훅 처리
 - Transactional Outbox, Kafka 발행 재시도와 DEAD 상태 보존
-- 주문 시점 상품명·가격·배송지 스냅샷
+- 모든 주문의 필수 배송지와 주문 시점 상품명·가격·배송지 스냅샷
 - 공통 Validation·예외 응답과 인증 요청 제한
 - 민감정보를 기록하지 않는 API 처리 시간 AOP 로그
 - Flyway 마이그레이션과 PostgreSQL 통합 테스트
@@ -222,7 +222,7 @@ npm --prefix frontend ci
 npm --prefix frontend run test:e2e
 ```
 
-현재 백엔드 126개 테스트와 데스크톱·모바일 브라우저 E2E 10개가 모듈 경계, 인증,
+현재 백엔드 128개 테스트와 데스크톱·모바일 브라우저 E2E 10개가 모듈 경계, 인증,
 Validation, PostgreSQL 트랜잭션, 동시 주문·반품, 멱등 재시도와 프론트 고객·관리자
 흐름을 검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를
 변경하므로 명시적으로 활성화할 때만 실행합니다. 자세한 구분은

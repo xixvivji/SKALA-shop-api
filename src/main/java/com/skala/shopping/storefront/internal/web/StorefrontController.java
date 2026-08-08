@@ -193,7 +193,7 @@ class StorefrontController {
     @PostMapping("/order")
     @Operation(
             summary = "주문 생성 호환 API",
-            description = "이전 단일 상품 요청 형식으로 포인트 주문을 멱등하게 생성합니다.",
+            description = "이전 단일 상품 요청 형식의 상품 ID, 수량과 필수 배송지로 포인트 주문을 멱등하게 생성합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")},
             responses = {
                     @ApiResponse(
@@ -203,7 +203,7 @@ class StorefrontController {
                     ),
                     @ApiResponse(
                             responseCode = "400",
-                            description = "잘못된 요청 또는 멱등성 키",
+                            description = "상품·배송지 입력 오류 또는 잘못된 멱등성 키",
                             content = @Content(schema = @Schema(implementation = ApiError.class))
                     ),
                     @ApiResponse(
@@ -237,6 +237,7 @@ class StorefrontController {
                 memberId,
                 request.getProductId(),
                 request.getQuantity(),
+                request.getShippingAddress().toCommand(),
                 commandId
         );
         return OrderCompatibilityResponse.from(

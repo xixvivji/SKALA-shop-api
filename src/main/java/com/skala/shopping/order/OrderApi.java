@@ -7,20 +7,6 @@ import java.math.BigDecimal;
 
 public interface OrderApi {
 
-    /**
-     * Places one product order. The command id is scoped to the member and can only be replayed
-     * with the same product and quantity.
-     */
-    OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId);
-
-    OrderView placeOrder(
-            UUID memberId,
-            UUID productId,
-            int quantity,
-            UUID commandId,
-            String couponCode
-    );
-
     OrderView placeOrder(
             UUID memberId,
             List<OrderLineCommand> items,

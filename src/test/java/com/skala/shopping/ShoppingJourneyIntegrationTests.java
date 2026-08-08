@@ -1,6 +1,7 @@
 package com.skala.shopping;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -132,6 +133,10 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(jsonPath("$['paths']['/api/auth/csrf']['get']['responses']['200']").exists())
                 .andExpect(jsonPath("$['paths']['/api/customers/me']['get']").exists())
                 .andExpect(jsonPath("$.components.schemas.CreateOrderRequest").exists())
+                .andExpect(jsonPath("$.components.schemas.CreateOrderRequest.required")
+                        .value(hasItem("shippingAddress")))
+                .andExpect(jsonPath("$.components.schemas.PlaceStorefrontOrderRequest.required")
+                        .value(hasItem("shippingAddress")))
                 .andExpect(jsonPath("$.components.schemas.CancelOrderRequest").exists())
                 .andExpect(jsonPath("$.components.schemas.AdjustStockRequest").exists())
                 .andExpect(jsonPath("$.components.schemas.InitializeStockRequest").exists())
@@ -228,12 +233,7 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(productId.toString()));
 
-        String orderBody = """
-                {
-                  "productId": "%s",
-                  "quantity": 2
-                }
-                """.formatted(productId);
+        String orderBody = orderRequestBody(productId, 2);
         String orderCommandId = "11111111-1111-4111-8111-111111111111";
 
         mockMvc.perform(post("/api/customers/order")
@@ -580,7 +580,7 @@ class ShoppingJourneyIntegrationTests {
                         .with(csrf())
                         .cookie(copy(customer.authCookie))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(UUID.randomUUID(), 1)))
+                        .content(orderRequestBody(UUID.randomUUID(), 1)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
                 .andExpect(jsonPath("$.fieldErrors['X-Idempotency-Key']")
@@ -594,6 +594,64 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
                 .andExpect(jsonPath("$.fieldErrors._request")
                         .value("요청 본문의 JSON 형식이 올바르지 않습니다."));
+    }
+
+    @Test
+    void rejectsEveryOrderCreationPathWithoutShippingAddressBeforeSideEffects() throws Exception {
+        Cookie admin = loginAdmin();
+        UUID productId = createProduct(admin, unique("shipping-required"), "15000", 5);
+        CustomerSession customer = registerAndLogin("shipping-required");
+        String requestWithoutAddress = orderBody(productId, 1);
+
+        mockMvc.perform(post("/api/orders")
+                        .with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestWithoutAddress))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors.shippingAddress").exists());
+
+        mockMvc.perform(post("/api/customers/order")
+                        .with(csrf())
+                        .cookie(copy(customer.authCookie))
+                        .header("X-Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestWithoutAddress))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.fieldErrors.shippingAddress").exists());
+
+        assertEquals(1_000_000, currentPoint(customer.authCookie));
+        mockMvc.perform(get("/api/products/{productId}/stock", productId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableQuantity").value(5));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM orders.orders orders
+                JOIN member.members member ON member.id = orders.member_id
+                WHERE member.customer_id = ?
+                """,
+                Integer.class,
+                customer.customerId
+        ));
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM inventory.stock_movements WHERE product_id = ?",
+                Integer.class,
+                productId
+        ));
+        assertEquals(1, jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM wallet.point_transactions point_transaction
+                JOIN member.members member ON member.id = point_transaction.member_id
+                WHERE member.customer_id = ?
+                """,
+                Integer.class,
+                customer.customerId
+        ));
     }
 
     @Test
@@ -1422,9 +1480,9 @@ class ShoppingJourneyIntegrationTests {
                         .cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", commandId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"productId":"%s","quantity":1,"pointAmount":0}
-                                """.formatted(productId)))
+                        .content(orderRequest("""
+                                "productId":"%s","quantity":1,"pointAmount":0
+                                """.formatted(productId))))
                 .andReturn());
 
         assertEquals(List.of(201, 201), statuses(results));
@@ -1467,9 +1525,9 @@ class ShoppingJourneyIntegrationTests {
                         .cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"productId":"%s","quantity":1,"pointAmount":5000}
-                                """.formatted(productId)))
+                        .content(orderRequest("""
+                                "productId":"%s","quantity":1,"pointAmount":5000
+                                """.formatted(productId))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PAYMENT_PENDING"))
                 .andExpect(jsonPath("$.pointUsedAmount").value(5000))
@@ -1561,9 +1619,9 @@ class ShoppingJourneyIntegrationTests {
                         .cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"productId":"%s","quantity":1,"pointAmount":5000}
-                                """.formatted(productId)))
+                        .content(orderRequest("""
+                                "productId":"%s","quantity":1,"pointAmount":5000
+                                """.formatted(productId))))
                 .andExpect(status().isCreated()).andReturn();
         UUID declinedOrderId = UUID.fromString(objectMapper.readTree(
                 declinedOrder.getResponse().getContentAsString()).get("id").asText());
@@ -1663,8 +1721,9 @@ class ShoppingJourneyIntegrationTests {
         MvcResult placed = mockMvc.perform(post("/api/orders").with(csrf())
                         .cookie(copy(customer.authCookie)).header("X-Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"productId\":\"%s\",\"quantity\":1,\"pointAmount\":5000}"
-                                .formatted(productId)))
+                        .content(orderRequest(
+                                "\"productId\":\"%s\",\"quantity\":1,\"pointAmount\":5000"
+                                        .formatted(productId))))
                 .andExpect(status().isCreated()).andReturn();
         JsonNode order = objectMapper.readTree(placed.getResponse().getContentAsString());
         UUID orderId = UUID.fromString(order.get("id").asText());
@@ -1754,9 +1813,9 @@ class ShoppingJourneyIntegrationTests {
         mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"items":[{"productId":"%s","variantId":"%s","quantity":2}]}
-                                """.formatted(productId, variantId)))
+                        .content(orderRequest("""
+                                "items":[{"productId":"%s","variantId":"%s","quantity":2}]
+                                """.formatted(productId, variantId))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.items[0].variantId").value(variantId.toString()))
                 .andExpect(jsonPath("$.items[0].optionValue").value("BLACK / 270"))
@@ -1788,12 +1847,12 @@ class ShoppingJourneyIntegrationTests {
                         .cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"items":[
+                        .content(orderRequest("""
+                                "items":[
                                   {"productId":"%s","quantity":1},
                                   {"productId":"%s","variantId":"%s","quantity":1}
-                                ]}
-                                """.formatted(productId, productId, variantId)))
+                                ]
+                                """.formatted(productId, productId, variantId))))
                 .andExpect(status().isCreated())
                 .andReturn();
         JsonNode items = objectMapper.readTree(
@@ -1934,9 +1993,9 @@ class ShoppingJourneyIntegrationTests {
         mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"productId":"%s","quantity":1,"couponCode":"SAVE5000"}
-                                """.formatted(first)))
+                        .content(orderRequest("""
+                                "productId":"%s","quantity":1,"couponCode":"SAVE5000"
+                                """.formatted(first))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.originalAmount").value(10000))
                 .andExpect(jsonPath("$.discountAmount").value(5000))
@@ -1951,9 +2010,9 @@ class ShoppingJourneyIntegrationTests {
         mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"productId":"%s","quantity":1,"couponCode":"SAVE5000"}
-                                """.formatted(second)))
+                        .content(orderRequest("""
+                                "productId":"%s","quantity":1,"couponCode":"SAVE5000"
+                                """.formatted(second))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DATA_DUPLICATED"));
     }
@@ -1969,11 +2028,11 @@ class ShoppingJourneyIntegrationTests {
         MvcResult placed = mockMvc.perform(post("/api/orders").with(csrf()).cookie(copy(customer.authCookie))
                         .header("X-Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"items":[{"productId":"%s","quantity":1},
+                        .content(orderRequest("""
+                                "items":[{"productId":"%s","quantity":1},
                                 {"productId":"%s","quantity":1},{"productId":"%s","quantity":1}],
-                                "couponCode":"SAVE5000"}
-                                """.formatted(first, second, third)))
+                                "couponCode":"SAVE5000"
+                                """.formatted(first, second, third))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.totalAmount").value(0.01))
                 .andReturn();
@@ -2121,7 +2180,7 @@ class ShoppingJourneyIntegrationTests {
                 .cookie(copy(authCookie))
                 .header("X-Idempotency-Key", commandId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(orderBody(productId, quantity)));
+                .content(orderRequestBody(productId, quantity)));
     }
 
     private org.springframework.test.web.servlet.ResultActions performCancellation(
@@ -2340,6 +2399,34 @@ class ShoppingJourneyIntegrationTests {
                   "quantity": %d
                 }
                 """.formatted(productId, quantity);
+    }
+
+    private String orderRequestBody(UUID productId, int quantity) {
+        return orderRequest("""
+                "productId": "%s",
+                "quantity": %d
+                """.formatted(productId, quantity));
+    }
+
+    private String orderRequest(String orderFields) {
+        return """
+                {
+                  %s,
+                  "shippingAddress": %s
+                }
+                """.formatted(orderFields.strip(), shippingAddressBody());
+    }
+
+    private String shippingAddressBody() {
+        return """
+                {
+                  "recipientName": "테스트 고객",
+                  "phoneNumber": "010-1234-5678",
+                  "postalCode": "12345",
+                  "addressLine1": "서울시 테스트로 1",
+                  "addressLine2": "101호"
+                }
+                """;
     }
 
     private String unique(String prefix) {

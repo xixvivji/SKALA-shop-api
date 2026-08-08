@@ -94,20 +94,6 @@ public class OrderApplicationService implements OrderApi {
 
     @Override
     @Transactional
-    public OrderView placeOrder(UUID memberId, UUID productId, int quantity, UUID commandId) {
-        return placeOrder(memberId, List.of(new OrderLineCommand(productId, quantity)), null, commandId, null);
-    }
-
-    @Override
-    @Transactional
-    public OrderView placeOrder(UUID memberId, UUID productId, int quantity,
-                               UUID commandId, String couponCode) {
-        return placeOrder(memberId, List.of(new OrderLineCommand(productId, quantity)), null,
-                commandId, couponCode);
-    }
-
-    @Override
-    @Transactional
     public OrderView placeOrder(UUID memberId, List<OrderLineCommand> items,
                                 ShippingAddressCommand shippingAddress, UUID commandId) {
         return placeOrder(memberId, items, shippingAddress, commandId, null);
@@ -523,14 +509,11 @@ public class OrderApplicationService implements OrderApi {
                         .stream().map(OrderItem::toView).toList()
         );
         eventPublisher.publishEvent(new OrderPlaced(orderId, memberId, finalAmount, now));
-        if (shippingAddress != null) {
-            ShippingAddressView savedAddress = orderShippingAddressRepositorySave(
-                    order.id(),
-                    shippingAddress
-            );
-            return view.withShippingAddress(savedAddress);
-        }
-        return view;
+        ShippingAddressView savedAddress = orderShippingAddressRepositorySave(
+                order.id(),
+                shippingAddress
+        );
+        return view.withShippingAddress(savedAddress);
     }
 
     /**
@@ -768,7 +751,9 @@ public class OrderApplicationService implements OrderApi {
     }
 
     private void validateShippingAddress(ShippingAddressCommand address) {
-        if (address == null) return;
+        if (address == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송지를 입력해야 합니다.");
+        }
         if (isBlank(address.getRecipientName()) || isBlank(address.getPhoneNumber())
                 || isBlank(address.getPostalCode()) || isBlank(address.getAddressLine1())) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER, "배송지 필수 항목을 입력해야 합니다.");
