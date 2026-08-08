@@ -11,6 +11,6 @@ class OutboxRelay {
     OutboxRelay(OutboxEventRepository repository,OutboxMessagePublisher publisher){this.repository=repository;this.publisher=publisher;}
     @Scheduled(fixedDelayString="${shopping.outbox.poll-interval:1s}") @Transactional
     public void relay(){for(OutboxEvent event:repository.findByStatusAndNextAttemptAtLessThanEqualOrderByOccurredAtAscIdAsc(
-            OutboxStatus.PENDING,clock.instant(),PageRequest.of(0,100))){try{publisher.publish(event.eventType(),event.payload());event.published(clock.instant());}
+            OutboxStatus.PENDING,clock.instant(),PageRequest.of(0,100))){try{publisher.publish(event.aggregateId().toString(),event.eventType(),event.payload());event.published(clock.instant());}
         catch(RuntimeException exception){event.failed(exception.getMessage(),clock.instant());}}}
 }

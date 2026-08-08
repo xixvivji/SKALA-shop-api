@@ -62,6 +62,9 @@ shopping:
   outbox:
     relay-enabled: ${OUTBOX_RELAY_ENABLED:false}
     poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
+    publisher: ${OUTBOX_PUBLISHER:logging}
+    kafka-topic: ${OUTBOX_KAFKA_TOPIC:skala-shop.domain-events}
+    kafka-timeout: ${OUTBOX_KAFKA_TIMEOUT:5s}
   observability:
     correlation-header: X-Correlation-ID
 
