@@ -13,6 +13,7 @@ TARGET_METADATA=$ROLLBACK_TARGET_RELEASE
 
 require_shared_files
 acquire_deployment_lock
+ensure_grafana_secrets
 recover_interrupted_release
 
 preflight_cleanup() {

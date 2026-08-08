@@ -15,8 +15,9 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 | API 계약 | Springdoc/OpenAPI test | endpoint와 스키마 문서 |
 | 프론트 정적 | Node.js 검사 script | 파일 참조, 문법, 금액 경계, 접근성 회귀 조건 |
 | 브라우저 E2E | Playwright Chromium | 고객·관리자 화면, 데스크톱·모바일 |
+| 모니터링 구성 | Docker Compose, promtool, jq | 내부 scrape, provisioning, 외부 노출 경계 |
 | 배포 시뮬레이션 | POSIX shell | candidate/current/known-good 전환과 롤백 |
-| 운영 smoke | Node.js, Playwright | Vercel·EC2·RDS 실제 연결 |
+| 운영 smoke | Node.js, Playwright | Vercel·EC2·RDS와 Grafana 실제 연결 |
 
 ## 백엔드 테스트
 
@@ -24,7 +25,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 ./gradlew test
 ```
 
-현재 128개 테스트가 다음을 포함합니다.
+현재 백엔드 130개 테스트는 다음을 포함합니다.
 
 - Spring Modulith 모듈 경계
 - Flyway V1~V26 적용과 JPA schema validation
@@ -48,6 +49,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 - 마지막 재고 동시 주문, 전액 카드 주문 멱등성과 주문·취소·반품 동시성
 - JPA 낙관적 잠금 충돌의 `409 CONCURRENT_MODIFICATION` 응답
 - Swagger/OpenAPI와 민감정보 비노출 API 로그
+- 운영 API 8080과 Actuator management 9090 분리, management endpoint 접근 정책
 
 Gradle이 `UP-TO-DATE`로 표시되는 상황에서 전체를 실제로 다시 실행하려면 다음을
 사용합니다.
@@ -151,8 +153,9 @@ npm --prefix frontend run test:e2e:live
 
 ## 공개 smoke
 
-공개 페이지, health, 카테고리, 상품과 OpenAPI가 응답하는지만 읽기 전용으로
-확인합니다.
+공개 페이지, health, Grafana health, 카테고리, 상품과 OpenAPI를 읽기 전용으로
+확인합니다. `/actuator/prometheus`가 404인지도 함께 검사해 원본 메트릭이 외부에
+노출되지 않았음을 확인합니다.
 
 ```bash
 SKALA_FRONTEND_ORIGIN=https://skala-shop-bice.vercel.app \
@@ -163,23 +166,26 @@ node deploy/tools/smoke-production.mjs
 ## 배포 시뮬레이션
 
 ```bash
+sh deploy/tests/monitoring-config-test.sh
 sh deploy/tests/release-flow-test.sh
 ```
 
 실제 AWS나 Docker Hub를 변경하지 않고 다음을 검사합니다.
 
+- 운영 Compose, Prometheus 설정과 Grafana provisioning 정적 검증
 - 중복 배포 lock
 - 정상 candidate 승격
-- Backend health 또는 Nginx 검사 실패 rollback
+- Backend·Prometheus·Grafana health 또는 scrape target 실패 rollback
+- Nginx 검사 실패 rollback
 - 중단된 배포 journal 복구
 - 수동 rollback과 rollback 실패 보상
 - mutable image tag 거부
 
 ## GitHub Actions
 
-- 모든 PR과 `feature/*`, `develop` push: 백엔드, 프론트와 배포 시뮬레이션
+- 모든 PR과 `feature/*`, `develop` push: 백엔드, 프론트, 모니터링 구성과 배포 시뮬레이션
 - `main` push: 전체 검사 후 Docker image 게시와 EC2 운영 배포
-- `Production smoke`: 수동 공개 smoke, 선택적 live E2E
+- `Production smoke`: 수동 공개 API·Grafana smoke, 선택적 live E2E
 - Vercel: PR preview와 `main` production 배포
 
 운영 live E2E는 GitHub production environment의 보호 규칙과 secret을 사용할 수

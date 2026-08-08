@@ -14,6 +14,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 require_shared_files
 acquire_deployment_lock
+ensure_grafana_secrets
 
 LETSENCRYPT_EMAIL_VALUE=$(infra_env_value LETSENCRYPT_EMAIL)
 case "$LETSENCRYPT_EMAIL_VALUE" in
