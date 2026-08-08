@@ -13,10 +13,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
+@ConditionalOnProperty(name = "shopping.security.rate-limit.store", havingValue = "memory", matchIfMissing = true)
 class InMemoryAuthenticationRateLimiter implements AuthenticationRateLimitApi {
 
     private static final long CLEANUP_INTERVAL = 256;

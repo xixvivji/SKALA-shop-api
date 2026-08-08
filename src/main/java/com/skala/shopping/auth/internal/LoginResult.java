@@ -9,19 +9,21 @@ public final class LoginResult {
     private final String loginId;
     private final String role;
     private final String accessToken;
+    private final String refreshToken;
     private final Instant expiresAt;
 
     public LoginResult(
             UUID memberId,
             String loginId,
             String role,
-            String accessToken,
+            String accessToken, String refreshToken,
             Instant expiresAt
     ) {
         this.memberId = memberId;
         this.loginId = loginId;
         this.role = role;
         this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
         this.expiresAt = expiresAt;
     }
 
@@ -44,4 +46,5 @@ public final class LoginResult {
     public Instant getExpiresAt() {
         return expiresAt;
     }
+    public String getRefreshToken() { return refreshToken; }
 }

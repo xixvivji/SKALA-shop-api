@@ -6,6 +6,7 @@ export const API_BASE_URL = configuredBaseUrl.replace(/\/+$/, "");
 const activityListeners = new Set();
 let csrfToken = null;
 let csrfRequest = null;
+let refreshRequest = null;
 
 export class ApiError extends Error {
   constructor({ status = 0, code = "UNKNOWN_ERROR", message, fieldErrors = {} }) {
@@ -100,6 +101,7 @@ async function request(
     headers = {},
     idempotencyKey,
     retryCsrf = true,
+    retryAuth = true,
   } = {},
 ) {
   const normalizedMethod = method.toUpperCase();
@@ -159,6 +161,18 @@ async function request(
   });
 
   if (!response.ok) {
+    const refreshExcluded = ["/api/customers/login", "/api/customers/refresh", "/api/customers/logout"].includes(path);
+    if (response.status === 401 && retryAuth && !refreshExcluded) {
+      refreshRequest ||= request("/api/customers/refresh", { method: "POST", retryAuth: false })
+        .finally(() => { refreshRequest = null; });
+      try {
+        await refreshRequest;
+        return request(path, { method: normalizedMethod, body, headers, idempotencyKey,
+          retryCsrf, retryAuth: false });
+      } catch {
+        throw errorFromResponse(response, payload);
+      }
+    }
     if (response.status === 403 && isMutation(normalizedMethod) && retryCsrf) {
       await issueCsrfToken(true);
       return request(path, {
@@ -167,6 +181,7 @@ async function request(
         headers,
         idempotencyKey,
         retryCsrf: false,
+        retryAuth,
       });
     }
     throw errorFromResponse(response, payload);

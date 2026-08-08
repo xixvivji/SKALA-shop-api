@@ -3,13 +3,25 @@ spring:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
 
 shopping:
+  outbox:
+    relay-enabled: true
+    poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
   security:
+    refresh-token:
+      store: redis
     jwt:
       secret: ${JWT_SECRET}
     cookie:
       secure: true
+    rate-limit:
+      store: redis
 
 logging:
   structured:
