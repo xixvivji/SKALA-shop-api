@@ -180,20 +180,27 @@ jobs:
             --query 'Command.CommandId' \
             --output text)
 
-          set +e
-          aws ssm wait command-executed \
-            --region "$AWS_REGION" \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$EC2_INSTANCE_ID"
-          WAIT_STATUS=$?
-          set -e
+          # AWS CLI 기본 waiter는 약 100초 후 종료됩니다. 이미지 pull, health 검사와
+          # rollback까지 기다릴 수 있도록 SSM terminal status를 최대 15분 polling합니다.
+          INVOCATION=
+          COMMAND_STATUS=Pending
+          for attempt in $(seq 1 180); do
+            if INVOCATION=$(aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --output json 2>/dev/null); then
+              COMMAND_STATUS=$(jq -r '.Status' <<< "$INVOCATION")
+              case "$COMMAND_STATUS" in
+                Success|Cancelled|TimedOut|Failed|Undeliverable|Terminated)
+                  break
+                  ;;
+              esac
+            fi
+            sleep 5
+          done
 
-          INVOCATION=$(aws ssm get-command-invocation \
-            --region "$AWS_REGION" \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$EC2_INSTANCE_ID" \
-            --output json)
+          [[ -n "$INVOCATION" ]]
           jq -r '.StandardOutputContent' <<< "$INVOCATION"
           jq -r '.StandardErrorContent' <<< "$INVOCATION" >&2
-          COMMAND_STATUS=$(jq -r '.Status' <<< "$INVOCATION")
-          [[ "$WAIT_STATUS" -eq 0 && "$COMMAND_STATUS" == "Success" ]]
+          [[ "$COMMAND_STATUS" == "Success" ]]
