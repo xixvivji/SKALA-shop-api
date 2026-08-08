@@ -24,6 +24,13 @@ public class OrderItem {
     @Column(name = "product_id", nullable = false)
     private UUID productId;
 
+    @Column(name = "variant_id", nullable = false)
+    private UUID variantId;
+
+    @Column(length = 100) private String sku;
+    @Column(name = "option_name", length = 50) private String optionName;
+    @Column(name = "option_value", length = 100) private String optionValue;
+
     @Column(name = "product_name", nullable = false, length = 200)
     private String productName;
 
@@ -55,7 +62,7 @@ public class OrderItem {
             BigDecimal unitPrice,
             int orderedQuantity
     ) {
-        this(orderId, productId, productName, unitPrice, orderedQuantity,
+        this(orderId, productId, productId, null, null, null, productName, unitPrice, orderedQuantity,
                 unitPrice.multiply(BigDecimal.valueOf(orderedQuantity)), 0);
     }
 
@@ -67,7 +74,7 @@ public class OrderItem {
             int orderedQuantity,
             int lineNumber
     ) {
-        this(orderId, productId, productName, unitPrice, orderedQuantity,
+        this(orderId, productId, productId, null, null, null, productName, unitPrice, orderedQuantity,
                 unitPrice.multiply(BigDecimal.valueOf(orderedQuantity)), lineNumber);
     }
 
@@ -80,9 +87,20 @@ public class OrderItem {
             BigDecimal paidAmount,
             int lineNumber
     ) {
+        this(orderId, productId, productId, null, null, null, productName, unitPrice,
+                orderedQuantity, paidAmount, lineNumber);
+    }
+
+    public OrderItem(UUID orderId, UUID productId, UUID variantId, String sku,
+                     String optionName, String optionValue, String productName,
+                     BigDecimal unitPrice, int orderedQuantity, BigDecimal paidAmount, int lineNumber) {
         this.id = UUID.randomUUID();
         this.orderId = orderId;
         this.productId = productId;
+        this.variantId = variantId;
+        this.sku = sku;
+        this.optionName = optionName;
+        this.optionValue = optionValue;
         this.productName = productName;
         this.unitPrice = unitPrice;
         this.paidAmount = paidAmount.setScale(2, RoundingMode.UNNECESSARY);
@@ -101,6 +119,8 @@ public class OrderItem {
     public UUID productId() {
         return productId;
     }
+
+    public UUID variantId() { return variantId; }
 
     public String productName() {
         return productName;
@@ -149,6 +169,10 @@ public class OrderItem {
         return new OrderItemView(
                 id,
                 productId,
+                variantId,
+                sku,
+                optionName,
+                optionValue,
                 productName,
                 unitPrice,
                 paidAmount,
@@ -162,6 +186,10 @@ public class OrderItem {
         return new OrderItemView(
                 id,
                 productId,
+                variantId,
+                sku,
+                optionName,
+                optionValue,
                 productName,
                 unitPrice,
                 paidAmount,

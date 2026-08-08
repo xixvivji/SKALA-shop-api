@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 interface CartItemRepository extends JpaRepository<CartItem, UUID> {
     List<CartItem> findAllByMemberIdOrderByCreatedAtAscIdAsc(UUID memberId);
-    Optional<CartItem> findByMemberIdAndProductId(UUID memberId, UUID productId);
+    Optional<CartItem> findByMemberIdAndVariantId(UUID memberId, UUID variantId);
     long countByMemberId(UUID memberId);
     void deleteAllByMemberId(UUID memberId);
     void deleteAllByProductId(UUID productId);

@@ -4,5 +4,5 @@ import java.util.UUID;
 
 interface ProductReader {
 
-    OrderProduct getSaleableProduct(UUID productId);
+    OrderProduct getSaleableProduct(UUID productId, UUID variantId);
 }
