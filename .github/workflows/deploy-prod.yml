@@ -36,6 +36,8 @@ jobs:
         run: ./gradlew test --no-daemon
       - name: Validate public Docker demo
         run: docker compose -f compose.demo.yml config --quiet
+      - name: Validate production monitoring configuration
+        run: sh deploy/tests/monitoring-config-test.sh
       - name: Simulate deployment release flow
         run: sh deploy/tests/release-flow-test.sh
 
@@ -133,6 +135,7 @@ jobs:
           docker compose -f compose.demo.yml up -d --wait
           curl --fail --silent http://127.0.0.1:18080/actuator/health | grep -q '"status":"UP"'
           curl --fail --silent http://127.0.0.1:18080/v3/api-docs | grep -q '"openapi"'
+          curl --fail --silent http://127.0.0.1:18080/actuator/prometheus | grep -q '^# HELP http_server_requests'
       - name: Restore Docker Hub credentials for tag promotion
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -158,6 +161,9 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
@@ -177,39 +183,20 @@ jobs:
           [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
           [[ "$BACKEND_IMAGE_REF" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]
 
-          # private 저장소의 codeload URL은 EC2에서 인증할 수 없으므로 필요한 런타임 파일만 SSM으로 전달합니다.
-          DEPLOY_ARCHIVE_BASE64=$(
-            tar -czf - deploy/compose.prod.yml deploy/nginx deploy/scripts | base64 -w 0
-          )
-          [[ "${#DEPLOY_ARCHIVE_BASE64}" -le 15000 ]]
-
-          REMOTE_RELEASE_DIR="/opt/skala-shop/releases/$RELEASE_ID"
           if [[ "$BOOTSTRAP_TLS" == "true" ]]; then
             DEPLOY_SCRIPT=bootstrap-tls.sh
           else
             DEPLOY_SCRIPT=deploy.sh
           fi
 
-          REMOTE_SCRIPT=$(cat <<EOF
-          set -euo pipefail
-          RELEASE_ID='$RELEASE_ID'
-          SOURCE_REVISION='$SOURCE_REVISION'
-          BACKEND_IMAGE_REF='$BACKEND_IMAGE_REF'
-          DEPLOY_SCRIPT='$DEPLOY_SCRIPT'
-          REMOTE_RELEASE_DIR='$REMOTE_RELEASE_DIR'
-          DEPLOY_ARCHIVE_BASE64='$DEPLOY_ARCHIVE_BASE64'
-          ARCHIVE_FILE="/tmp/skala-shop-$RELEASE_ID.tar.gz"
-          trap 'rm -f "\$ARCHIVE_FILE"' EXIT
-          install -d -m 755 -o ubuntu -g ubuntu "\$REMOTE_RELEASE_DIR"
-          printf '%s' "\$DEPLOY_ARCHIVE_BASE64" | base64 -d > "\$ARCHIVE_FILE"
-          tar -xzf "\$ARCHIVE_FILE" -C "\$REMOTE_RELEASE_DIR" --strip-components=1
-          chown -R ubuntu:ubuntu "\$REMOTE_RELEASE_DIR"
-          chmod 700 "\$REMOTE_RELEASE_DIR"/scripts/*.sh
-          runuser -u ubuntu -- env HOME=/home/ubuntu "\$REMOTE_RELEASE_DIR/scripts/\$DEPLOY_SCRIPT" "\$RELEASE_ID" "\$BACKEND_IMAGE_REF"
-          EOF
+          # 필요한 runtime 파일은 SSM command에 한 번만 base64 archive로 포함합니다.
+          # 전체 script를 다시 인코딩하지 않아 AWS RunShellScript 24KB 제한 안에 둡니다.
+          REMOTE_COMMAND=$(sh deploy/tools/build-deploy-payload.sh \
+            "$RELEASE_ID" \
+            "$SOURCE_REVISION" \
+            "$BACKEND_IMAGE_REF" \
+            "$DEPLOY_SCRIPT"
           )
-          REMOTE_SCRIPT_BASE64=$(printf '%s' "$REMOTE_SCRIPT" | base64 -w 0)
-          REMOTE_COMMAND="printf '%s' '$REMOTE_SCRIPT_BASE64' | base64 -d | bash"
           [[ "${#REMOTE_COMMAND}" -le 23000 ]]
 
           PARAMETERS=$(jq -n --arg command "$REMOTE_COMMAND" '{commands: [$command]}')
@@ -247,3 +234,9 @@ jobs:
           jq -r '.StandardOutputContent' <<< "$INVOCATION"
           jq -r '.StandardErrorContent' <<< "$INVOCATION" >&2
           [[ "$COMMAND_STATUS" == "Success" ]]
+
+      - name: Verify public API and monitoring edge
+        env:
+          SKALA_FRONTEND_ORIGIN: ${{ vars.PRODUCTION_FRONTEND_ORIGIN }}
+          SKALA_API_BASE_URL: ${{ vars.PRODUCTION_API_ORIGIN }}
+        run: node deploy/tools/smoke-production.mjs

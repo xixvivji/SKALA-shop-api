@@ -83,17 +83,29 @@ Node.js 22로 카탈로그 seed 도구를 실행합니다. 전체 절차는
 - Flyway 마이그레이션과 PostgreSQL 통합 테스트
 - 실패 배포 자동 롤백과 known-good 릴리스 보존
 
+### 운영 관측
+
+- Spring Boot Actuator와 Micrometer Prometheus 형식의 애플리케이션 메트릭
+- HTTP 요청 수·상태·지연 시간, JVM·프로세스·시스템과 DB connection pool 관측
+- 비즈니스 오류, 결제 결과·환불·재처리와 Fake PG webhook 결과 counter
+- Prometheus 3일·512MB 보존 제한과 Grafana Backend overview dashboard
+- API 포트와 분리된 내부 management 포트, 외부 Prometheus 원본 메트릭 차단
+- Grafana 자체 로그인 필수, anonymous access와 사용자 임의 가입 비활성화
+
 ## 전체 구성
 
 ```mermaid
 flowchart LR
     U[사용자 브라우저] --> V[Vercel 정적 프론트]
-    V -->|/api, /actuator proxy| N[Nginx + TLS<br/>EC2 Docker Compose]
+    V -->|/api, health proxy| N[Nginx + TLS<br/>EC2 Docker Compose]
     N --> B[Spring Boot API<br/>Modular Monolith]
     B --> R[(Private RDS<br/>PostgreSQL 17)]
     B --> RD[(Redis<br/>Auth session/rate limit)]
     B --> K[Kafka EC2<br/>Outbox events]
     B --> E[Elasticsearch EC2<br/>Product search]
+    B -->|management 9090| P[Prometheus<br/>internal scrape]
+    P --> GR[Grafana dashboard]
+    N -->|/grafana/| GR
     G[GitHub Actions] -->|Docker image| D[Docker Hub]
     G -->|OIDC + SSM| N
     C[Certbot container] --> N
@@ -104,6 +116,10 @@ HTTPS API로 전달하므로 브라우저에서 별도 API 주소나 mixed-conte
 않습니다. 애플리케이션 EC2에는 Backend, Redis, Nginx와 Certbot이 실행됩니다.
 Kafka와 Elasticsearch는 별도 EC2에서 실행하고 애플리케이션 보안 그룹에서 들어오는
 사설망 트래픽만 허용하며, DB는 외부에 공개하지 않은 RDS를 사용합니다.
+모니터링 배포가 반영되면 Prometheus와 Grafana는 애플리케이션 EC2의 같은 내부
+네트워크에서 실행합니다. Prometheus는 외부 포트를 열지 않고 Backend의 9090
+management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자체 로그인을
+통해 접근합니다.
 
 ## 기술 스택
 
@@ -118,6 +134,7 @@ Kafka와 Elasticsearch는 별도 EC2에서 실행하고 애플리케이션 보�
 | Frontend | HTML5, CSS3, Vanilla JavaScript, Vercel |
 | Infrastructure | AWS EC2 3대/RDS, Docker Compose, Nginx, Certbot, Docker Hub |
 | CI/CD | GitHub Actions, GitHub OIDC, AWS Systems Manager |
+| Monitoring | Spring Boot Actuator, Micrometer, Prometheus, Grafana |
 
 ## 저장소 구조
 
@@ -127,7 +144,7 @@ Kafka와 Elasticsearch는 별도 EC2에서 실행하고 애플리케이션 보�
 ├── src/main/resources/                 # profile 설정과 Flyway V1~V26
 ├── src/test/                           # 단위·통합·모듈 경계 테스트
 ├── frontend/                           # Vercel 정적 프론트와 Playwright E2E
-├── deploy/                             # EC2 Compose, Nginx, Certbot, 배포·롤백
+├── deploy/                             # EC2 Compose, Nginx, 모니터링, 배포·롤백
 ├── docs/                               # 아키텍처, API 사용법과 테스트 전략
 ├── .github/workflows/                  # CI, 운영 배포, 운영 smoke
 ├── compose.demo.yml                    # 공개 Docker Hub 이미지 기반 로컬 데모
@@ -260,7 +277,7 @@ npm --prefix frontend ci
 npm --prefix frontend run test:e2e
 ```
 
-현재 백엔드 128개 테스트와 데스크톱·모바일 브라우저 E2E 10개가 모듈 경계, 인증,
+현재 백엔드 130개 테스트와 데스크톱·모바일 브라우저 E2E 10개가 모듈 경계, 인증,
 Validation, PostgreSQL 트랜잭션, 동시 주문·반품, 멱등 재시도와 프론트 고객·관리자
 흐름을 검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를
 변경하므로 명시적으로 활성화할 때만 실행합니다. 자세한 구분은
@@ -284,6 +301,11 @@ Compose의 Health와 OpenAPI를 확인하고, 검증을 통과한 digest만 공�
 OIDC로 AWS의 단기 권한을 얻은 뒤 SSM으로 EC2에 필요한
 배포 파일만 전송합니다. Candidate health와 Nginx 검사가 모두 통과한 뒤 current로
 승격하며 실패하면 known-good 릴리스로 복구합니다.
+
+모니터링 구성이 포함된 릴리스에서는 Prometheus와 Grafana health뿐 아니라
+Prometheus가 Backend target을 실제로 `UP`으로 수집했는지도 확인한 뒤 edge를
+전환합니다. `/actuator/prometheus`는 Docker 내부에서만 접근할 수 있고 공개
+Nginx에서는 404로 차단합니다.
 
 운영 환경변수, 최초 TLS, bootstrap 관리자, 초기 상품, smoke와 롤백 방법은
 [배포 문서](deploy/README.md)를 참고합니다.

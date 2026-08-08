@@ -9,11 +9,12 @@ services:
       SPRING_PROFILES_ACTIVE: prod
     expose:
       - "8080"
+      - "9090"
     networks:
       - internal
       - egress
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9090/actuator/health"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -54,6 +55,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      grafana:
+        condition: service_healthy
     networks:
       - edge
       - internal
@@ -79,6 +82,118 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.13.2@sha256:508729e0e2d18e11fd742a5a5ca70e557b940a93948c3c95fd0123a6fd538b69
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3d
+      - --storage.tsdb.retention.size=512MB
+    expose:
+      - "9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 192m
+    mem_reservation: 64m
+    cpus: "0.50"
+    pids_limit: 128
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:13.1.3@sha256:ab5cb380e3ff3172d6c8bd2e7cfd31cce977d2881b260e1f5bc089bf0b759b43
+    environment:
+      GF_SERVER_DOMAIN: ${API_DOMAIN}
+      GF_SERVER_ROOT_URL: https://${API_DOMAIN}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_SECURITY_SECRET_KEY__FILE: /run/secrets/grafana_secret_key
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_CONTENT_SECURITY_POLICY: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 30s
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/skala-shop-overview.json
+      GF_LOG_MODE: console
+      GF_LOG_LEVEL: warn
+    expose:
+      - "3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+    secrets:
+      - source: grafana-admin-password
+        target: grafana_admin_password
+        uid: "472"
+        gid: "472"
+        mode: 0400
+      - source: grafana-secret-key
+        target: grafana_secret_key
+        uid: "472"
+        gid: "472"
+        mode: 0400
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3000/grafana/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    mem_reservation: 96m
+    cpus: "0.50"
+    pids_limit: 128
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
 
   certbot-renew:
     image: certbot/certbot:latest@sha256:34ee91d2f43008eb78a007d22f23ed4b2eaa9a454cb27ca2c042b49527a695b4
@@ -133,3 +248,11 @@ volumes:
   letsencrypt:
   certbot-webroot:
   redis-data:
+  prometheus-data:
+  grafana-data:
+
+secrets:
+  grafana-admin-password:
+    environment: GRAFANA_ADMIN_PASSWORD
+  grafana-secret-key:
+    environment: GRAFANA_SECRET_KEY

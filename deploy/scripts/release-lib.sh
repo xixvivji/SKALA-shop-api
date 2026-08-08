@@ -9,6 +9,9 @@ SHARED_DIR="$INSTALL_ROOT/deploy"
 STATE_DIR="$INSTALL_ROOT/state"
 INFRA_ENV="$SHARED_DIR/.env.infra"
 APP_ENV="$SHARED_DIR/.env.app"
+GRAFANA_ADMIN_PASSWORD_FILE="$SHARED_DIR/grafana-admin-password"
+GRAFANA_SECRET_KEY_FILE="$SHARED_DIR/grafana-secret-key"
+GRAFANA_DATA_VOLUME="skala-shop_grafana-data"
 LOCK_FILE="$STATE_DIR/deploy.lock"
 CURRENT_RELEASE="$STATE_DIR/current.env"
 KNOWN_GOOD_RELEASE="$STATE_DIR/known-good.env"
@@ -38,6 +41,105 @@ require_shared_files() {
         return 1
     fi
     validate_app_environment || return 1
+}
+
+ensure_secret_file() {
+    secret_file=$1
+    secret_label=$2
+    random_bytes=$3
+    created_secret=0
+
+    if [ -L "$secret_file" ]; then
+        echo "$secret_label must not be a symbolic link: $secret_file" >&2
+        return 1
+    fi
+
+    if [ -e "$secret_file" ]; then
+        if [ ! -f "$secret_file" ]; then
+            echo "$secret_label must be a regular file: $secret_file" >&2
+            return 1
+        fi
+    else
+        # Grafana only consumes its initial admin password when it creates the
+        # database. Silently replacing a lost secret while its data volume
+        # remains would create a credential that cannot log in.
+        if docker volume inspect "$GRAFANA_DATA_VOLUME" >/dev/null 2>&1; then
+            echo "$secret_label is missing while Grafana data already exists" >&2
+            echo "recover the original secret or reset the Grafana credential explicitly" >&2
+            return 1
+        fi
+
+        temporary_secret="${secret_file}.tmp.$$"
+        if ! (
+            umask 077
+            od -An -N "$random_bytes" -tx1 /dev/urandom \
+                | tr -d ' \n' > "$temporary_secret"
+            chmod 600 "$temporary_secret"
+            mv "$temporary_secret" "$secret_file"
+        ); then
+            rm -f "$temporary_secret"
+            echo "could not create $secret_label" >&2
+            return 1
+        fi
+        created_secret=1
+    fi
+
+    chmod 600 "$secret_file" || return 1
+    secret_mode=$(portable_stat_mode "$secret_file") || return 1
+    if [ "$secret_mode" != "600" ]; then
+        echo "$secret_label must have mode 600: $secret_file" >&2
+        return 1
+    fi
+    secret_owner=$(portable_stat_uid "$secret_file") || return 1
+    if [ "$secret_owner" != "$(id -u)" ]; then
+        echo "$secret_label must be owned by the deployment user: $secret_file" >&2
+        return 1
+    fi
+    if ! validate_secret_file "$secret_file" "$secret_label"; then
+        if [ "$created_secret" -eq 1 ]; then
+            rm -f "$secret_file"
+        fi
+        return 1
+    fi
+}
+
+portable_stat_mode() {
+    stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null
+}
+
+portable_stat_uid() {
+    stat -c '%u' "$1" 2>/dev/null || stat -f '%u' "$1" 2>/dev/null
+}
+
+validate_secret_file() {
+    secret_file=$1
+    secret_label=$2
+    secret_value=$(cat "$secret_file") || return 1
+
+    if [ "${#secret_value}" -lt 48 ] || [ "${#secret_value}" -gt 128 ]; then
+        echo "$secret_label must contain 48 to 128 hexadecimal characters" >&2
+        return 1
+    fi
+    case "$secret_value" in
+        *[!0-9a-f]*)
+            echo "$secret_label must contain lowercase hexadecimal characters only" >&2
+            return 1
+            ;;
+    esac
+}
+
+ensure_grafana_secrets() {
+    ensure_secret_file "$GRAFANA_ADMIN_PASSWORD_FILE" \
+        "Grafana admin password" 24 || return 1
+    ensure_secret_file "$GRAFANA_SECRET_KEY_FILE" \
+        "Grafana secret key" 32 || return 1
+}
+
+secret_file_value() {
+    secret_file=$1
+    secret_label=$2
+    validate_secret_file "$secret_file" "$secret_label" || return 1
+    cat "$secret_file"
 }
 
 app_env_value() {
@@ -259,7 +361,11 @@ write_release_metadata() {
         return 1
     fi
     if [ ! -f "$RELEASE_DIR/compose.prod.yml" ] \
-            || [ ! -f "$RELEASE_DIR/nginx/api.conf.template" ]; then
+            || [ ! -f "$RELEASE_DIR/nginx/api.conf.template" ] \
+            || [ ! -f "$RELEASE_DIR/monitoring/prometheus/prometheus.yml" ] \
+            || [ ! -f "$RELEASE_DIR/monitoring/grafana/provisioning/datasources/prometheus.yml" ] \
+            || [ ! -f "$RELEASE_DIR/monitoring/grafana/provisioning/dashboards/dashboards.yml" ] \
+            || [ ! -f "$RELEASE_DIR/monitoring/grafana/dashboards/skala-shop-overview.json" ]; then
         echo "release configuration is incomplete: $RELEASE_DIR" >&2
         return 1
     fi
@@ -326,8 +432,14 @@ compose_for() {
     metadata_file=$1
     shift
     load_release_metadata "$metadata_file" || return 1
+    grafana_admin_password=$(secret_file_value \
+        "$GRAFANA_ADMIN_PASSWORD_FILE" "Grafana admin password") || return 1
+    grafana_secret_key=$(secret_file_value \
+        "$GRAFANA_SECRET_KEY_FILE" "Grafana secret key") || return 1
     BACKEND_IMAGE_REF="$METADATA_IMAGE_REF" \
     APP_ENV_FILE="$APP_ENV" \
+    GRAFANA_ADMIN_PASSWORD="$grafana_admin_password" \
+    GRAFANA_SECRET_KEY="$grafana_secret_key" \
     docker compose \
         --project-name skala-shop \
         --env-file "$INFRA_ENV" \
@@ -337,14 +449,21 @@ compose_for() {
 
 wait_for_backend() {
     metadata_file=$1
-    container_id=$(compose_for "$metadata_file" ps -q backend)
+    wait_for_service_health "$metadata_file" backend 24
+}
+
+wait_for_service_health() {
+    metadata_file=$1
+    service_name=$2
+    max_attempts=$3
+    container_id=$(compose_for "$metadata_file" ps -q "$service_name")
     if [ -z "$container_id" ]; then
-        echo "backend container was not created" >&2
+        echo "$service_name container was not created" >&2
         return 1
     fi
 
     attempt=1
-    while [ "$attempt" -le 24 ]; do
+    while [ "$attempt" -le "$max_attempts" ]; do
         status=$(docker inspect --format '{{.State.Health.Status}}' "$container_id" 2>/dev/null || true)
         if [ "$status" = "healthy" ]; then
             return 0
@@ -358,6 +477,58 @@ wait_for_backend() {
     return 1
 }
 
+release_has_monitoring() {
+    metadata_file=$1
+    services=$(compose_for "$metadata_file" config --services) || return 2
+    prometheus_present=0
+    grafana_present=0
+    if printf '%s\n' "$services" | grep -qx prometheus; then
+        prometheus_present=1
+    fi
+    if printf '%s\n' "$services" | grep -qx grafana; then
+        grafana_present=1
+    fi
+
+    if [ "$prometheus_present" -eq 1 ] && [ "$grafana_present" -eq 1 ]; then
+        return 0
+    fi
+    if [ "$prometheus_present" -eq 0 ] && [ "$grafana_present" -eq 0 ]; then
+        return 1
+    fi
+    echo "release must define Prometheus and Grafana together" >&2
+    return 2
+}
+
+wait_for_prometheus_target() {
+    metadata_file=$1
+    attempt=1
+    while [ "$attempt" -le 24 ]; do
+        response=$(compose_for "$metadata_file" exec -T prometheus \
+            wget --quiet --output-document=- \
+            'http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22skala-shop-api%22%7D' \
+            2>/dev/null || true)
+        if printf '%s' "$response" | grep -q '"job":"skala-shop-api"' \
+                && printf '%s' "$response" | grep -q ',"1"\]'; then
+            return 0
+        fi
+        sleep 5
+        attempt=$((attempt + 1))
+    done
+    echo "Prometheus did not report the Backend scrape target as UP" >&2
+    return 1
+}
+
+activate_monitoring() {
+    metadata_file=$1
+    compose_for "$metadata_file" up -d --no-deps prometheus || return 1
+    wait_for_service_health "$metadata_file" prometheus 24 || return 1
+    # The host has no swap and limited free memory. Start Grafana only after
+    # Prometheus is healthy so peak initialization memory does not overlap.
+    compose_for "$metadata_file" up -d --no-deps grafana || return 1
+    wait_for_service_health "$metadata_file" grafana 24 || return 1
+    wait_for_prometheus_target "$metadata_file" || return 1
+}
+
 test_nginx_config() {
     metadata_file=$1
     compose_for "$metadata_file" run --rm --no-deps nginx nginx -t
@@ -365,9 +536,83 @@ test_nginx_config() {
 
 activate_edge() {
     metadata_file=$1
-    compose_for "$metadata_file" up -d --no-deps nginx certbot-renew || return 1
+    # --remove-orphans is required when rolling back the first monitoring
+    # release to an older Compose that did not define Prometheus or Grafana.
+    # It removes only services absent from the target project definition and
+    # leaves its Backend, Redis and edge services intact.
+    compose_for "$metadata_file" up -d --no-deps --remove-orphans \
+        nginx certbot-renew || return 1
     compose_for "$metadata_file" exec -T nginx nginx -t || return 1
     compose_for "$metadata_file" exec -T nginx nginx -s reload || return 1
+    verify_edge_routes "$metadata_file" || return 1
+}
+
+edge_response_body() {
+    request_path=$1
+    curl --fail --silent --show-error \
+        --noproxy '*' \
+        --connect-timeout 5 \
+        --max-time 15 \
+        --resolve "$INFRA_API_DOMAIN:443:127.0.0.1" \
+        "https://$INFRA_API_DOMAIN$request_path"
+}
+
+edge_status_code() {
+    request_path=$1
+    curl --silent --show-error \
+        --noproxy '*' \
+        --connect-timeout 5 \
+        --max-time 15 \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        --resolve "$INFRA_API_DOMAIN:443:127.0.0.1" \
+        "https://$INFRA_API_DOMAIN$request_path"
+}
+
+verify_edge_routes() {
+    metadata_file=$1
+    health_response=$(edge_response_body /actuator/health) || {
+        echo "public health route did not return a successful response" >&2
+        return 1
+    }
+    if ! printf '%s' "$health_response" \
+            | grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"'; then
+        echo "public health route did not report UP" >&2
+        return 1
+    fi
+
+    monitoring_status=0
+    release_has_monitoring "$metadata_file" || monitoring_status=$?
+    case "$monitoring_status" in
+        0)
+            grafana_response=$(edge_response_body /grafana/api/health) || {
+                echo "public Grafana health route did not return a successful response" >&2
+                return 1
+            }
+            if ! printf '%s' "$grafana_response" \
+                    | grep -Eq '"database"[[:space:]]*:[[:space:]]*"ok"'; then
+                echo "public Grafana health route did not report an available database" >&2
+                return 1
+            fi
+            metrics_status=$(edge_status_code /actuator/prometheus) || return 1
+            if [ "$metrics_status" != "404" ]; then
+                echo "public Prometheus endpoint must return 404, got $metrics_status" >&2
+                return 1
+            fi
+            ;;
+        1)
+            # An older rollback target has no Grafana route. Any 2xx response
+            # means the candidate edge or an orphan monitoring proxy survived.
+            grafana_status=$(edge_status_code /grafana/api/health) || true
+            case "$grafana_status" in
+                2??)
+                    echo "Grafana route remained public after rollback to a release without monitoring" >&2
+                    return 1
+                    ;;
+            esac
+            ;;
+        *) return 1 ;;
+    esac
 }
 
 activate_release() {
@@ -375,6 +620,20 @@ activate_release() {
     compose_for "$metadata_file" pull backend || true
     compose_for "$metadata_file" up -d --no-deps backend || return 1
     wait_for_backend "$metadata_file" || return 1
+    monitoring_status=0
+    release_has_monitoring "$metadata_file" || monitoring_status=$?
+    case "$monitoring_status" in
+        0)
+            compose_for "$metadata_file" pull prometheus grafana || true
+            activate_monitoring "$metadata_file" || return 1
+            ;;
+        1)
+            # Backward-compatible rollback target. activate_edge removes the
+            # monitoring containers as project orphans after the old Backend
+            # and Nginx configuration are ready.
+            ;;
+        *) return 1 ;;
+    esac
     test_nginx_config "$metadata_file" || return 1
     activate_edge "$metadata_file" || return 1
 }

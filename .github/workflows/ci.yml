@@ -24,6 +24,8 @@ jobs:
         run: ./gradlew test --no-daemon
       - name: Validate public Docker demo
         run: docker compose -f compose.demo.yml config --quiet
+      - name: Validate production monitoring configuration
+        run: sh deploy/tests/monitoring-config-test.sh
       - name: Simulate deployment release flow
         run: sh deploy/tests/release-flow-test.sh
 

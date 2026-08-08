@@ -42,10 +42,14 @@ springdoc:
       header-name: X-XSRF-TOKEN
 
 management:
+  prometheus:
+    metrics:
+      export:
+        enabled: true
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,prometheus
   endpoint:
     health:
       probes:
