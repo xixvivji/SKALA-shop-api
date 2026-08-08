@@ -59,9 +59,35 @@ prepare_release() {
     release_dir="$TEST_ROOT/releases/$release_id"
     mkdir -p "$release_dir"
     cp "$SOURCE_DEPLOY_DIR/compose.prod.yml" "$release_dir/compose.prod.yml"
+    cp -R "$SOURCE_DEPLOY_DIR/monitoring" "$release_dir/monitoring"
     cp -R "$SOURCE_DEPLOY_DIR/nginx" "$release_dir/nginx"
     cp -R "$SOURCE_DEPLOY_DIR/scripts" "$release_dir/scripts"
     chmod 700 "$release_dir"/scripts/*.sh
+}
+
+prepare_legacy_release() {
+    release_id=$1
+    prepare_release "$release_id"
+    release_dir="$TEST_ROOT/releases/$release_id"
+    rm -rf "$release_dir/monitoring"
+    printf '%s\n' \
+        'name: skala-shop' \
+        'services:' \
+        '  backend:' \
+        '    image: ${BACKEND_IMAGE_REF}' \
+        '  redis:' \
+        '    image: redis:alpine' \
+        '  nginx:' \
+        '    image: nginx:alpine' \
+        '  certbot-renew:' \
+        '    image: certbot/certbot:latest' \
+        > "$release_dir/compose.prod.yml"
+    printf '%s\n' \
+        'server {' \
+        '    listen 443 ssl;' \
+        '    location / { proxy_pass http://backend:8080; }' \
+        '}' \
+        > "$release_dir/nginx/api.conf.template"
 }
 
 write_metadata() {
@@ -97,21 +123,33 @@ printf '%s\n' \
     'CORS_ALLOWED_ORIGINS=https://shop.example.com' \
     'BOOTSTRAP_ADMIN_ENABLED=false' \
     > "$TEST_ROOT/deploy/.env.app"
+printf '%048d\n' 0 | tr '0' 'a' > "$TEST_ROOT/deploy/grafana-admin-password"
+printf '%064d\n' 0 | tr '0' 'b' > "$TEST_ROOT/deploy/grafana-secret-key"
+chmod 600 "$TEST_ROOT/deploy/grafana-admin-password" \
+    "$TEST_ROOT/deploy/grafana-secret-key"
 
-prepare_release release-a
+prepare_legacy_release release-a
 prepare_release release-b
 prepare_release release-c
 prepare_release release-d
+prepare_release release-e
+prepare_release release-f
+prepare_release release-g
 
 IMAGE_A="example/skala-shop-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 IMAGE_B="example/skala-shop-api@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 IMAGE_C="example/skala-shop-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 IMAGE_D="example/skala-shop-api@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+IMAGE_E="example/skala-shop-api@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+IMAGE_F="example/skala-shop-api@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+IMAGE_G="example/skala-shop-api@sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
 write_metadata "$TEST_ROOT/state/current.env" release-a "$IMAGE_A"
 
 if command -v docker >/dev/null 2>&1 \
         && docker compose version >/dev/null 2>&1; then
+    GRAFANA_ADMIN_PASSWORD=$(cat "$TEST_ROOT/deploy/grafana-admin-password") \
+    GRAFANA_SECRET_KEY=$(cat "$TEST_ROOT/deploy/grafana-secret-key") \
     docker compose \
         --project-name skala-shop-config-test \
         --env-file "$TEST_ROOT/deploy/.env.infra" \
@@ -145,10 +183,17 @@ printf '%s\n' \
     '    sed -n "s/^${2}=//p" "$1"' \
     '}' \
     '' \
+    'if [ "${1:-}" = "volume" ]; then' \
+    '    exit 1' \
+    'fi' \
+    '' \
     'if [ "${1:-}" = "inspect" ]; then' \
-    '    active_release=$(cat "$SIM_STATE/active-backend")' \
-    '    record "INSPECT $active_release"' \
-    '    cat "$SIM_STATE/health"' \
+    '    container_id=' \
+    '    for argument in "$@"; do container_id=$argument; done' \
+    '    service_name=${container_id%%-*}' \
+    '    active_release=$(cat "$SIM_STATE/active-$service_name")' \
+    '    record "INSPECT_${service_name} $active_release"' \
+    '    cat "$SIM_STATE/health-$service_name"' \
     '    exit 0' \
     'fi' \
     '' \
@@ -174,12 +219,29 @@ printf '%s\n' \
     '' \
     'case "$command_name" in' \
     '    config)' \
-    '        record "CONFIG $release_id"' \
+    '        case " $* " in' \
+    '            *" --services "*)' \
+    '                if [ -d "$release_dir/monitoring" ]; then' \
+    '                    printf "%s\n" backend redis prometheus grafana nginx certbot-renew' \
+    '                else' \
+    '                    printf "%s\n" backend redis nginx certbot-renew' \
+    '                fi' \
+    '                ;;' \
+    '            *) record "CONFIG $release_id" ;;' \
+    '        esac' \
     '        ;;' \
     '    pull)' \
     '        record "PULL $release_id"' \
     '        ;;' \
     '    up)' \
+    '        case " $* " in' \
+    '            *" --remove-orphans "*)' \
+    '                if [ ! -d "$release_dir/monitoring" ]; then' \
+    '                    record "REMOVE_MONITORING_ORPHANS $release_id"' \
+    '                    rm -f "$SIM_STATE/active-prometheus" "$SIM_STATE/active-grafana"' \
+    '                fi' \
+    '                ;;' \
+    '        esac' \
     '        case " $* " in' \
     '            *" redis "*)' \
     '                record "UP_REDIS $release_id"' \
@@ -190,9 +252,31 @@ printf '%s\n' \
     '                record "UP_BACKEND $release_id"' \
     '                printf "%s\n" "$release_id" > "$SIM_STATE/active-backend"' \
     '                if [ -f "$release_dir/fail-health" ]; then' \
-    '                    printf "%s\n" unhealthy > "$SIM_STATE/health"' \
+    '                    printf "%s\n" unhealthy > "$SIM_STATE/health-backend"' \
     '                else' \
-    '                    printf "%s\n" healthy > "$SIM_STATE/health"' \
+    '                    printf "%s\n" healthy > "$SIM_STATE/health-backend"' \
+    '                fi' \
+    '                ;;' \
+    '        esac' \
+    '        case " $* " in' \
+    '            *" prometheus "*)' \
+    '                record "UP_PROMETHEUS $release_id"' \
+    '                printf "%s\n" "$release_id" > "$SIM_STATE/active-prometheus"' \
+    '                if [ -f "$release_dir/fail-prometheus-health" ]; then' \
+    '                    printf "%s\n" unhealthy > "$SIM_STATE/health-prometheus"' \
+    '                else' \
+    '                    printf "%s\n" healthy > "$SIM_STATE/health-prometheus"' \
+    '                fi' \
+    '                ;;' \
+    '        esac' \
+    '        case " $* " in' \
+    '            *" grafana "*)' \
+    '                record "UP_GRAFANA $release_id"' \
+    '                printf "%s\n" "$release_id" > "$SIM_STATE/active-grafana"' \
+    '                if [ -f "$release_dir/fail-grafana-health" ]; then' \
+    '                    printf "%s\n" unhealthy > "$SIM_STATE/health-grafana"' \
+    '                else' \
+    '                    printf "%s\n" healthy > "$SIM_STATE/health-grafana"' \
     '                fi' \
     '                ;;' \
     '        esac' \
@@ -204,8 +288,9 @@ printf '%s\n' \
     '        esac' \
     '        ;;' \
     '    ps)' \
-    '        record "PS $release_id"' \
-    '        printf "%s\n" backend-container-id' \
+    '        service_name=${2:-backend}' \
+    '        record "PS_${service_name} $release_id"' \
+    '        printf "%s-%s-container\n" "$service_name" "$release_id"' \
     '        ;;' \
     '    run)' \
     '        record "NGINX_TEST $release_id"' \
@@ -213,6 +298,14 @@ printf '%s\n' \
     '        ;;' \
     '    exec)' \
     '        case " $* " in' \
+    '            *"api/v1/query"*)' \
+    '                record "PROMETHEUS_TARGET $release_id"' \
+    '                if [ -f "$release_dir/fail-prometheus-target" ]; then' \
+    '                    printf "%s\n" '"'"'{"status":"success","data":{"result":[{"metric":{"job":"skala-shop-api"},"value":[0,"0"]}]}}'"'" \
+    '                else' \
+    '                    printf "%s\n" '"'"'{"status":"success","data":{"result":[{"metric":{"job":"skala-shop-api"},"value":[0,"1"]}]}}'"'" \
+    '                fi' \
+    '                ;;' \
     '            *" nginx -t "*)' \
     '                record "LIVE_NGINX_TEST $release_id"' \
     '                [ ! -f "$release_dir/fail-live-nginx" ]' \
@@ -230,8 +323,53 @@ printf '%s\n' \
     > "$TEST_ROOT/bin/docker"
 chmod 700 "$TEST_ROOT/bin/docker"
 
+printf '%s\n' \
+    '#!/bin/sh' \
+    'set -eu' \
+    'url=' \
+    'status_only=0' \
+    'for argument in "$@"; do' \
+    '    case "$argument" in' \
+    '        --write-out) status_only=1 ;;' \
+    '        https://*) url=$argument ;;' \
+    '    esac' \
+    'done' \
+    '[ -n "$url" ] || exit 2' \
+    'request_path=/${url#https://*/}' \
+    'active_release=$(cat "$SIM_STATE/active-edge")' \
+    'release_dir="$TEST_ROOT/releases/$active_release"' \
+    'printf "CURL %s %s\n" "$active_release" "$request_path" >> "$SIM_STATE/log"' \
+    'case "$request_path" in' \
+    '    /actuator/health)' \
+    '        [ ! -f "$release_dir/fail-edge-health" ] || exit 22' \
+    '        printf "%s\n" '"'"'{"status":"UP"}'"'" \
+    '        ;;' \
+    '    /grafana/api/health)' \
+    '        if [ "$status_only" -eq 1 ]; then' \
+    '            if [ -d "$release_dir/monitoring" ]; then printf 200; else printf 404; fi' \
+    '        else' \
+    '            [ -d "$release_dir/monitoring" ] || exit 22' \
+    '            [ ! -f "$release_dir/fail-edge-grafana" ] || exit 22' \
+    '            printf "%s\n" '"'"'{"database":"ok","version":"test"}'"'" \
+    '        fi' \
+    '        ;;' \
+    '    /actuator/prometheus)' \
+    '        if [ -f "$release_dir/fail-metrics-boundary" ]; then printf 200; else printf 404; fi' \
+    '        ;;' \
+    '    *) printf 404 ;;' \
+    'esac' \
+    > "$TEST_ROOT/bin/curl"
+chmod 700 "$TEST_ROOT/bin/curl"
+
+printf '%s\n' \
+    '#!/bin/sh' \
+    'if [ "${1:-}" = "5" ]; then exit 0; fi' \
+    'exec /bin/sleep "$@"' \
+    > "$TEST_ROOT/bin/sleep"
+chmod 700 "$TEST_ROOT/bin/sleep"
+
 PATH="$TEST_ROOT/bin:$PATH"
-export PATH SIM_STATE
+export PATH SIM_STATE TEST_ROOT
 
 if [ "$REAL_FLOCK_AVAILABLE" -eq 1 ]; then
     (
@@ -263,10 +401,51 @@ assert_metadata_release "$TEST_ROOT/state/current.env" release-b "successful cur
 assert_metadata_release "$TEST_ROOT/state/known-good.env" release-a "successful known-good release"
 assert_equal release-b "$(cat "$SIM_STATE/active-backend")" "active backend after deployment"
 assert_equal release-b "$(cat "$SIM_STATE/active-edge")" "active edge after deployment"
+assert_equal release-b "$(cat "$SIM_STATE/active-prometheus")" "active Prometheus after deployment"
+assert_equal release-b "$(cat "$SIM_STATE/active-grafana")" "active Grafana after deployment"
 [ ! -f "$TEST_ROOT/state/candidate.env" ] || fail "candidate metadata was not cleaned"
 assert_log_order "UP_REDIS release-b" "UP_BACKEND release-b"
-assert_log_order "INSPECT release-b" "NGINX_TEST release-b"
+assert_log_order "INSPECT_backend release-b" "UP_PROMETHEUS release-b"
+assert_log_order "INSPECT_prometheus release-b" "UP_GRAFANA release-b"
+assert_log_order "INSPECT_grafana release-b" "PROMETHEUS_TARGET release-b"
+assert_log_order "PROMETHEUS_TARGET release-b" "NGINX_TEST release-b"
 assert_log_order "NGINX_TEST release-b" "UP_EDGE release-b"
+
+# Monitoring health and scrape failures must not promote a candidate.
+: > "$SIM_STATE/log"
+: > "$TEST_ROOT/releases/release-e/fail-prometheus-health"
+if "$TEST_ROOT/releases/release-e/scripts/deploy.sh" release-e "$IMAGE_E"; then
+    fail "candidate with unhealthy Prometheus unexpectedly succeeded"
+fi
+assert_metadata_release "$TEST_ROOT/state/current.env" release-b "Prometheus failure current release"
+assert_equal release-b "$(cat "$SIM_STATE/active-edge")" "edge after Prometheus failure rollback"
+rm -f "$TEST_ROOT/releases/release-e/fail-prometheus-health"
+
+: > "$SIM_STATE/log"
+: > "$TEST_ROOT/releases/release-f/fail-grafana-health"
+if "$TEST_ROOT/releases/release-f/scripts/deploy.sh" release-f "$IMAGE_F"; then
+    fail "candidate with unhealthy Grafana unexpectedly succeeded"
+fi
+assert_metadata_release "$TEST_ROOT/state/current.env" release-b "Grafana failure current release"
+assert_equal release-b "$(cat "$SIM_STATE/active-edge")" "edge after Grafana failure rollback"
+
+: > "$SIM_STATE/log"
+: > "$TEST_ROOT/releases/release-g/fail-prometheus-target"
+if "$TEST_ROOT/releases/release-g/scripts/deploy.sh" release-g "$IMAGE_G"; then
+    fail "candidate with a DOWN Backend scrape target unexpectedly succeeded"
+fi
+assert_metadata_release "$TEST_ROOT/state/current.env" release-b "scrape failure current release"
+assert_equal release-b "$(cat "$SIM_STATE/active-edge")" "edge after scrape failure rollback"
+
+# Public metrics exposure is also a release failure even when containers are healthy.
+: > "$SIM_STATE/log"
+: > "$TEST_ROOT/releases/release-e/fail-metrics-boundary"
+if "$TEST_ROOT/releases/release-e/scripts/deploy.sh" release-e "$IMAGE_E"; then
+    fail "candidate exposing Prometheus metrics unexpectedly succeeded"
+fi
+assert_metadata_release "$TEST_ROOT/state/current.env" release-b "metrics boundary failure current release"
+assert_equal release-b "$(cat "$SIM_STATE/active-edge")" "edge after metrics boundary rollback"
+rm -f "$TEST_ROOT/releases/release-e/fail-metrics-boundary"
 
 # Failure before promotion must restore both the current backend and edge config.
 : > "$SIM_STATE/log"
@@ -304,6 +483,12 @@ assert_metadata_release "$TEST_ROOT/state/known-good.env" release-b "manual roll
 assert_metadata_release "$TEST_ROOT/state/failed.env" release-b "manual rollback failed release"
 assert_equal release-a "$(cat "$SIM_STATE/active-backend")" "manual rollback backend"
 assert_equal release-a "$(cat "$SIM_STATE/active-edge")" "manual rollback edge"
+[ ! -f "$SIM_STATE/active-prometheus" ] || fail "legacy rollback left Prometheus running"
+[ ! -f "$SIM_STATE/active-grafana" ] || fail "legacy rollback left Grafana running"
+grep -Fx "REMOVE_MONITORING_ORPHANS release-a" "$SIM_STATE/log" >/dev/null \
+    || fail "legacy rollback did not remove monitoring orphans"
+grep -Fx "CURL release-a /grafana/api/health" "$SIM_STATE/log" >/dev/null \
+    || fail "legacy rollback did not verify that Grafana was no longer public"
 
 # A failed manual rollback must compensate runtime and both metadata pointers.
 : > "$SIM_STATE/log"
@@ -326,7 +511,6 @@ write_metadata "$TEST_ROOT/state/candidate.env" release-c "$IMAGE_C"
 write_metadata "$TEST_ROOT/state/known-good.env" release-a "$IMAGE_A"
 printf '%s\n' release-c > "$SIM_STATE/active-backend"
 printf '%s\n' release-c > "$SIM_STATE/active-edge"
-printf '%s\n' healthy > "$SIM_STATE/health"
 if "$TEST_ROOT/releases/release-c/scripts/deploy.sh" \
         release-c example/skala-shop-api:mutable; then
     fail "mutable tag unexpectedly passed after pre-commit deployment recovery"
@@ -368,7 +552,6 @@ write_metadata "$TEST_ROOT/state/candidate.env" release-b "$IMAGE_B"
 write_metadata "$TEST_ROOT/state/known-good.env" release-a "$IMAGE_A"
 printf '%s\n' release-b > "$SIM_STATE/active-backend"
 printf '%s\n' release-b > "$SIM_STATE/active-edge"
-printf '%s\n' healthy > "$SIM_STATE/health"
 if "$TEST_ROOT/releases/release-c/scripts/deploy.sh" \
         release-c example/skala-shop-api:mutable; then
     fail "mutable tag unexpectedly passed after pre-commit rollback recovery"
@@ -409,7 +592,6 @@ printf '%s\n' release-a > "$SIM_STATE/active-edge"
 write_metadata "$TEST_ROOT/state/candidate.env" release-c "$IMAGE_C"
 printf '%s\n' release-c > "$SIM_STATE/active-backend"
 printf '%s\n' release-c > "$SIM_STATE/active-edge"
-printf '%s\n' healthy > "$SIM_STATE/health"
 
 # A mutable tag must never enter release metadata after interrupted-state recovery.
 if "$TEST_ROOT/releases/release-c/scripts/deploy.sh" \

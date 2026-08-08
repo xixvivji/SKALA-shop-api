@@ -12,10 +12,24 @@ async function check(name, url, validate) {
   console.log(`ok ${name} ${response.status} ${Math.round(performance.now() - startedAt)}ms`);
 }
 
+async function checkStatus(name, url, expectedStatus) {
+  const startedAt = performance.now();
+  const response = await fetch(url, { redirect: "manual" });
+  if (response.status !== expectedStatus) {
+    throw new Error(`${name}: ${response.status}, expected ${expectedStatus}`);
+  }
+  console.log(`ok ${name} ${response.status} ${Math.round(performance.now() - startedAt)}ms`);
+}
+
 await check("frontend", `${frontendOrigin}/`, (response, text) =>
   response.headers.get("content-type")?.includes("text/html") && text.includes("SKALA"));
 await check("health", `${apiOrigin}/actuator/health`, (_response, text) =>
   JSON.parse(text).status === "UP");
+await check("grafana health", `${apiOrigin}/grafana/api/health`, (_response, text) => {
+  const health = JSON.parse(text);
+  return health.database === "ok" && typeof health.version === "string";
+});
+await checkStatus("prometheus metrics are private", `${apiOrigin}/actuator/prometheus`, 404);
 await check("categories", `${apiOrigin}/api/categories`, (_response, text) =>
   Array.isArray(JSON.parse(text)));
 await check("products", `${apiOrigin}/api/products?page=0&size=1`, (_response, text) =>
