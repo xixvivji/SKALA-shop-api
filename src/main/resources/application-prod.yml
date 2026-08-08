@@ -23,6 +23,12 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
+# API(8080)와 관리 트래픽을 분리합니다. 운영 Compose는 9090을 호스트에 공개하지 않고
+# Prometheus와 Nginx health proxy만 같은 Docker 내부망에서 접근합니다.
+management:
+  server:
+    port: ${MANAGEMENT_SERVER_PORT:9090}
+
 shopping:
   outbox:
     relay-enabled: true

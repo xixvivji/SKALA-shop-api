@@ -88,12 +88,20 @@ class PaymentApplicationService implements PaymentApi {
         payment.approve(result.transactionId(), clock.instant());
         try {
             orderApi.confirmExternalPayment(memberId, payment.orderId(), payment.id());
-            meterRegistry.counter("shopping.payment.results", "result", "approved").increment();
+            meterRegistry.counter(
+                    "shopping.payment.results",
+                    "result", "approved",
+                    "code", "NONE"
+            ).increment();
         } catch (RuntimeException exception) {
             gateway.cancel(result.transactionId(), payment.toView().getApprovedAmount());
             payment.compensate(clock.instant());
             orderApi.failExternalPayment(memberId, payment.orderId(), payment.id());
-            meterRegistry.counter("shopping.payment.results", "result", "compensated").increment();
+            meterRegistry.counter(
+                    "shopping.payment.results",
+                    "result", "compensated",
+                    "code", "ORDER_CONFIRMATION_FAILED"
+            ).increment();
         }
         payment.captureApprovalResult();
         return payment.toView();
