@@ -9,7 +9,6 @@ on:
         type: choice
         options:
           - kafka
-          - search
 
 permissions:
   contents: read
@@ -25,6 +24,8 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Validate platform deployment script
+        run: bash -n deploy/scripts/deploy-platform-via-ssm.sh
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
@@ -37,18 +38,11 @@ jobs:
           TARGET: ${{ inputs.target }}
           KAFKA_INSTANCE_ID: ${{ vars.KAFKA_INSTANCE_ID }}
           KAFKA_PRIVATE_IP: ${{ vars.KAFKA_PRIVATE_IP }}
-          SEARCH_INSTANCE_ID: ${{ vars.SEARCH_INSTANCE_ID }}
-          SEARCH_PRIVATE_IP: ${{ vars.SEARCH_PRIVATE_IP }}
         run: |
-          if [[ "$TARGET" == "kafka" ]]; then
-            printf 'instance_id=%s\n' "$KAFKA_INSTANCE_ID" >> "$GITHUB_OUTPUT"
-            printf 'private_ip=%s\n' "$KAFKA_PRIVATE_IP" >> "$GITHUB_OUTPUT"
-            printf 'image_ref=%s\n' 'apache/kafka@sha256:5cc2a2fd93fa2687b44015eee04fb2c3edd9e526bd64bf8bec5ff1e268772e0e' >> "$GITHUB_OUTPUT"
-          else
-            printf 'instance_id=%s\n' "$SEARCH_INSTANCE_ID" >> "$GITHUB_OUTPUT"
-            printf 'private_ip=%s\n' "$SEARCH_PRIVATE_IP" >> "$GITHUB_OUTPUT"
-            printf 'image_ref=%s\n' 'docker.elastic.co/elasticsearch/elasticsearch@sha256:d413f19aaeec97c924161c405f12a2c907552c640d7239766f05b17ea94382f1' >> "$GITHUB_OUTPUT"
-          fi
+          [[ "$TARGET" == "kafka" ]]
+          printf 'instance_id=%s\n' "$KAFKA_INSTANCE_ID" >> "$GITHUB_OUTPUT"
+          printf 'private_ip=%s\n' "$KAFKA_PRIVATE_IP" >> "$GITHUB_OUTPUT"
+          printf 'image_ref=%s\n' 'apache/kafka@sha256:5cc2a2fd93fa2687b44015eee04fb2c3edd9e526bd64bf8bec5ff1e268772e0e' >> "$GITHUB_OUTPUT"
       - name: Deploy through Systems Manager
         shell: bash
         run: >-

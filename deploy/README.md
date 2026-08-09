@@ -8,7 +8,7 @@
 | Frontend | Vercel, `main` production branch |
 | Application | EC2, Backend·Redis·Nginx·Certbot Compose |
 | Event platform | 별도 EC2, Apache Kafka KRaft single node |
-| Search platform | 별도 EC2, Elasticsearch single node |
+| Search platform | 별도 EC2, Search Service·Elasticsearch single node |
 | Database | 비공개 RDS PostgreSQL 17 |
 | Monitoring | Prometheus·Grafana, Application EC2 내부 Compose |
 | Edge/TLS | Nginx와 Certbot 컨테이너 |
@@ -124,7 +124,9 @@ flowchart LR
     B --> R[(Private RDS PostgreSQL)]
     B --> RD[(Redis container)]
     B --> K[Kafka EC2]
-    B --> E[Elasticsearch EC2]
+    B -->|private HTTP 8081| S[Search Service EC2]
+    K -->|ProductSearchChanged| S
+    S --> E[(Elasticsearch internal network)]
     P[Prometheus] -->|management 9090 scrape| B
     GR[Grafana] -->|PromQL| P
     N -->|/grafana/| GR
@@ -160,10 +162,11 @@ OIDC로 배포 전용 IAM Role을 맡고 SSM Run Command를 전송합니다. 저
 
 Backend 8080, management 9090, Prometheus 9090, Grafana 3000과 PostgreSQL 5432는
 인터넷에 직접 공개하지 않습니다. Grafana는 기존 HTTPS 443의 `/grafana/` 경로만
-사용합니다. Kafka 9092와
-Elasticsearch 9200은 각각의 보안 그룹에서 Application EC2 보안 그룹만 source로
-허용합니다. 플랫폼 인스턴스의 public IP는 설치 편의를 위한 것이며 서비스 포트는
-인터넷에 열지 않습니다.
+사용합니다. Kafka 9092는 Application EC2와 Search EC2 보안 그룹만 source로
+허용합니다. Search Service 8081은 Application EC2 보안 그룹만 source로 허용하고,
+Elasticsearch 9200은 Search EC2의 Docker 내부 network에만 노출합니다. 플랫폼
+인스턴스의 public IP는 설치 편의를 위한 것이며 서비스 포트는 인터넷에 열지
+않습니다.
 
 ### RDS
 
@@ -186,7 +189,7 @@ sh deploy/tools/audit-aws.sh
 이 도구는 EC2 IMDSv2와 RDS의 private, encryption, deletion protection, backup,
 available 상태를 검사하며 리소스를 수정하지 않습니다.
 
-### Kafka와 Elasticsearch EC2
+### Kafka와 Search Service EC2
 
 플랫폼 인스턴스는 `deploy/aws/user-data-platform.sh`로 Docker와 SSM Agent를
 준비하고 `/opt/skala-shop-platform`만 사용합니다. 운영 이미지는 tag가 아니라
@@ -197,28 +200,31 @@ bash deploy/scripts/deploy-platform-via-ssm.sh \
   ap-northeast-2 kafka <kafka-instance-id> <kafka-private-ip> \
   'apache/kafka@sha256:<digest>'
 
-bash deploy/scripts/deploy-platform-via-ssm.sh \
-  ap-northeast-2 search <search-instance-id> <search-private-ip> \
+bash deploy/scripts/deploy-search-service-via-ssm.sh \
+  ap-northeast-2 <search-instance-id> <search-private-ip> \
+  '<kafka-private-ip>:9092' 'https://<api-domain>' \
+  'xixii/skala-shop-api@sha256:<search-service-digest>' \
   'docker.elastic.co/elasticsearch/elasticsearch@sha256:<digest>'
 ```
 
 스크립트는 Compose 파일을 SSM Run Command로 전달하고 이미지 pull, 기동과 health
-확인까지 수행합니다. Kafka cluster ID와 데이터 volume은 재배포에서도 유지합니다.
-Elasticsearch 호스트에는 `vm.max_map_count=262144`를 영구 적용합니다. Kafka와
-Elasticsearch는 각각 single node로 구성되어 broker 또는 검색 노드 장애 시 자동
-failover를 제공하지 않습니다.
+확인까지 수행합니다. Kafka cluster ID와 Elasticsearch data volume은 재배포에서도
+유지합니다. Elasticsearch 호스트에는 `vm.max_map_count=262144`를 영구 적용합니다.
+Kafka와 Elasticsearch는 각각 single node로 구성되어 broker 또는 검색 노드 장애 시
+자동 failover를 제공하지 않습니다.
 
-현재 Backend의 Outbox Relay는 Kafka에 이벤트를 발행하지만 Kafka Consumer는
-구성되어 있지 않습니다. Elasticsearch 색인은 Backend 내부 트랜잭션 이벤트가 직접
-처리합니다. 독립 Search Service를 추가할 경우 해당 서비스가 Kafka Consumer와
-Elasticsearch 색인을 담당합니다.
+Backend Outbox Relay는 `ProductSearchChanged`를 Kafka에 발행하고 Search Service가
+Consumer group으로 받아 Elasticsearch를 갱신합니다. Search Service는 RDS에
+접근하지 않으며, 초기 색인과 수동 재색인은 HTTPS Catalog API를 사용합니다. 검색
+서비스 장애 시 Backend는 PostgreSQL 상품 검색으로 폴백합니다.
 
 현재 운영 private endpoint:
 
 | Service | Private endpoint | Compose |
 | --- | --- | --- |
 | Kafka | `172.31.36.153:9092` | `compose.kafka.yml` |
-| Elasticsearch | `http://172.31.32.50:9200` | `compose.search.yml` |
+| Search Service | `http://172.31.32.50:8081` | `compose.search.yml` |
+| Elasticsearch | Docker 내부 `http://elasticsearch:9200` | `compose.search.yml` |
 
 ## 3. EC2 디렉터리
 
@@ -297,7 +303,7 @@ OUTBOX_RELAY_ENABLED=true
 OUTBOX_PUBLISHER=kafka
 KAFKA_BOOTSTRAP_SERVERS=<kafka-private-ip>:9092
 SEARCH_ENABLED=true
-ELASTICSEARCH_URIS=http://<search-private-ip>:9200
+SEARCH_SERVICE_URL=http://<search-private-ip>:8081
 BOOTSTRAP_ADMIN_ENABLED=false
 BOOTSTRAP_ADMIN_LOGIN_ID=
 BOOTSTRAP_ADMIN_PASSWORD=
@@ -618,8 +624,9 @@ GitHub의 `Production smoke` workflow도 동일한 검사를 수동 실행합니
 `run_mutating_e2e=true`를 선택할 때만 임시 고객을 만들어 가입·주문·취소·탈퇴를
 검사합니다.
 
-플랫폼 Compose를 변경하거나 인스턴스를 복구한 경우 `Deploy platform` workflow에서
-`kafka` 또는 `search`를 선택해 digest 고정 이미지를 SSM으로 다시 배포합니다.
+Kafka Compose를 변경하거나 인스턴스를 복구한 경우 `Deploy platform` workflow를
+실행합니다. Search Service만 다시 배포할 때는 `Deploy search service` workflow가
+테스트, 다중 아키텍처 이미지 게시와 Search EC2 배포를 독립적으로 수행합니다.
 
 ## 13. Proxy, CORS와 요청 제한
 

@@ -11,6 +11,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 | 단위 | JUnit 5, Mockito | 도메인 규칙, 계산, 상태 전이 |
 | 모듈 경계 | Spring Modulith Test | 허용되지 않은 패키지 의존 |
 | 백엔드 통합 | Spring Boot Test, Testcontainers | Security, MVC, JPA, Flyway, 실제 PostgreSQL |
+| 검색 서비스 | JUnit, Embedded Kafka | 이벤트 header·JSON 계약, 소비·재시도 경계, 색인 로직 |
 | 동시성 | JUnit + PostgreSQL | 마지막 재고 주문, 주문·취소 경합, 잠금 |
 | API 계약 | Springdoc/OpenAPI test | endpoint와 스키마 문서 |
 | 프론트 정적 | Node.js 검사 script | 파일 참조, 문법, 금액 경계, 접근성 회귀 조건 |
@@ -25,7 +26,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 ./gradlew test
 ```
 
-현재 백엔드 130개 테스트는 다음을 포함합니다.
+현재 백엔드 132개 테스트는 다음을 포함합니다.
 
 - Spring Modulith 모듈 경계
 - Flyway V1~V26 적용과 JPA schema validation
@@ -40,7 +41,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 - Fake PG 준비·승인·실패·중복 웹훅, 승인 최초 결과 재생과 부분 환불
 - 배송 후 부분 반품, 거절 후 재신청, 동시 초과 신청 차단과 상태 변경 멱등성
 - Outbox 이벤트 저장과 Kafka publisher 성공·실패 전달 계약
-- Elasticsearch 초기 backfill, 안전한 재색인과 PostgreSQL 빈 결과·장애 폴백
+- Search Service HTTP 호출과 PostgreSQL 장애 폴백
 - 쿠폰 사용 이력, 할인 결제액 기준 환불과 쿠폰 재사용 방지
 - 구매 인증 리뷰, 공개 응답 개인정보 비노출과 리뷰 권한
 - 재입고 이벤트 알림 상태와 배송 추적 부분 수정
@@ -59,6 +60,17 @@ Gradle이 `UP-TO-DATE`로 표시되는 상황에서 전체를 실제로 다시 �
 ```
 
 Testcontainers가 PostgreSQL 컨테이너를 시작하므로 Docker가 실행 중이어야 합니다.
+
+## Search Service 테스트
+
+```bash
+./gradlew :search-service:test
+```
+
+Search Service 12개 테스트는 Catalog snapshot 페이지 조회, Elasticsearch 색인·삭제·
+재색인, Kafka health, 이벤트 타입 필터, 잘못된 이벤트 처리와 실제 Embedded Kafka
+broker를 통과한 `ProductSearchChanged` 소비를 검증합니다. 전체 `./gradlew test`는
+백엔드 132개와 Search Service 12개를 함께 실행합니다.
 
 ## 프론트 정적 검사
 

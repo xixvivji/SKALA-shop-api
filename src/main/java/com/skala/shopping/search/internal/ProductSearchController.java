@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @ConditionalOnProperty(name = "shopping.search.enabled", havingValue = "true")
-@Tag(name = "상품 검색", description = "Elasticsearch 상품 검색과 관리자 색인 관리")
+@Tag(name = "상품 검색", description = "독립 Search Service 상품 검색과 관리자 색인 관리")
 class ProductSearchController {
 
     private final ProductSearchApplicationService service;
@@ -48,7 +48,7 @@ class ProductSearchController {
     @PostMapping("/api/admin/search/reindex")
     @Operation(
             summary = "상품 검색 색인 재생성",
-            description = "관리자가 PostgreSQL의 전체 상품을 Elasticsearch 색인에 다시 반영합니다.",
+            description = "관리자가 Search Service에 전체 상품 색인 재생성을 요청합니다.",
             security = {@SecurityRequirement(name = "cookieAuth")}
     )
     @ApiResponse(responseCode = "403", description = "관리자 권한 또는 CSRF 토큰 필요",

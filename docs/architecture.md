@@ -1,9 +1,11 @@
 # 아키텍처와 모듈 경계
 
-## 1. 왜 모듈러 모놀리식인가
+## 1. 모듈러 모놀리스와 Search Service
 
-SKALA Shop은 하나의 Spring Boot 프로세스와 PostgreSQL을 사용합니다. 배포와
-트랜잭션은 단순하게 유지하면서 코드와 데이터는 비즈니스 도메인별로 분리했습니다.
+SKALA Shop의 핵심 도메인은 하나의 Spring Boot 프로세스와 PostgreSQL을 사용합니다.
+주문 트랜잭션은 단순하게 유지하면서 코드와 데이터는 비즈니스 도메인별로
+분리했습니다. 검색은 원자 트랜잭션에 덜 묶여 있으므로 별도 Spring Boot 프로세스와
+Elasticsearch로 분리했습니다.
 
 이 선택의 목표는 다음과 같습니다.
 
@@ -11,6 +13,7 @@ SKALA Shop은 하나의 Spring Boot 프로세스와 PostgreSQL을 사용합니�
 - 주문·재고·포인트를 하나의 로컬 트랜잭션으로 안전하게 처리합니다.
 - 모듈 간 직접 결합을 제한해 코드 규모가 커져도 책임을 찾기 쉽게 합니다.
 - 모듈 간 호출은 공개 API와 이벤트를 통해 이루어집니다.
+- 상품 검색 장애가 주문·결제 트랜잭션으로 전파되지 않게 합니다.
 
 현재 구조는 “폴더만 나눈 모놀리스”가 아닙니다. Spring Modulith 테스트가 패키지
 의존을 검사하고, 각 모듈이 자신의 테이블과 Repository를 소유합니다.
@@ -52,7 +55,7 @@ com.skala.shopping.<module>
 | `payment` | 포인트·Fake PG 결제와 환불 원장 | `PaymentApi` |
 | `returns` | 배송 후 항목별 반품과 검수 | `ReturnApi` |
 | `outbox` | 이벤트 영속화와 Kafka relay | Outbox recorder |
-| `search` | Elasticsearch 색인·검색과 DB 폴백 | 검색 HTTP API |
+| `search` | 공개 검색 계약, Search Service 호출과 DB 폴백 | 검색 HTTP API |
 | `coupon` | 쿠폰 규칙과 사용 이력 | `CouponApi` |
 | `wishlist` | 회원별 관심 상품 | `WishlistApi` |
 | `review` | 구매 인증 리뷰 | `ReviewApi` |
@@ -281,26 +284,39 @@ Catalog와 Inventory는 애플리케이션 내부 상태 변경 이벤트를 발
 - `StockReplenished`: 재고가 0에서 양수로 바뀔 때 대기 중 구독을 알림 완료로 변경
 - `ProductSearchChanged`: Elasticsearch 상품 색인 갱신
 
-`OrderPlaced`, `ProductCreated`, `StockReplenished`는 원본 데이터 변경과 같은
+`OrderPlaced`, `ProductCreated`, `ProductSearchChanged`, `StockReplenished`는 원본 데이터 변경과 같은
 트랜잭션에서 `outbox.outbox_events`에 저장됩니다. Relay는 `PENDING` 이벤트를
 Kafka로 발행하고 성공 시 `PUBLISHED`, 반복 실패 시 `DEAD`로 기록합니다. 같은
 aggregate ID를 Kafka key로 사용해 partition 안의 순서를 유지합니다. 로컬에서는
 logging publisher를 사용할 수 있습니다.
 
-상품 검색은 Elasticsearch를 우선 사용하되 연결 실패 또는 빈 결과일 때 PostgreSQL
-검색으로 폴백합니다. 애플리케이션 시작 시 빈 인덱스는 Catalog 원본으로 채우며,
-전체 재색인은 새 문서를 먼저 저장한 뒤 사라진 문서만 제거해 색인 공백을 피합니다.
-현재 `ProductSearchChanged`는 트랜잭션 commit 이후 모듈러 모놀리스 내부 listener가
-Elasticsearch에 직접 반영합니다. Kafka Consumer는 아직 없으므로 Kafka는 Outbox
-발행·재시도·실패 보존 경로만 담당합니다.
+Relay는 원본 JSON과 함께 `eventType` Kafka header를 발행합니다. Search Service는
+`ProductSearchChanged`만 소비해 Elasticsearch를 갱신하고, 해석이나 색인에 실패한
+record는 고정 간격으로 재시도한 뒤 `.DLT` 토픽에 보존합니다.
 
-### Search Service 분리 방향
+```mermaid
+sequenceDiagram
+    participant C as Catalog transaction
+    participant O as Outbox
+    participant K as Kafka
+    participant S as Search Service
+    participant E as Elasticsearch
+    C->>O: 상품 변경 + ProductSearchChanged 저장
+    O->>K: aggregate ID key + eventType header
+    K->>S: consumer group 전달
+    S->>E: 상품 문서 upsert/delete
+```
 
-선택적으로 Search 모듈을 독립 서비스로 분리할 수 있습니다. 기존 회원·주문·결제·
-재고 ERD와 RDS는 유지하고, 상품 변경 이벤트만 Outbox와 Kafka를 통해 전달합니다.
-Search Service는 Kafka Consumer, 검색 API와 Elasticsearch 색인 책임을 가지며 별도
-Docker 이미지와 프로세스로 배포합니다. 나머지 도메인은 현재 모듈러 모놀리스에
-유지합니다. 이 구성은 현재 배포에는 적용되어 있지 않습니다.
+Backend의 `/api/search/products` 계약은 그대로 유지합니다. Backend는 사설 HTTP로
+Search Service를 호출하고, 연결 실패나 시간 초과일 때 Catalog PostgreSQL 검색으로
+폴백합니다. Search Service는 RDS에 직접 연결하지 않으며, 빈 인덱스 초기화와 관리자
+재색인 때만 Backend의 공개 Catalog API를 페이지 단위로 읽습니다. 전체 재색인은 새
+문서를 먼저 저장한 뒤 사라진 문서만 제거해 색인 공백을 피합니다.
+
+Elasticsearch는 Search Service 전용 Docker network에만 있고 호스트 9200 포트를
+열지 않습니다. Search Service의 8081 포트도 사설 IP와 Application 보안 그룹에만
+허용합니다. 회원·주문·결제·재고와 알림·재입고 알림은 기존 모듈러 모놀리스에
+유지합니다.
 
 ## 9. 운영 관측 구조
 

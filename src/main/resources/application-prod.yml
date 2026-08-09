@@ -1,8 +1,4 @@
 spring:
-  elasticsearch:
-    uris: ${ELASTICSEARCH_URIS:http://elasticsearch:9200}
-    connection-timeout: 2s
-    socket-timeout: 3s
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -22,6 +18,15 @@ spring:
         max.in.flight.requests.per.connection: 5
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+springdoc:
+  swagger-ui:
+    urls:
+      - name: Backend API
+        url: /v3/api-docs
+      - name: Search Service API
+        url: /v3/api-docs/search
+    urls-primary-name: Backend API
 
 # API(8080)와 관리 트래픽을 분리합니다. 운영 Compose는 9090을 호스트에 공개하지 않고
 # Prometheus와 Nginx health proxy만 같은 Docker 내부망에서 접근합니다.

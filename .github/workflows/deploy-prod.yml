@@ -36,6 +36,21 @@ jobs:
         run: ./gradlew test --no-daemon
       - name: Validate public Docker demo
         run: docker compose -f compose.demo.yml config --quiet
+      - name: Validate independent Search Service deployment
+        env:
+          ELASTICSEARCH_IMAGE_REF: docker.elastic.co/elasticsearch/elasticsearch@sha256:d413f19aaeec97c924161c405f12a2c907552c640d7239766f05b17ea94382f1
+          SEARCH_SERVICE_IMAGE_REF: xixii/skala-shop-api@sha256:8bfe2e54635aa1dd5ffcf0ed62cd30f6053e42577e01deb9332975dffa74f183
+          SEARCH_SERVICE_BIND_IP: 172.31.32.50
+          KAFKA_BOOTSTRAP_SERVERS: 172.31.36.153:9092
+          CATALOG_BASE_URL: https://api.example.com
+        run: |
+          docker compose -f deploy/compose.search.yml config --quiet
+          bash -n deploy/scripts/deploy-search-service-via-ssm.sh
+          SEARCH_DEPLOY_DRY_RUN=true bash deploy/scripts/deploy-search-service-via-ssm.sh \
+            ap-northeast-2 i-0123456789abcdef0 172.31.32.50 \
+            172.31.36.153:9092 https://api.example.com \
+            xixii/skala-shop-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            docker.elastic.co/elasticsearch/elasticsearch@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
       - name: Validate production monitoring configuration
         run: sh deploy/tests/monitoring-config-test.sh
       - name: Simulate deployment release flow
@@ -87,6 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_digest: ${{ steps.immutable_image.outputs.image_digest }}
+      search_image_digest: ${{ steps.immutable_search_image.outputs.image_digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -111,6 +127,25 @@ jobs:
         shell: bash
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'image_digest=%s\n' "$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+      - id: build_search
+        name: Build and publish Search Service image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: search-service/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ vars.DOCKERHUB_IMAGE }}:search-${{ github.sha }}
+          cache-from: type=gha,scope=search-service
+          cache-to: type=gha,mode=max,scope=search-service
+      - id: immutable_search_image
+        name: Record immutable Search Service image digest
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build_search.outputs.digest }}
         run: |
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           printf 'image_digest=%s\n' "$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
@@ -249,6 +284,28 @@ jobs:
           jq -r '.StandardOutputContent' <<< "$INVOCATION"
           jq -r '.StandardErrorContent' <<< "$INVOCATION" >&2
           [[ "$COMMAND_STATUS" == "Success" ]]
+
+      # Backend는 Search Service 장애 시 PostgreSQL로 폴백합니다. 따라서 새 gateway를
+      # 먼저 배포한 뒤 Search Service를 교체하면 중간 실패에도 기존 쇼핑 흐름이 유지됩니다.
+      - name: Deploy independent Search Service through Systems Manager
+        shell: bash
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          SEARCH_INSTANCE_ID: ${{ vars.SEARCH_INSTANCE_ID }}
+          SEARCH_PRIVATE_IP: ${{ vars.SEARCH_PRIVATE_IP }}
+          KAFKA_PRIVATE_IP: ${{ vars.KAFKA_PRIVATE_IP }}
+          CATALOG_BASE_URL: ${{ vars.PRODUCTION_API_ORIGIN }}
+          SEARCH_IMAGE_REF: ${{ vars.DOCKERHUB_IMAGE }}@${{ needs.publish.outputs.search_image_digest }}
+          ELASTICSEARCH_IMAGE_REF: docker.elastic.co/elasticsearch/elasticsearch@sha256:d413f19aaeec97c924161c405f12a2c907552c640d7239766f05b17ea94382f1
+        run: |
+          bash deploy/scripts/deploy-search-service-via-ssm.sh \
+            "$AWS_REGION" \
+            "$SEARCH_INSTANCE_ID" \
+            "$SEARCH_PRIVATE_IP" \
+            "$KAFKA_PRIVATE_IP:9092" \
+            "$CATALOG_BASE_URL" \
+            "$SEARCH_IMAGE_REF" \
+            "$ELASTICSEARCH_IMAGE_REF"
 
       - name: Verify public API and monitoring edge
         env:
