@@ -1,8 +1,10 @@
 # SKALA Shop
 
 포인트와 Fake PG 결제를 지원하는 쇼핑몰을 Java 21, Spring Boot와 Vanilla JavaScript로
-구현한 모노레포입니다. 백엔드는 하나의 프로세스로 배포하지만 도메인별 경계를
-분명히 둔 **모듈러 모놀리식**이며, 모듈별 공개 API와 데이터 소유권을 구분합니다.
+구현한 모노레포입니다. 회원·상품·주문·결제 등 핵심 도메인은 하나의 RDS를 사용하는
+**모듈러 모놀리스**로 유지하고, 검색은 Kafka와 Elasticsearch를 사용하는 독립
+Search Service로 분리했습니다. 모놀리스 안에서도 모듈별 공개 API와 데이터 소유권을
+구분합니다.
 
 현재 Vercel 프론트, AWS EC2 백엔드와 비공개 RDS PostgreSQL까지 운영 배포되어
 있습니다.
@@ -10,6 +12,9 @@
 - 운영 프론트: <https://skala-shop-bice.vercel.app>
 - 운영 API health: <https://api-3-39-64-119.sslip.io/actuator/health>
 - Swagger UI: <https://api-3-39-64-119.sslip.io/swagger-ui/index.html>
+
+운영 Swagger UI의 상단 API 선택 메뉴에서 모듈러 모놀리스의 `Backend API`와 독립
+프로세스의 `Search Service API` 명세를 구분해 확인할 수 있습니다.
 
 ## Docker Hub 공개 이미지로 실행
 
@@ -102,7 +107,9 @@ flowchart LR
     B --> R[(Private RDS<br/>PostgreSQL 17)]
     B --> RD[(Redis<br/>Auth session/rate limit)]
     B --> K[Kafka EC2<br/>Outbox events]
-    B --> E[Elasticsearch EC2<br/>Product search]
+    B -->|private HTTP| S[Search Service EC2<br/>Independent process]
+    K -->|ProductSearchChanged| S
+    S --> E[(Elasticsearch<br/>Search-owned store)]
     B -->|management 9090| P[Prometheus<br/>internal scrape]
     P --> GR[Grafana dashboard]
     N -->|/grafana/| GR
@@ -114,8 +121,9 @@ flowchart LR
 브라우저는 Vercel의 같은 Origin으로 `/api`를 호출합니다. Vercel rewrite가 EC2의
 HTTPS API로 전달하므로 브라우저에서 별도 API 주소나 mixed-content 문제를 만들지
 않습니다. 애플리케이션 EC2에는 Backend, Redis, Nginx와 Certbot이 실행됩니다.
-Kafka와 Elasticsearch는 별도 EC2에서 실행하고 애플리케이션 보안 그룹에서 들어오는
-사설망 트래픽만 허용하며, DB는 외부에 공개하지 않은 RDS를 사용합니다.
+Kafka는 별도 EC2에서 실행하고, Search EC2에는 Search Service와 전용 Elasticsearch가
+함께 실행됩니다. Backend는 사설망으로 Search Service만 호출하며 Elasticsearch에는
+직접 접근하지 않습니다. DB는 외부에 공개하지 않은 RDS를 사용합니다.
 Prometheus와 Grafana는 애플리케이션 EC2의 같은 내부 네트워크에서 실행합니다.
 Prometheus는 외부 포트를 열지 않고 Backend의 9090
 management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자체 로그인을
@@ -126,6 +134,7 @@ management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자
 | 영역 | 기술 |
 | --- | --- |
 | Backend | Java 21, Spring Boot 3.5.16, Spring Modulith 1.4.12 |
+| Search Service | Java 21, Spring Boot, Spring Kafka, Spring Data Elasticsearch |
 | Security | Spring Security, OAuth2 Resource Server, JWT, BCrypt, CSRF |
 | Data | Spring Data JPA, PostgreSQL 17, Redis, Elasticsearch, Flyway |
 | Messaging | Transactional Outbox, Apache Kafka |
@@ -143,6 +152,7 @@ management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자
 ├── src/main/java/com/skala/shopping/   # 도메인 모듈과 Spring Boot 코드
 ├── src/main/resources/                 # profile 설정과 Flyway V1~V26
 ├── src/test/                           # 단위·통합·모듈 경계 테스트
+├── search-service/                     # Kafka Consumer와 Elasticsearch 검색 서비스
 ├── frontend/                           # Vercel 정적 프론트와 Playwright E2E
 ├── deploy/                             # EC2 Compose, Nginx, 모니터링, 배포·롤백
 ├── docs/                               # 아키텍처, API 사용법과 테스트 전략
@@ -178,7 +188,7 @@ DB 구조는 [도메인 ERD](docs/erd/skala-shopping-erd-overview.svg)와
 | `payment` | 포인트·Fake PG 결제 준비, 승인, 환불과 결제 원장 |
 | `returns` | 배송 후 항목별 반품, 회수·검수와 환불 |
 | `outbox` | 도메인 이벤트 영속화, Kafka 발행·재시도 |
-| `search` | Elasticsearch 상품 색인·검색과 PostgreSQL 폴백 |
+| `search` | 검색 API 유지, Search Service 호출과 PostgreSQL 장애 폴백 |
 | `coupon` | 쿠폰 규칙과 회원별 사용 이력 |
 | `wishlist` | 회원별 관심 상품 |
 | `review` | 구매 이력을 확인한 상품 리뷰 |
@@ -277,8 +287,9 @@ npm --prefix frontend ci
 npm --prefix frontend run test:e2e
 ```
 
-현재 백엔드 130개 테스트와 데스크톱·모바일 브라우저 E2E 10개가 모듈 경계, 인증,
-Validation, PostgreSQL 트랜잭션, 동시 주문·반품, 멱등 재시도와 프론트 고객·관리자
+현재 백엔드 132개, Search Service 12개 테스트와 데스크톱·모바일 브라우저 E2E
+10개가 모듈 경계, 인증, Validation, PostgreSQL 트랜잭션, 동시 주문·반품, 멱등
+재시도와 프론트 고객·관리자
 흐름을 검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를
 변경하므로 명시적으로 활성화할 때만 실행합니다. 자세한 구분은
 [테스트 전략](docs/testing.md)에 정리했습니다.
@@ -325,20 +336,15 @@ Kafka의 `skala-shop.domain-events` 토픽으로 발행하고 성공하면 `PUBL
 실패하면 `DEAD`로 상태를 변경합니다. aggregate ID를 Kafka key로 사용해 같은
 aggregate 이벤트의 partition 순서를 유지합니다.
 
-현재 Kafka는 Outbox 이벤트의 발행·재시도·실패 보존 경로를 담당합니다. Kafka
-Consumer는 아직 없으며, Elasticsearch 상품 색인은 모듈러 모놀리스 내부의
-`ProductSearchChanged` 트랜잭션 이벤트가 처리합니다.
+상품 등록·수정·삭제 시 `ProductSearchChanged`도 같은 트랜잭션의 Outbox에 저장됩니다.
+Relay는 이벤트 타입을 Kafka header에 넣어 발행하고, 독립 Search Service Consumer가
+해당 이벤트만 골라 Elasticsearch 읽기 모델을 갱신합니다. 처리 실패는 재시도한 뒤
+`skala-shop.domain-events.DLT`에 보존합니다. 주문·재입고 이벤트는 현재 Consumer를
+분리하지 않고 Outbox 발행 경계만 유지합니다.
 
 ## 선택적 확장 방향
 
-검색 기능을 독립 서비스로 분리할 때도 회원·주문·결제·재고 ERD와 기존 RDS 구조는
-유지합니다.
-
-1. 상품 변경 이벤트를 Outbox와 Kafka로 전달합니다.
-2. Search Service가 Kafka Consumer로 이벤트를 받아 Elasticsearch를 갱신합니다.
-3. Elasticsearch를 Search Service 전용 저장소로 사용합니다.
-4. Search Service를 별도 Docker 이미지와 프로세스로 독립 배포합니다.
-5. 나머지 도메인은 현재 모듈러 모놀리스에 유지합니다.
-
-이 구성이 적용되면 전체 시스템은 모듈러 모놀리스와 독립 Search Service가 함께
-동작하는 형태가 됩니다. 현재 배포에는 이 분리가 적용되어 있지 않습니다.
+현재 시스템은 모듈러 모놀리스와 독립 Search Service가 함께 동작합니다. 회원·주문·
+결제·재고 ERD와 기존 RDS 구조는 그대로 유지하며 Elasticsearch만 Search Service가
+소유합니다. 다음 분리 후보는 알림과 재입고 알림이지만, 별도 요구가 생기기 전에는
+현재 모듈러 모놀리스 안에 유지합니다.
