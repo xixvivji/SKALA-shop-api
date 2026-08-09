@@ -52,7 +52,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "shopping.security.bootstrap-admin.enabled=true",
         "shopping.security.bootstrap-admin.login-id=integration-admin",
         "shopping.security.bootstrap-admin.password=integration-admin-password",
-        "shopping.security.rate-limit.enabled=false"
+        "shopping.security.rate-limit.enabled=false",
+        "shopping.search.enabled=true"
 })
 @AutoConfigureMockMvc
 class ShoppingJourneyIntegrationTests {
@@ -121,6 +122,8 @@ class ShoppingJourneyIntegrationTests {
                 .andExpect(jsonPath("$['paths']['/api/categories']['get']").exists())
                 .andExpect(jsonPath("$['paths']['/api/categories']['post']['responses']['409']").exists())
                 .andExpect(jsonPath("$['paths']['/api/categories']['post']['security'][0].cookieAuth").exists())
+                .andExpect(jsonPath("$['paths']['/api/search/products']['get']['tags'][0]").value("상품 검색"))
+                .andExpect(jsonPath("$['paths']['/api/admin/search/reindex']['post']['security'][0].cookieAuth").exists())
                 .andExpect(jsonPath("$['paths']['/api/admin/orders']['get']['responses']['400']").exists())
                 .andExpect(jsonPath("$['paths']['/api/admin/orders/{orderId}/history']['get']['responses']['404']").exists())
                 .andExpect(jsonPath("$['paths']['/api/admin/returns']['get']['tags'][0]").value("관리자 반품"))

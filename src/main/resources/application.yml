@@ -65,6 +65,9 @@ management:
 shopping:
   search:
     enabled: ${SEARCH_ENABLED:false}
+    base-url: ${SEARCH_SERVICE_URL:http://localhost:8081}
+    connect-timeout: ${SEARCH_SERVICE_CONNECT_TIMEOUT:2s}
+    read-timeout: ${SEARCH_SERVICE_READ_TIMEOUT:3s}
   outbox:
     relay-enabled: ${OUTBOX_RELAY_ENABLED:false}
     poll-interval: ${OUTBOX_POLL_INTERVAL:1s}

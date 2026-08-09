@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: skala-shop-search-service
+  profiles:
+    default: local
+  elasticsearch:
+    uris: ${ELASTICSEARCH_URIS:http://localhost:9200}
+    connection-timeout: 2s
+    socket-timeout: 3s
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${SEARCH_KAFKA_GROUP_ID:skala-shop-search-v1}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      acks: all
+      retries: 10
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+  forward-headers-strategy: framework
+
+springdoc:
+  packages-to-scan: com.skala.shopping.searchservice
+  paths-to-match: /internal/search/**
+  api-docs:
+    path: /v3/api-docs
+
+management:
+  server:
+    port: ${MANAGEMENT_SERVER_PORT:9091}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+shopping:
+  observability:
+    correlation-header: X-Correlation-ID
+  search:
+    kafka-topic: ${SEARCH_KAFKA_TOPIC:skala-shop.domain-events}
+    product-event-type: com.skala.shopping.catalog.ProductSearchChanged
+    retry-interval: ${SEARCH_KAFKA_RETRY_INTERVAL:2s}
+    retry-attempts: ${SEARCH_KAFKA_RETRY_ATTEMPTS:4}
+  catalog:
+    base-url: ${CATALOG_BASE_URL:http://localhost:8080}
+    connect-timeout: ${CATALOG_CONNECT_TIMEOUT:2s}
+    read-timeout: ${CATALOG_READ_TIMEOUT:10s}
+
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    root: INFO
+    com.skala.shopping.searchservice: INFO

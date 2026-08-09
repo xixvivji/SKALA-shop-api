@@ -1,1 +1,3 @@
 rootProject.name = 'skala-shop-api'
+
+include 'search-service'
