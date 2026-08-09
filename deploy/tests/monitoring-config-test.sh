@@ -160,6 +160,14 @@ REMOTE_COMMAND=$(sh "$DEPLOY_DIR/tools/build-deploy-payload.sh" \
 printf '%s\n' "$REMOTE_COMMAND" | grep -F "DEPLOY_ARCHIVE_BASE64='" >/dev/null
 # Archive 본문은 encoded 상태이므로 payload builder의 source 목록도 따로 고정합니다.
 grep -F 'deploy/monitoring' "$DEPLOY_DIR/tools/build-deploy-payload.sh" >/dev/null
+grep -F 'deploy/scripts/deploy.sh' "$DEPLOY_DIR/tools/build-deploy-payload.sh" >/dev/null
+grep -F 'deploy/scripts/bootstrap-tls.sh' "$DEPLOY_DIR/tools/build-deploy-payload.sh" >/dev/null
+grep -F 'deploy/scripts/release-lib.sh' "$DEPLOY_DIR/tools/build-deploy-payload.sh" >/dev/null
+grep -F 'deploy/scripts/rollback.sh' "$DEPLOY_DIR/tools/build-deploy-payload.sh" >/dev/null
+if grep -Eq 'deploy/scripts[[:space:]]*$' "$DEPLOY_DIR/tools/build-deploy-payload.sh"; then
+    echo "backend payload must not archive every deployment script" >&2
+    exit 1
+fi
 printf '%s\n' "$REMOTE_COMMAND" > "$TEST_ROOT/remote-command.sh"
 sh -n "$TEST_ROOT/remote-command.sh"
 grep -Fx 'set -eu' "$TEST_ROOT/remote-command.sh" >/dev/null
