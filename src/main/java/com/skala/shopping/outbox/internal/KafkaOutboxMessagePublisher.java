@@ -1,7 +1,9 @@
 package com.skala.shopping.outbox.internal;
 
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -16,7 +18,9 @@ class KafkaOutboxMessagePublisher implements OutboxMessagePublisher {
             @Value("${shopping.outbox.kafka-topic:skala-shop.domain-events}") String topic,
             @Value("${shopping.outbox.kafka-timeout:5s}") Duration timeout){this.kafka=kafka;this.topic=topic;this.timeout=timeout;}
     public void publish(String key,String eventType,String payload){
-        try{kafka.send(topic,key,payload).get(timeout.toMillis(), TimeUnit.MILLISECONDS);}
+        ProducerRecord<String,String> record=new ProducerRecord<>(topic,key,payload);
+        record.headers().add("eventType",eventType.getBytes(StandardCharsets.UTF_8));
+        try{kafka.send(record).get(timeout.toMillis(), TimeUnit.MILLISECONDS);}
         catch(InterruptedException exception){Thread.currentThread().interrupt();throw new IllegalStateException("Kafka 이벤트 발행이 중단됐습니다: "+eventType,exception);}
         catch(Exception exception){throw new IllegalStateException("Kafka 이벤트 발행에 실패했습니다: "+eventType,exception);}
     }

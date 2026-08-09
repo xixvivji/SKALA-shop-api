@@ -7,6 +7,7 @@ services:
       - ${APP_ENV_FILE}
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      SEARCH_SERVICE_URL: ${SEARCH_SERVICE_URL:-http://172.31.32.50:8081}
     expose:
       - "8080"
       - "9090"

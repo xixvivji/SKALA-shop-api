@@ -77,7 +77,11 @@ trap 'exit 130' INT TERM HUP
     # macOS tar의 extended attribute와 pipe block padding도 제외해 Linux runner와
     # 동일하게 작은 payload를 만듭니다.
     COPYFILE_DISABLE=1 tar --no-xattrs -czf "$ARCHIVE_SOURCE" \
-        deploy/compose.prod.yml deploy/nginx deploy/monitoring deploy/scripts
+        deploy/compose.prod.yml deploy/nginx deploy/monitoring \
+        deploy/scripts/deploy.sh \
+        deploy/scripts/bootstrap-tls.sh \
+        deploy/scripts/release-lib.sh \
+        deploy/scripts/rollback.sh
 )
 DEPLOY_ARCHIVE_BASE64=$(base64 < "$ARCHIVE_SOURCE" | tr -d '\n')
 

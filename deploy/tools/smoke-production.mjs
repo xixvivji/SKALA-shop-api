@@ -34,7 +34,11 @@ await check("categories", `${apiOrigin}/api/categories`, (_response, text) =>
   Array.isArray(JSON.parse(text)));
 await check("products", `${apiOrigin}/api/products?page=0&size=1`, (_response, text) =>
   Array.isArray(JSON.parse(text).content));
+await check("search gateway", `${apiOrigin}/api/search/products?query=%EC%83%81%ED%92%88&page=0&size=1`, (_response, text) =>
+  Array.isArray(JSON.parse(text).content));
 await check("openapi", `${apiOrigin}/v3/api-docs`, (_response, text) =>
+  JSON.parse(text).openapi?.startsWith("3."));
+await check("search service openapi", `${apiOrigin}/v3/api-docs/search`, (_response, text) =>
   JSON.parse(text).openapi?.startsWith("3."));
 
 console.log(`production smoke passed: ${frontendOrigin} -> ${apiOrigin}`);

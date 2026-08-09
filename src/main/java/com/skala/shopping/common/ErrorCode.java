@@ -24,6 +24,11 @@ public enum ErrorCode {
             "TOO_MANY_REQUESTS",
             "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
     ),
+    UPSTREAM_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "UPSTREAM_UNAVAILABLE",
+            "연결된 서비스가 일시적으로 응답하지 않습니다."
+    ),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "INSUFFICIENT_FUNDS", "보유 포인트가 부족합니다."),
     INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "INSUFFICIENT_STOCK", "주문 가능한 재고가 부족합니다."),
     INSUFFICIENT_QUANTITY(HttpStatus.CONFLICT, "INSUFFICIENT_QUANTITY", "취소할 수량이 부족합니다."),
