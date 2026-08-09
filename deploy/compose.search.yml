@@ -7,8 +7,8 @@ services:
       discovery.type: single-node
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
-    ports:
-      - "9200:9200"
+    expose:
+      - "9200"
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     healthcheck:
@@ -18,6 +18,63 @@ services:
       retries: 18
       start_period: 45s
     restart: unless-stopped
+    networks:
+      - storage
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  search-service:
+    image: ${SEARCH_SERVICE_IMAGE_REF}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      ELASTICSEARCH_URIS: http://elasticsearch:9200
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      SEARCH_KAFKA_TOPIC: ${SEARCH_KAFKA_TOPIC:-skala-shop.domain-events}
+      SEARCH_KAFKA_GROUP_ID: ${SEARCH_KAFKA_GROUP_ID:-skala-shop-search-v1}
+      CATALOG_BASE_URL: ${CATALOG_BASE_URL}
+    ports:
+      - "${SEARCH_SERVICE_BIND_IP}:8081:8081"
+    expose:
+      - "9091"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - storage
+      - egress
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9091/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    mem_reservation: 192m
+    cpus: "1.00"
+    pids_limit: 256
+    restart: unless-stopped
+    stop_grace_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  storage:
+    internal: true
+  egress:
 
 volumes:
   elasticsearch-data:

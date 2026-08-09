@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ "$#" -ne 5 ]]; then
-    echo "usage: deploy-platform-via-ssm.sh <aws-region> <kafka|search> <instance-id> <private-ip> <image@sha256:digest>" >&2
+    echo "usage: deploy-platform-via-ssm.sh <aws-region> kafka <instance-id> <private-ip> <image@sha256:digest>" >&2
     exit 2
 fi
 
@@ -13,7 +13,7 @@ PRIVATE_IP=$4
 IMAGE_REF=$5
 
 [[ "$AWS_REGION_VALUE" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]]
-[[ "$ROLE" == "kafka" || "$ROLE" == "search" ]]
+[[ "$ROLE" == "kafka" ]]
 [[ "$INSTANCE_ID" =~ ^i-[0-9a-f]+$ ]]
 [[ "$PRIVATE_IP" =~ ^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\. ]]
 [[ "$IMAGE_REF" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]
@@ -23,8 +23,7 @@ DEPLOY_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 COMPOSE_FILE="$DEPLOY_DIR/compose.$ROLE.yml"
 COMPOSE_BASE64=$(base64 < "$COMPOSE_FILE" | tr -d '\n')
 
-if [[ "$ROLE" == "kafka" ]]; then
-    ROLE_SETUP=$(cat <<EOF
+ROLE_SETUP=$(cat <<EOF
 CLUSTER_ID=\$(sed -n 's/^KAFKA_CLUSTER_ID=//p' "\$ENV_FILE" 2>/dev/null || true)
 if [[ -z "\$CLUSTER_ID" ]]; then
     CLUSTER_ID=\$(openssl rand -base64 16 | tr -d '=\n')
@@ -35,20 +34,8 @@ KAFKA_ADVERTISED_HOST=$PRIVATE_IP
 KAFKA_CLUSTER_ID=\$CLUSTER_ID
 ENV
 EOF
-    )
-    HEALTH_CONTAINER=skala-shop-kafka-kafka-1
-else
-    ROLE_SETUP=$(cat <<EOF
-sysctl -w vm.max_map_count=262144
-printf '%s\n' 'vm.max_map_count=262144' >/etc/sysctl.d/99-skala-shop-platform.conf
-cat >"\$ENV_FILE" <<ENV
-ELASTICSEARCH_IMAGE_REF=$IMAGE_REF
-ES_JAVA_OPTS=-Xms1g -Xmx1g
-ENV
-EOF
-    )
-    HEALTH_CONTAINER=skala-shop-search-elasticsearch-1
-fi
+)
+HEALTH_CONTAINER=skala-shop-kafka-kafka-1
 
 REMOTE_SCRIPT=$(cat <<EOF
 set -euo pipefail
@@ -90,20 +77,25 @@ COMMAND_ID=$(aws ssm send-command \
     --query 'Command.CommandId' \
     --output text)
 
-set +e
-aws ssm wait command-executed \
-    --region "$AWS_REGION_VALUE" \
-    --command-id "$COMMAND_ID" \
-    --instance-id "$INSTANCE_ID"
-WAIT_STATUS=$?
-set -e
+INVOCATION=
+COMMAND_STATUS=Pending
+for attempt in $(seq 1 180); do
+    if INVOCATION=$(aws ssm get-command-invocation \
+        --region "$AWS_REGION_VALUE" \
+        --command-id "$COMMAND_ID" \
+        --instance-id "$INSTANCE_ID" \
+        --output json 2>/dev/null); then
+        COMMAND_STATUS=$(jq -r '.Status' <<<"$INVOCATION")
+        case "$COMMAND_STATUS" in
+            Success|Cancelled|TimedOut|Failed|Undeliverable|Terminated)
+                break
+                ;;
+        esac
+    fi
+    sleep 5
+done
 
-INVOCATION=$(aws ssm get-command-invocation \
-    --region "$AWS_REGION_VALUE" \
-    --command-id "$COMMAND_ID" \
-    --instance-id "$INSTANCE_ID" \
-    --output json)
+[[ -n "$INVOCATION" ]]
 jq -r '.StandardOutputContent' <<<"$INVOCATION"
 jq -r '.StandardErrorContent' <<<"$INVOCATION" >&2
-COMMAND_STATUS=$(jq -r '.Status' <<<"$INVOCATION")
-[[ "$WAIT_STATUS" -eq 0 && "$COMMAND_STATUS" == "Success" ]]
+[[ "$COMMAND_STATUS" == "Success" ]]
