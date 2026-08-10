@@ -26,7 +26,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 ./gradlew test
 ```
 
-현재 백엔드 132개 테스트는 다음을 포함합니다.
+현재 백엔드 133개 테스트는 다음을 포함합니다.
 
 - Spring Modulith 모듈 경계
 - Flyway V1~V26 적용과 JPA schema validation
@@ -47,7 +47,8 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 - 재입고 이벤트 알림 상태와 배송 추적 부분 수정
 - 주문·취소·재고 멱등 재시도
 - 포인트·재고·주문의 원자성 및 실패 rollback
-- 마지막 재고 동시 주문, 전액 카드 주문 멱등성과 주문·취소·반품 동시성
+- 마지막 재고 동시 주문, 재고 5개에 고객 20명 고경합 주문, 전액 카드 주문
+  멱등성과 주문·취소·반품 동시성
 - JPA 낙관적 잠금 충돌의 `409 CONCURRENT_MODIFICATION` 응답
 - Swagger/OpenAPI와 민감정보 비노출 API 로그
 - 운영 API 8080과 Actuator management 9090 분리, management endpoint 접근 정책
@@ -67,10 +68,13 @@ Testcontainers가 PostgreSQL 컨테이너를 시작하므로 Docker가 실행 �
 ./gradlew :search-service:test
 ```
 
-Search Service 12개 테스트는 Catalog snapshot 페이지 조회, Elasticsearch 색인·삭제·
-재색인, Kafka health, 이벤트 타입 필터, 잘못된 이벤트 처리와 실제 Embedded Kafka
-broker를 통과한 `ProductSearchChanged` 소비를 검증합니다. 전체 `./gradlew test`는
-백엔드 132개와 Search Service 12개를 함께 실행합니다.
+Search Service 13개 테스트는 Catalog snapshot 페이지 조회, Elasticsearch 색인·삭제·
+재색인, Kafka health, 이벤트 타입 필터, 잘못된 이벤트의 재시도 후 DLT 이동과 실제
+Embedded Kafka broker를 통과한 `ProductSearchChanged` 소비를 검증합니다. 전체
+`./gradlew test`는 백엔드 133개와 Search Service 13개를 함께 실행합니다.
+
+전체 실행 명령, 시나리오별 준비 조건·통과 기준과 기준일 실행 결과는
+[테스트 증적](../tests/README.md)에 별도로 정리했습니다.
 
 ## 프론트 정적 검사
 

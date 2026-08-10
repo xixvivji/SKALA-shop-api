@@ -156,6 +156,7 @@ management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자
 ├── frontend/                           # Vercel 정적 프론트와 Playwright E2E
 ├── deploy/                             # EC2 Compose, Nginx, 모니터링, 배포·롤백
 ├── docs/                               # 아키텍처, API 사용법과 테스트 전략
+├── tests/                              # 실행 명령, 시나리오, 부하 코드와 결과 증적
 ├── .github/workflows/                  # CI, 운영 배포, 운영 smoke
 ├── compose.demo.yml                    # 공개 Docker Hub 이미지 기반 로컬 데모
 ├── compose.local.yml                   # 로컬 PostgreSQL
@@ -169,7 +170,8 @@ management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자
 2. [API 사용 가이드](docs/api-guide.md)
 3. [프론트엔드 구조와 실행](frontend/README.md)
 4. [테스트 전략](docs/testing.md)
-5. [EC2 운영과 배포](deploy/README.md)
+5. [테스트 실행 명령·시나리오·결과](tests/README.md)
+6. [EC2 운영과 배포](deploy/README.md)
 
 DB 구조는 [도메인 ERD](docs/erd/skala-shopping-erd-overview.svg)와
 [전체 테이블 ERD](docs/erd/skala-shopping-erd-full.svg)에서 바로 확인할 수 있습니다.
@@ -287,12 +289,14 @@ npm --prefix frontend ci
 npm --prefix frontend run test:e2e
 ```
 
-현재 백엔드 132개, Search Service 12개 테스트와 데스크톱·모바일 브라우저 E2E
+현재 백엔드 133개, Search Service 13개 테스트와 데스크톱·모바일 브라우저 E2E
 10개가 모듈 경계, 인증, Validation, PostgreSQL 트랜잭션, 동시 주문·반품, 멱등
 재시도와 프론트 고객·관리자
 흐름을 검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를
 변경하므로 명시적으로 활성화할 때만 실행합니다. 자세한 구분은
-[테스트 전략](docs/testing.md)에 정리했습니다.
+[테스트 전략](docs/testing.md)에 정리했습니다. 그대로 재현할 수 있는 명령어,
+시나리오별 통과 기준과 실행 결과는 [테스트 증적](tests/README.md)에서 확인할 수
+있습니다.
 
 ## GitFlow와 배포
 
