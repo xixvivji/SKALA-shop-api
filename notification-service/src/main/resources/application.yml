@@ -1,0 +1,86 @@
+spring:
+  application:
+    name: skala-shop-notification-service
+  profiles:
+    default: local
+  datasource:
+    url: ${NOTIFICATION_DATABASE_URL:jdbc:postgresql://localhost:5433/notification_db}
+    username: ${NOTIFICATION_DATABASE_USERNAME:notification_app}
+    password: ${NOTIFICATION_DATABASE_PASSWORD:notification-local-password}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${NOTIFICATION_KAFKA_GROUP_ID:skala-shop-notification-v1}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      acks: all
+      retries: 10
+      properties:
+        enable.idempotence: true
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  port: ${SERVER_PORT:8082}
+  shutdown: graceful
+  forward-headers-strategy: framework
+
+management:
+  server:
+    port: ${MANAGEMENT_SERVER_PORT:9093}
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  packages-to-scan: com.skala.shopping.notificationservice.web
+  paths-to-match: /api/notifications/**
+  api-docs:
+    path: /v3/api-docs
+
+shopping:
+  notification:
+    kafka-topic: ${NOTIFICATION_KAFKA_TOPIC:skala-shop.domain-events}
+    retry-interval: ${NOTIFICATION_KAFKA_RETRY_INTERVAL:2s}
+    retry-attempts: ${NOTIFICATION_KAFKA_RETRY_ATTEMPTS:4}
+  security:
+    jwt:
+      issuer: ${JWT_ISSUER:skala-shop-api}
+      secret: ${JWT_SECRET:local-development-secret-must-be-at-least-32-bytes}
+    cookie:
+      name: ${JWT_COOKIE_NAME:bff-access}
+      secure: ${JWT_COOKIE_SECURE:false}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    root: INFO
+    com.skala.shopping.notificationservice: INFO

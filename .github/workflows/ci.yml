@@ -24,6 +24,15 @@ jobs:
         run: ./gradlew test --no-daemon
       - name: Validate public Docker demo
         run: docker compose -f compose.demo.yml config --quiet
+      - name: Validate Notification Service deployment
+        env:
+          NOTIFICATION_SERVICE_IMAGE_REF: xixii/skala-shop-api:notification-test
+          NOTIFICATION_DATABASE_PASSWORD: test-notification-password
+          KAFKA_BOOTSTRAP_SERVERS: 172.31.36.153:9092
+          JWT_SECRET: test-jwt-secret-must-be-at-least-32-bytes
+          FRONTEND_ORIGIN: https://example.com
+          NOTIFICATION_SERVICE_BIND_IP: 172.31.32.50
+        run: docker compose -f deploy/compose.notification.yml config --quiet
       - name: Validate production monitoring configuration
         run: sh deploy/tests/monitoring-config-test.sh
       - name: Simulate deployment release flow

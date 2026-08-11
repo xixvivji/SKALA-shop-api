@@ -1310,6 +1310,77 @@ class ShoppingJourneyIntegrationTests {
     }
 
     @Test
+    void preventsOversellingWhenTwentyCustomersCompeteForFiveUnits() throws Exception {
+        Cookie adminCookie = loginAdmin();
+        UUID productId = createProduct(
+                adminCookie,
+                unique("high-contention-stock"),
+                "15000",
+                5
+        );
+        List<Callable<MvcResult>> requests = new ArrayList<>();
+        for (int index = 0; index < 20; index++) {
+            CustomerSession customer = registerAndLogin("high-contention-" + index);
+            requests.add(() -> performOrderResult(
+                    customer.authCookie,
+                    productId,
+                    1,
+                    UUID.randomUUID()
+            ));
+        }
+
+        List<MvcResult> results = concurrently(requests);
+
+        assertEquals(5, results.stream()
+                .filter(result -> result.getResponse().getStatus() == 201)
+                .count());
+        assertEquals(15, results.stream()
+                .filter(result -> result.getResponse().getStatus() == 409)
+                .count());
+        for (MvcResult failure : results.stream()
+                .filter(result -> result.getResponse().getStatus() == 409)
+                .toList()) {
+            assertEquals(
+                    "INSUFFICIENT_STOCK",
+                    objectMapper.readTree(failure.getResponse().getContentAsString())
+                            .get("code")
+                            .asText()
+            );
+        }
+        assertEquals(5, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM orders.order_items WHERE product_id = ?",
+                Integer.class,
+                productId
+        ));
+        assertEquals(5, jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM inventory.stock_movements
+                WHERE product_id = ? AND movement_type = 'RESERVE'
+                """,
+                Integer.class,
+                productId
+        ));
+        assertEquals(5, jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM wallet.point_transactions AS point_transaction
+                JOIN orders.orders AS shop_order
+                  ON shop_order.id = point_transaction.reference_id
+                JOIN orders.order_items AS order_item
+                  ON order_item.order_id = shop_order.id
+                WHERE order_item.product_id = ?
+                  AND point_transaction.transaction_type = 'DEBIT'
+                """,
+                Integer.class,
+                productId
+        ));
+        mockMvc.perform(get("/api/products/{productId}/stock", productId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableQuantity").value(0));
+    }
+
+    @Test
     void rollsBackCancellationWhenStockReleaseFails() throws Exception {
         Cookie adminCookie = loginAdmin();
         UUID productId = createProduct(
@@ -2100,6 +2171,15 @@ class ShoppingJourneyIntegrationTests {
         performStockAdjustment(admin, soldOutProduct, 3, "재입고", UUID.randomUUID())
                 .andExpect(status().isOk());
 
+        assertEquals(1, jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM outbox.outbox_events
+                WHERE event_type = 'com.skala.shopping.stockalert.StockAlertTriggered'
+                """,
+                Integer.class
+        ));
+
         mockMvc.perform(get("/api/stock-alerts").cookie(copy(customer.authCookie)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].status").value("NOTIFIED"))
@@ -2278,8 +2358,12 @@ class ShoppingJourneyIntegrationTests {
             Callable<MvcResult> firstRequest,
             Callable<MvcResult> secondRequest
     ) throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch ready = new CountDownLatch(2);
+        return concurrently(List.of(firstRequest, secondRequest));
+    }
+
+    private List<MvcResult> concurrently(List<Callable<MvcResult>> requests) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(requests.size());
+        CountDownLatch ready = new CountDownLatch(requests.size());
         CountDownLatch start = new CountDownLatch(1);
         java.util.function.Function<Callable<MvcResult>, Callable<MvcResult>> synchronize = request -> () -> {
             ready.countDown();
@@ -2287,14 +2371,16 @@ class ShoppingJourneyIntegrationTests {
             return request.call();
         };
         try {
-            Future<MvcResult> first = executor.submit(synchronize.apply(firstRequest));
-            Future<MvcResult> second = executor.submit(synchronize.apply(secondRequest));
+            List<Future<MvcResult>> futures = requests.stream()
+                    .map(request -> executor.submit(synchronize.apply(request)))
+                    .toList();
             assertTrue(ready.await(10, TimeUnit.SECONDS));
             start.countDown();
-            return List.of(
-                    first.get(20, TimeUnit.SECONDS),
-                    second.get(20, TimeUnit.SECONDS)
-            );
+            List<MvcResult> results = new ArrayList<>();
+            for (Future<MvcResult> future : futures) {
+                results.add(future.get(30, TimeUnit.SECONDS));
+            }
+            return results;
         } finally {
             executor.shutdown();
             assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));

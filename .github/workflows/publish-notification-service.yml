@@ -1,0 +1,53 @@
+name: Publish notification service
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-notification-service
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Notification Service tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Test Notification Service and Outbox contract
+        run: |
+          ./gradlew :notification-service:test --no-daemon
+          ./gradlew :test \
+            --tests 'com.skala.shopping.outbox.internal.OutboxEventRecorderTests' \
+            --no-daemon
+
+  publish:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PUSH_TOKEN }}
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: notification-service/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ vars.DOCKERHUB_IMAGE }}:notification-${{ github.sha }}
+          cache-from: type=gha,scope=notification-service
+          cache-to: type=gha,mode=max,scope=notification-service
