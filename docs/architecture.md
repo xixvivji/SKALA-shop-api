@@ -1,11 +1,12 @@
 # 아키텍처와 모듈 경계
 
-## 1. 모듈러 모놀리스와 Search Service
+## 1. 모듈러 모놀리스와 분리 서비스
 
 SKALA Shop의 핵심 도메인은 하나의 Spring Boot 프로세스와 PostgreSQL을 사용합니다.
 주문 트랜잭션은 단순하게 유지하면서 코드와 데이터는 비즈니스 도메인별로
-분리했습니다. 검색은 원자 트랜잭션에 덜 묶여 있으므로 별도 Spring Boot 프로세스와
-Elasticsearch로 분리했습니다.
+분리했습니다. 검색과 알림은 원자 트랜잭션에 덜 묶여 있으므로 별도 Spring Boot
+프로세스로 분리했습니다. 검색은 Elasticsearch를, 알림은 독립 PostgreSQL을
+소유합니다.
 
 이 선택의 목표는 다음과 같습니다.
 
@@ -14,6 +15,21 @@ Elasticsearch로 분리했습니다.
 - 모듈 간 직접 결합을 제한해 코드 규모가 커져도 책임을 찾기 쉽게 합니다.
 - 모듈 간 호출은 공개 API와 이벤트를 통해 이루어집니다.
 - 상품 검색 장애가 주문·결제 트랜잭션으로 전파되지 않게 합니다.
+- 알림 저장 장애가 주문 완료를 되돌리지 않으며 Kafka 재시도로 복구합니다.
+
+```mermaid
+flowchart LR
+    B["Backend 모듈러 모놀리스"] -->|"도메인 이벤트 + Outbox"| K[Kafka]
+    K --> S[Search Service]
+    S --> E[(Elasticsearch)]
+    K --> N[Notification Service]
+    N --> ND[(Notification PostgreSQL)]
+```
+
+Notification Service는 `OrderPlaced`와 `StockAlertTriggered`만 소비합니다. 이벤트
+타입·키·본문의 SHA-256 fingerprint를 `consumed_events` Inbox에 등록하고 알림과 같은
+트랜잭션으로 커밋합니다. 같은 이벤트가 재전달되면 fingerprint 충돌로 건너뛰며,
+해석할 수 없는 지원 이벤트는 재시도 후 DLT로 이동합니다.
 
 현재 구조는 “폴더만 나눈 모놀리스”가 아닙니다. Spring Modulith 테스트가 패키지
 의존을 검사하고, 각 모듈이 자신의 테이블과 Repository를 소유합니다.

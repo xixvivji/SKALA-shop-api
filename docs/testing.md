@@ -12,6 +12,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 | 모듈 경계 | Spring Modulith Test | 허용되지 않은 패키지 의존 |
 | 백엔드 통합 | Spring Boot Test, Testcontainers | Security, MVC, JPA, Flyway, 실제 PostgreSQL |
 | 검색 서비스 | JUnit, Embedded Kafka | 이벤트 header·JSON 계약, 소비·재시도 경계, 색인 로직 |
+| 알림 서비스 | Testcontainers, Embedded Kafka | 독립 DB, Inbox 멱등성, DLT, 사용자 데이터 격리 |
 | 동시성 | JUnit + PostgreSQL | 마지막 재고 주문, 주문·취소 경합, 잠금 |
 | API 계약 | Springdoc/OpenAPI test | endpoint와 스키마 문서 |
 | 프론트 정적 | Node.js 검사 script | 파일 참조, 문법, 금액 경계, 접근성 회귀 조건 |
@@ -26,7 +27,7 @@ smoke를 구분합니다. 테스트마다 검증하려는 실패 종류가 다�
 ./gradlew test
 ```
 
-현재 백엔드 133개 테스트는 다음을 포함합니다.
+현재 백엔드 134개 테스트는 다음을 포함합니다.
 
 - Spring Modulith 모듈 경계
 - Flyway V1~V26 적용과 JPA schema validation
@@ -71,7 +72,18 @@ Testcontainers가 PostgreSQL 컨테이너를 시작하므로 Docker가 실행 �
 Search Service 13개 테스트는 Catalog snapshot 페이지 조회, Elasticsearch 색인·삭제·
 재색인, Kafka health, 이벤트 타입 필터, 잘못된 이벤트의 재시도 후 DLT 이동과 실제
 Embedded Kafka broker를 통과한 `ProductSearchChanged` 소비를 검증합니다. 전체
-`./gradlew test`는 백엔드 133개와 Search Service 13개를 함께 실행합니다.
+`./gradlew test`는 백엔드 134개와 Search Service 13개를 함께 실행합니다.
+
+## Notification Service 테스트
+
+```bash
+./gradlew :notification-service:test
+```
+
+실제 PostgreSQL 17과 Embedded Kafka로 동일 이벤트 재전달 시 Inbox와 알림이 한 번만
+저장되는지, 잘못된 지원 이벤트가 DLT로 이동하는지, 인증된 회원이 자신의 알림만
+조회하고 읽음 처리할 수 있는지를 검증합니다. 이 테스트도 전체 `./gradlew test`에
+포함됩니다.
 
 전체 실행 명령, 시나리오별 준비 조건·통과 기준과 기준일 실행 결과는
 [테스트 증적](../tests/README.md)에 별도로 정리했습니다.

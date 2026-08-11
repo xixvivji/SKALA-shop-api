@@ -2,8 +2,9 @@
 
 포인트와 Fake PG 결제를 지원하는 쇼핑몰을 Java 21, Spring Boot와 Vanilla JavaScript로
 구현한 모노레포입니다. 회원·상품·주문·결제 등 핵심 도메인은 하나의 RDS를 사용하는
-**모듈러 모놀리스**로 유지하고, 검색은 Kafka와 Elasticsearch를 사용하는 독립
-Search Service로 분리했습니다. 모놀리스 안에서도 모듈별 공개 API와 데이터 소유권을
+**모듈러 모놀리스**로 유지하고, 검색과 알림은 Kafka를 사용하는 독립 서비스로
+분리했습니다. Search Service는 Elasticsearch를, Notification Service는 별도
+PostgreSQL을 소유하며 모놀리스 안에서도 모듈별 공개 API와 데이터 소유권을
 구분합니다.
 
 현재 Vercel 프론트, AWS EC2 백엔드와 비공개 RDS PostgreSQL까지 운영 배포되어
@@ -134,7 +135,7 @@ management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자
 | 영역 | 기술 |
 | --- | --- |
 | Backend | Java 21, Spring Boot 3.5.16, Spring Modulith 1.4.12 |
-| Search Service | Java 21, Spring Boot, Spring Kafka, Spring Data Elasticsearch |
+| 분리 서비스 | Search Service, Notification Service, Spring Kafka |
 | Security | Spring Security, OAuth2 Resource Server, JWT, BCrypt, CSRF |
 | Data | Spring Data JPA, PostgreSQL 17, Redis, Elasticsearch, Flyway |
 | Messaging | Transactional Outbox, Apache Kafka |
@@ -153,6 +154,7 @@ management 포트를 수집하며, Grafana만 Nginx의 `/grafana/` 경로와 자
 ├── src/main/resources/                 # profile 설정과 Flyway V1~V26
 ├── src/test/                           # 단위·통합·모듈 경계 테스트
 ├── search-service/                     # Kafka Consumer와 Elasticsearch 검색 서비스
+├── notification-service/               # Kafka Consumer와 독립 PostgreSQL 알림 서비스
 ├── frontend/                           # Vercel 정적 프론트와 Playwright E2E
 ├── deploy/                             # EC2 Compose, Nginx, 모니터링, 배포·롤백
 ├── docs/                               # 아키텍처, API 사용법과 테스트 전략
@@ -197,6 +199,11 @@ DB 구조는 [도메인 ERD](docs/erd/skala-shopping-erd-overview.svg)와
 | `stockalert` | 품절 상품 구독과 재입고 알림 상태 |
 | `storefront` | 여러 모듈을 조합하는 고객용 호환 API |
 | `common` | 공통 오류와 페이지 응답 등 최소 공통 코드 |
+
+검색과 알림은 핵심 주문 트랜잭션에서 분리했습니다. Search Service는 상품 이벤트를
+Elasticsearch에 반영하고, Notification Service는 주문 완료와 재입고 알림 이벤트를
+Kafka로 소비해 자신의 PostgreSQL에 저장합니다. 알림 소비 이력과 알림 본문은 같은
+로컬 트랜잭션에 기록되므로 Kafka가 같은 메시지를 다시 전달해도 한 번만 생성됩니다.
 
 구현 클래스, Entity, Repository와 HTTP DTO는 각 모듈의 `internal` 아래에 있습니다.
 다른 모듈은 공개 인터페이스·이벤트·View만 사용합니다.
@@ -289,7 +296,8 @@ npm --prefix frontend ci
 npm --prefix frontend run test:e2e
 ```
 
-현재 백엔드 133개, Search Service 13개 테스트와 데스크톱·모바일 브라우저 E2E
+현재 백엔드 134개, Search Service 13개, Notification Service 4개 테스트와
+데스크톱·모바일 브라우저 E2E
 10개가 모듈 경계, 인증, Validation, PostgreSQL 트랜잭션, 동시 주문·반품, 멱등
 재시도와 프론트 고객·관리자
 흐름을 검증합니다. 실제 Vercel·EC2·RDS를 사용하는 live E2E는 운영 데이터를
@@ -343,12 +351,13 @@ aggregate 이벤트의 partition 순서를 유지합니다.
 상품 등록·수정·삭제 시 `ProductSearchChanged`도 같은 트랜잭션의 Outbox에 저장됩니다.
 Relay는 이벤트 타입을 Kafka header에 넣어 발행하고, 독립 Search Service Consumer가
 해당 이벤트만 골라 Elasticsearch 읽기 모델을 갱신합니다. 처리 실패는 재시도한 뒤
-`skala-shop.domain-events.DLT`에 보존합니다. 주문·재입고 이벤트는 현재 Consumer를
-분리하지 않고 Outbox 발행 경계만 유지합니다.
+`skala-shop.domain-events.DLT`에 보존합니다. Notification Service는 주문 완료와
+재입고 구독 대상 이벤트를 골라 별도 PostgreSQL에 저장합니다. Kafka의 at-least-once
+전달에 대비해 이벤트 fingerprint Inbox와 알림을 한 트랜잭션으로 기록합니다.
 
 ## 선택적 확장 방향
 
-현재 시스템은 모듈러 모놀리스와 독립 Search Service가 함께 동작합니다. 회원·주문·
-결제·재고 ERD와 기존 RDS 구조는 그대로 유지하며 Elasticsearch만 Search Service가
-소유합니다. 다음 분리 후보는 알림과 재입고 알림이지만, 별도 요구가 생기기 전에는
-현재 모듈러 모놀리스 안에 유지합니다.
+현재 시스템은 모듈러 모놀리스와 독립 Search Service·Notification Service로
+구성됩니다. 회원·주문·결제·재고 ERD와 기존 RDS 구조는 그대로 유지하고, 검색과
+알림의 읽기 데이터만 각 서비스가 소유합니다. 이후 분리는 배송이나 결제처럼 핵심
+트랜잭션에 가까운 모듈보다 이메일·푸시 발송 어댑터처럼 비동기 경계부터 검토합니다.
