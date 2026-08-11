@@ -225,6 +225,25 @@ Consumer group으로 받아 Elasticsearch를 갱신합니다. Search Service는 
 | Kafka | `172.31.36.153:9092` | `compose.kafka.yml` |
 | Search Service | `http://172.31.32.50:8081` | `compose.search.yml` |
 | Elasticsearch | Docker 내부 `http://elasticsearch:9200` | `compose.search.yml` |
+| Notification Service | 사설 IP `:8082` | `compose.notification.yml` |
+| Notification PostgreSQL | Docker 내부 `:5432` | `compose.notification.yml` |
+
+Notification Service 배포 구성은 Kafka 주소, Backend와 같은 JWT secret·issuer,
+Frontend origin, 서비스가 바인딩할 사설 IP가 필요합니다. PostgreSQL은 별도 볼륨과
+계정을 사용하고 호스트 포트를 열지 않습니다. 현재 구성 파일은 독립 기동과 health
+검증까지 제공하며, 실제 운영 공개 전에는 Application EC2 Nginx의
+`/api/notifications/**` 경로와 보안 그룹을 Notification Service 사설 주소로 연결해야
+합니다.
+
+```bash
+NOTIFICATION_SERVICE_IMAGE_REF='xixii/skala-shop-api@sha256:<digest>' \
+NOTIFICATION_DATABASE_PASSWORD='<strong-password>' \
+KAFKA_BOOTSTRAP_SERVERS='<kafka-private-ip>:9092' \
+JWT_SECRET='<same-as-backend>' \
+FRONTEND_ORIGIN='https://<frontend-domain>' \
+NOTIFICATION_SERVICE_BIND_IP='<private-ip>' \
+docker compose -f deploy/compose.notification.yml up -d --wait
+```
 
 ## 3. EC2 디렉터리
 

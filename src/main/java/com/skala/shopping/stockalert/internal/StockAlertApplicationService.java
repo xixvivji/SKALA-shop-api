@@ -8,12 +8,14 @@ import com.skala.shopping.common.PageResponse;
 import com.skala.shopping.inventory.InventoryApi;
 import com.skala.shopping.stockalert.StockAlertApi;
 import com.skala.shopping.stockalert.StockAlertResponse;
+import com.skala.shopping.stockalert.StockAlertTriggered;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -26,16 +28,19 @@ public class StockAlertApplicationService implements StockAlertApi {
     private final StockAlertRepository repository;
     private final CatalogApi catalogApi;
     private final InventoryApi inventoryApi;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock = Clock.systemUTC();
 
     StockAlertApplicationService(
             StockAlertRepository repository,
             CatalogApi catalogApi,
-            InventoryApi inventoryApi
+            InventoryApi inventoryApi,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.repository = repository;
         this.catalogApi = catalogApi;
         this.inventoryApi = inventoryApi;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -118,7 +123,17 @@ public class StockAlertApplicationService implements StockAlertApi {
             return;
         }
         repository.findAllByProductIdAndNotifiedAtIsNull(productId)
-                .forEach(subscription -> subscription.markNotified(availableQuantity, occurredAt));
+                .forEach(subscription -> {
+                    if (subscription.markNotified(availableQuantity, occurredAt)) {
+                        eventPublisher.publishEvent(new StockAlertTriggered(
+                                subscription.id(),
+                                subscription.memberId(),
+                                subscription.productId(),
+                                availableQuantity,
+                                occurredAt
+                        ));
+                    }
+                });
     }
 
     private StockAlertResponse toResponse(com.skala.shopping.stockalert.internal.domain.StockAlertSubscription subscription) {

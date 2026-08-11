@@ -31,6 +31,8 @@
 | KAFKA-01 | Embedded Kafka와 상품 이벤트 | 실제 broker에 정상 JSON 발행 | Search consumer가 key/header/payload를 읽고 색인 서비스 호출 | `KafkaEventIntegrationTests.consumesProductEventThroughEmbeddedKafkaBroker` |
 | KAFKA-02 | Embedded Kafka와 잘못된 상품 이벤트 | 소비 실패 이벤트 발행 | 설정 횟수만큼 재시도한 뒤 `.DLT` topic으로 원본 key·payload 이동 | `KafkaEventIntegrationTests.sendsInvalidProductEventToDltAfterConfiguredRetries` |
 | SEARCH-01 | Search Service 정상·장애 응답 | 상품 검색, DB fallback, 재색인 | 정상은 원격 결과, 장애는 PostgreSQL fallback, 재색인 불가는 503 | `ProductSearchServiceTests`, Backend 검색 통합 테스트 |
+| NOTIFY-01 | 주문·재입고 이벤트 중복 전달 | 같은 메시지를 두 번 발행 | Inbox fingerprint와 알림이 한 번만 저장 | `NotificationServiceIntegrationTests` |
+| NOTIFY-02 | 잘못된 지원 이벤트와 회원별 조회 | 잘못된 JSON 발행, 다른 회원 JWT 조회 | 재시도 후 DLT 이동, 자신의 알림만 조회·읽음 처리 | `NotificationServiceIntegrationTests` |
 
 ## 구조·문서·관측
 

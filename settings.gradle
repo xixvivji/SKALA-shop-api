@@ -1,3 +1,4 @@
 rootProject.name = 'skala-shop-api'
 
 include 'search-service'
+include 'notification-service'

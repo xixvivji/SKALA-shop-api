@@ -1,0 +1,88 @@
+name: skala-shop-notification
+
+services:
+  notification-postgres:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: notification_app
+      POSTGRES_PASSWORD: ${NOTIFICATION_DATABASE_PASSWORD}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    expose:
+      - "5432"
+    volumes:
+      - notification-postgres-data:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notification_app -d notification_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  notification-service:
+    image: ${NOTIFICATION_SERVICE_IMAGE_REF}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      NOTIFICATION_DATABASE_URL: jdbc:postgresql://notification-postgres:5432/notification_db
+      NOTIFICATION_DATABASE_USERNAME: notification_app
+      NOTIFICATION_DATABASE_PASSWORD: ${NOTIFICATION_DATABASE_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      NOTIFICATION_KAFKA_TOPIC: ${NOTIFICATION_KAFKA_TOPIC:-skala-shop.domain-events}
+      NOTIFICATION_KAFKA_GROUP_ID: ${NOTIFICATION_KAFKA_GROUP_ID:-skala-shop-notification-v1}
+      JWT_ISSUER: ${JWT_ISSUER:-skala-shop-api}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_COOKIE_SECURE: "true"
+      CORS_ALLOWED_ORIGINS: ${FRONTEND_ORIGIN}
+    ports:
+      - "${NOTIFICATION_SERVICE_BIND_IP}:8082:8082"
+    expose:
+      - "9093"
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+        restart: true
+    networks:
+      - database
+      - egress
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9093/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    mem_reservation: 192m
+    cpus: "1.00"
+    pids_limit: 256
+    restart: unless-stopped
+    stop_grace_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  database:
+    internal: true
+  egress:
+
+volumes:
+  notification-postgres-data:

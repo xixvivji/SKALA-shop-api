@@ -5,6 +5,7 @@
 - [commands.md](commands.md): 전체·선택·운영 테스트 실행 명령
 - [scenarios.md](scenarios.md): 테스트 목적, 준비 조건, 동작과 통과 기준
 - [results/2026-08-10.md](results/2026-08-10.md): 기준 커밋에서 실제 실행한 결과
+- [Notification Service 분리 결과](results/2026-08-11-notification-service.md): 독립 DB·Kafka Inbox 검증
 - [load/read-only-load.mjs](load/read-only-load.mjs): 데이터를 변경하지 않는 HTTP 부하 측정 코드
 - [run-regression.sh](run-regression.sh): 로컬 전체 회귀 검증 실행 코드
 

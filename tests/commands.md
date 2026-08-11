@@ -14,10 +14,10 @@ sh tests/run-regression.sh
 SKIP_NPM_CI=true sh tests/run-regression.sh
 ```
 
-## Backend와 Search Service
+## Backend와 분리 서비스
 
 ```bash
-# Backend와 Search Service 전체
+# Backend, Search Service, Notification Service 전체
 ./gradlew clean test --no-build-cache --no-daemon
 
 # Backend만
@@ -25,6 +25,9 @@ SKIP_NPM_CI=true sh tests/run-regression.sh
 
 # Search Service만
 ./gradlew :search-service:test --no-build-cache --no-daemon
+
+# Notification Service만
+./gradlew :notification-service:test --no-build-cache --no-daemon
 
 # 모듈 경계
 ./gradlew :test --tests 'com.skala.shopping.ModulithStructureTests' --no-daemon
@@ -56,12 +59,15 @@ SKIP_NPM_CI=true sh tests/run-regression.sh
 ./gradlew :test --tests 'com.skala.shopping.ManagementPortIntegrationTests' --no-daemon
 ```
 
-다중 프로젝트이므로 선택 실행에는 `:test` 또는 `:search-service:test`를 명시합니다.
+다중 프로젝트이므로 선택 실행에는 `:test`, `:search-service:test` 또는
+`:notification-service:test`를 명시합니다.
 루트에서 `test --tests ...`만 사용하면 다른 하위 프로젝트에도 같은 필터가 적용될 수
 있습니다.
 
 HTML 결과는 `build/reports/tests/test/index.html`과
 `search-service/build/reports/tests/test/index.html`에서 확인합니다.
+Notification Service 결과는
+`notification-service/build/reports/tests/test/index.html`에서 확인합니다.
 
 ## Frontend
 

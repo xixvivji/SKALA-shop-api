@@ -62,12 +62,13 @@ public class StockAlertSubscription {
 
     public Instant notifiedAt() { return notifiedAt; }
 
-    public void markNotified(int availableQuantity, Instant notifiedAt) {
+    public boolean markNotified(int availableQuantity, Instant notifiedAt) {
         if (this.notifiedAt != null) {
-            return;
+            return false;
         }
         this.notifiedAt = notifiedAt;
         this.availableQuantityAtNotification = availableQuantity;
+        return true;
     }
 
     public void rearm() {
