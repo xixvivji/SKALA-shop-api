@@ -2171,6 +2171,15 @@ class ShoppingJourneyIntegrationTests {
         performStockAdjustment(admin, soldOutProduct, 3, "재입고", UUID.randomUUID())
                 .andExpect(status().isOk());
 
+        assertEquals(1, jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM outbox.outbox_events
+                WHERE event_type = 'com.skala.shopping.stockalert.StockAlertTriggered'
+                """,
+                Integer.class
+        ));
+
         mockMvc.perform(get("/api/stock-alerts").cookie(copy(customer.authCookie)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].status").value("NOTIFIED"))
