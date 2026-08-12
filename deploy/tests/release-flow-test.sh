@@ -341,6 +341,10 @@ printf '%s\n' \
     'printf "CURL %s %s\n" "$active_release" "$request_path" >> "$SIM_STATE/log"' \
     'case "$request_path" in' \
     '    /actuator/health)' \
+    '        if [ -f "$release_dir/transient-edge-health" ]; then' \
+    '            rm -f "$release_dir/transient-edge-health"' \
+    '            exit 55' \
+    '        fi' \
     '        [ ! -f "$release_dir/fail-edge-health" ] || exit 22' \
     '        printf "%s\n" '"'"'{"status":"UP"}'"'" \
     '        ;;' \
@@ -395,6 +399,7 @@ fi
 # A stale lock file must not block flock-based deployment.
 : > "$SIM_STATE/log"
 : > "$TEST_ROOT/state/deploy.lock"
+: > "$TEST_ROOT/releases/release-b/transient-edge-health"
 "$TEST_ROOT/releases/release-b/scripts/deploy.sh" release-b "$IMAGE_B"
 
 assert_metadata_release "$TEST_ROOT/state/current.env" release-b "successful current release"
@@ -410,6 +415,8 @@ assert_log_order "INSPECT_prometheus release-b" "UP_GRAFANA release-b"
 assert_log_order "INSPECT_grafana release-b" "PROMETHEUS_TARGET release-b"
 assert_log_order "PROMETHEUS_TARGET release-b" "NGINX_TEST release-b"
 assert_log_order "NGINX_TEST release-b" "UP_EDGE release-b"
+[ "$(grep -Fc 'CURL release-b /actuator/health' "$SIM_STATE/log")" -eq 2 ] \
+    || fail "transient edge health failure was not retried exactly once"
 
 # Monitoring health and scrape failures must not promote a candidate.
 : > "$SIM_STATE/log"
