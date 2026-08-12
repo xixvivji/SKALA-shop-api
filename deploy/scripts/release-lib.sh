@@ -549,24 +549,44 @@ activate_edge() {
 
 edge_response_body() {
     request_path=$1
-    curl --fail --silent --show-error \
-        --noproxy '*' \
-        --connect-timeout 5 \
-        --max-time 15 \
-        --resolve "$INFRA_API_DOMAIN:443:127.0.0.1" \
-        "https://$INFRA_API_DOMAIN$request_path"
+    attempt=1
+    while [ "$attempt" -le 6 ]; do
+        if response=$(curl --fail --silent --show-error \
+                --noproxy '*' \
+                --connect-timeout 5 \
+                --max-time 15 \
+                --resolve "$INFRA_API_DOMAIN:443:127.0.0.1" \
+                "https://$INFRA_API_DOMAIN$request_path"); then
+            printf '%s' "$response"
+            return 0
+        fi
+        [ "$attempt" -lt 6 ] || break
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    return 1
 }
 
 edge_status_code() {
     request_path=$1
-    curl --silent --show-error \
-        --noproxy '*' \
-        --connect-timeout 5 \
-        --max-time 15 \
-        --output /dev/null \
-        --write-out '%{http_code}' \
-        --resolve "$INFRA_API_DOMAIN:443:127.0.0.1" \
-        "https://$INFRA_API_DOMAIN$request_path"
+    attempt=1
+    while [ "$attempt" -le 6 ]; do
+        if status_code=$(curl --silent --show-error \
+                --noproxy '*' \
+                --connect-timeout 5 \
+                --max-time 15 \
+                --output /dev/null \
+                --write-out '%{http_code}' \
+                --resolve "$INFRA_API_DOMAIN:443:127.0.0.1" \
+                "https://$INFRA_API_DOMAIN$request_path"); then
+            printf '%s' "$status_code"
+            return 0
+        fi
+        [ "$attempt" -lt 6 ] || break
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    return 1
 }
 
 verify_edge_routes() {
